@@ -204,6 +204,10 @@ D.to_numeric = function(value) {
   return 0
 }
 
+D.is_banned_key = function(key) {
+  return key === '__proto__' || key === 'constructor' || key === 'prototype'
+}
+
 D.is_regex = function(str) {
   var regex_regex = /^\/.+?\/(g|i|gi|m|gm|im|gim)?$/
   return regex_regex.test(str)

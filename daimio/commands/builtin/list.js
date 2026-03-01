@@ -387,8 +387,7 @@ D.import_models({
         fun: function(data) {
           var key
           var val
-          // var hash   = Object.create(null)                       // destroys hasOwnProperty, and the need for it...
-          var hash   = {}
+          var hash   = Object.create(null)
           var index  = 0
           var length = data.length
 
@@ -421,7 +420,7 @@ D.import_models({
           },
         ],
         fun: function(data, also) {
-          var hash = {}
+          var hash = Object.create(null)
             , result = []
             , values
 
@@ -1076,7 +1075,7 @@ D.import_models({
           },
         ],
         fun: function(data) {
-          var obj = {}
+          var obj = Object.create(null)
             , isArray = Array.isArray(data)
             , newlist = isArray ? [] : {}
             , keys = Object.keys(data)
