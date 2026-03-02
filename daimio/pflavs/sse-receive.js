@@ -1,5 +1,6 @@
 D.import_port_flavour('sse-receive', {
   dir: 'in',
+  unsafe: true,
   settings: [
     {
       key: 'thing',

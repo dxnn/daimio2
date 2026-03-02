@@ -1,5 +1,6 @@
 D.import_port_flavour('socket-remove-user', {
   dir: 'in',
+  unsafe: true,
   settings: [
     {
       key: 'thing',

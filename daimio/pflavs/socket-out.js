@@ -1,5 +1,6 @@
 D.import_port_flavour('socket-out', {
   dir: 'out',
+  unsafe: true,
   settings: [
     {
       key: 'thing',

@@ -1,5 +1,6 @@
 D.import_port_flavour('to-js', {
   dir: 'out',
+  unsafe: true,
   settings: [
     {
       key: 'thing',

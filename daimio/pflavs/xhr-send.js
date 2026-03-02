@@ -2,6 +2,7 @@
 // deference to the current naming convention of the ajax sending functions.
 D.import_port_flavour('xhr-send', {
     dir: 'out',
+    unsafe: true,
     settings: [
       {
         key: 'thing',

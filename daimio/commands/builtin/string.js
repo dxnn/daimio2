@@ -63,10 +63,10 @@ D.import_models({
             type: 'string'
           }
         ],
-        fun: function(value, on) {
+        fun: function(value, on, prior_starter, process) {
           var output = []
 
-          on = D.string_to_regex(on)
+          on = D.safe_string_to_regex(on, false, process)
 
           if(typeof value == 'string') value = value.split(/\n/)
           for(var key in value) {
@@ -195,8 +195,8 @@ D.import_models({
             type: 'either:block,string'
           }
         ],
-        fun: function(value, from, to, prior_starter) {
-          from = D.string_to_regex(from, true)
+        fun: function(value, from, to, prior_starter, process) {
+          from = D.safe_string_to_regex(from, true, process)
 
           if(typeof to != 'function')
             return value.replace(from, to)

@@ -58,6 +58,7 @@ D.import_port_flavour('down', {
 
 D.import_port_flavour('exec', {
   dir: 'in',
+  unsafe: true,
   exit: function(ship) {
     if(!this.space)
       return false

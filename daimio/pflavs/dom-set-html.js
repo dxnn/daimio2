@@ -2,6 +2,7 @@
 
 D.import_port_flavour('dom-set-html', {
   dir: 'out',
+  unsafe: true,
   settings: [
     {
       key: 'thing',

@@ -229,6 +229,16 @@ D.string_to_regex = function(string, global) {
   return RegExp(string, flags)
 }
 
+D.safe_string_to_regex = function(string, global, process) {
+  if(process && process.space && process.space.dialect
+  && process.space.dialect.policy && process.space.dialect.policy.no_user_regex
+  && D.is_regex(string)) {
+    D.set_error('User-supplied regex patterns are not allowed in restricted mode')
+    return RegExp(D.regex_escape(string), (global ? 'g' : ''))
+  }
+  return D.string_to_regex(string, global)
+}
+
 D.shallow_copy = function(value) {
   if(Array.isArray(value))
     return value.slice()
@@ -1881,7 +1891,7 @@ D.Segment.prototype.toJSON = function() {
 //    |_____/ __|__ |     | |_____ |______ |_____     |
 //
 
-D.Dialect = function(commands, aliases) {
+D.Dialect = function(commands, aliases, policy) {
 
   /*
     A Space is an execution context for Blocks.
@@ -1922,6 +1932,7 @@ D.Dialect = function(commands, aliases) {
 
   this.commands = commands ? D.deep_copy(commands) : D.Commands
   this.aliases = aliases ? D.clone(aliases) : D.Aliases
+  this.policy = policy || {}
   // this.parent = parent
 }
 
@@ -1951,6 +1962,42 @@ D.Dialect.prototype.get_method = function(handler, method) {
   return false
 }
 
+D.make_restricted_dialect = function(options) {
+  options = options || {}
+
+  var blocked_methods = options.blocked_methods || {
+    'process': ['unquote']
+  }
+  var blocked_aliases = options.blocked_aliases || ['unquote']
+
+  var policy = {
+    restrict_unsafe_ports: options.restrict_unsafe_ports !== false,
+    no_user_regex: options.no_user_regex !== false
+  }
+
+  // Use live D.Commands/D.Aliases references (no copy) to avoid load-order timing issues.
+  // Blocklists are checked in overridden get_handler/get_method instead.
+  var dialect = new D.Dialect(null, null, policy)
+
+  dialect.get_handler = function(handler) {
+    if(blocked_methods[handler] === true) return false
+    return D.Dialect.prototype.get_handler.call(this, handler)
+  }
+
+  dialect.get_method = function(handler, method) {
+    if(blocked_methods[handler] === true) return false
+    if(blocked_methods[handler] && blocked_methods[handler].indexOf(method) !== -1) return false
+    return D.Dialect.prototype.get_method.call(this, handler, method)
+  }
+
+  dialect.get_alias = function(name) {
+    if(blocked_aliases.indexOf(name) !== -1) return false
+    return this.aliases[name] || false
+  }
+
+  return dialect
+}
+
 
 //     _____   _____   ______ _______
 //    |_____] |     | |_____/    |
@@ -1968,6 +2015,10 @@ D.Port = function(port_template, space) {
 
   if(!pflav)
     return D.set_error('Port flavour "' + flavour + '" could not be identified')
+
+  if(pflav.unsafe && space && space.dialect && space.dialect.policy.restrict_unsafe_ports) {
+    return D.set_error('Port flavour "' + flavour + '" is not allowed in this space')
+  }
 
   // if(D.PORTS[name])
   //   return D.set_error('That port has already been added')
@@ -2054,6 +2105,36 @@ D.Space = function(seed_id, parent) {
   this.state = {}
   this.parent = parent || false // false is outer
 
+  // set dialect before ports so port whitelist check works
+  this.dialect = seed.dialect_instance
+              || (parent && parent.dialect)
+              || D.DIALECTS.top
+
+// NOTE: DON'T DELETE THIS YET -- decide what you're doing with dialects first.
+//  if(this.parent) {
+//    var parent_dialect = this.parent.dialect ? this.parent.dialect : D.DIALECTS.top
+//    this.dialect = new D.Dialect(parent_dialect.commands, parent_dialect.aliases)
+//    // if(seed.dialect.commands && seed.dialect.commands.minus) {
+//    //   var minus = seed.dialect.commands.minus
+//    if(seed.dialect.commands && seed.dialect.minus) {
+//      var minus = seed.dialect.minus
+//      for(var key in minus) {
+//        var value = minus[key]
+//
+//        if(value === true) {
+//          delete this.dialect.commands[key]
+//          continue
+//        }
+//
+//        value.forEach(function(method) {
+//          try {
+//            delete this.dialect.commands[key].methods[method]
+//          } catch(e) {}
+//        })
+//      }
+//    }
+//  }
+
   // add all the ports at once
   this.ports = seed.ports.map(function(port, index) {return new D.Port(port, self)})
 
@@ -2082,10 +2163,7 @@ D.Space = function(seed_id, parent) {
       .forEach(function(port) {port_name_to_port[port.name].pairup(port)})
   })
 
-  // revise dialect
-  this.dialect = D.DIALECTS.top // TODO: this probably isn't right, but the timing gets weird otherwise
-
-// NOTE: DON'T DELETE THIS YET -- decide what you're doing with dialects first.
+ // NOTE: DON'T DELETE THIS YET -- decide what you're doing with dialects first.
 //  if(this.parent) {
 //    var parent_dialect = this.parent.dialect ? this.parent.dialect : D.DIALECTS.top
 //    this.dialect = new D.Dialect(parent_dialect.commands, parent_dialect.aliases)
@@ -3049,6 +3127,7 @@ D.make_me_a_space_as_fast_as_you_can = function(seedlike_class, template_attr) {
 
 
 D.DIALECTS.top = new D.Dialect() // no params means "use whatever i've imported"
+D.DIALECTS.restricted = D.make_restricted_dialect()
 
 D.ExecutionSpace =
   new D.Space(

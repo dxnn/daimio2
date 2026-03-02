@@ -56,7 +56,7 @@ D.import_models({
             undefined: true
           },
         ],
-        fun: function(value, _in, like) {
+        fun: function(value, _in, like, prior_starter, process) {
           if(!D.is_nice(like)) {
             // TODO: indexOf doesn't coerce strings and numbers so {"2" | is in (2)} fails.
             if(D.is_nice(_in)) return _in.indexOf(value) !== -1
@@ -85,7 +85,7 @@ D.import_models({
           if(!D.is_regex(like))
             return value == like // exact match, ish.
 
-          like = D.string_to_regex(like)
+          like = D.safe_string_to_regex(like, false, process)
           return like.test(value)
         },
       },
