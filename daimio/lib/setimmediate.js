@@ -10,7 +10,7 @@
 
     if(gimme_a_tick) {
       gimme_a_tick = false
-      window.postMessage(messageName, "*")
+      window.postMessage(messageName, window.location.origin)
     }
   }
 
