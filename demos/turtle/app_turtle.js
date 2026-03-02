@@ -90,7 +90,6 @@ db.open(function(err, db) {
 });
 
 var last_user_id = 0
-  // , password = 'kjh1234kljh1324uiyhiuhfs98dfosdfhk2j3hk2jhsdfya9sd8fyasdfjh2k3jh234239uvnm23'
 
 io.on('connection', function (socket) {
     //
