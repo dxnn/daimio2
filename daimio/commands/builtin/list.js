@@ -865,6 +865,9 @@ D.import_models({
           if(length < 1)
             return []
 
+          if(length > D.Etc.max_range_length)
+            return D.set_error('Range length exceeds maximum of ' + D.Etc.max_range_length) || []
+
           for(var i = 1; i <= length; i++) {
             value += step
             newlist.push(value)

@@ -63,6 +63,7 @@ D.Constants.quote = '"'               // currently unused
 
 D.Etc.process_counter = 1             // this is a bit silly
 D.Etc.token_counter = 100000          // FIXME: make Rekey work even with overlapping keys
+D.Etc.max_range_length = 1000000      // you can change this in your app
 
 D.Etc.FancyRegex = ""                 // this is also pretty silly
 D.Etc.Tglyphs = ""                    // and this one too
