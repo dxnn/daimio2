@@ -541,7 +541,7 @@ D.import_models({
 
           if(by_value.length)
             for(var key in data)
-              if( data.hasOwnProperty(key)
+              if( D._hop.call(data, key)
                && by_value.indexOf(JSON.stringify(data[key])) != -1)
                   by_key.push(key)
 
@@ -1126,7 +1126,7 @@ D.import_models({
           value = D.to_array(value).map(JSON.stringify) // for matching nested structures
 
           for(var key in data)
-            if(data.hasOwnProperty(key) && value == JSON.stringify(data[key]))
+            if(D._hop.call(data, key) && value == JSON.stringify(data[key]))
               return key
 
           return ""

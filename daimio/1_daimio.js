@@ -31,6 +31,7 @@
 import murmurhash from './lib/murmurhash.js'
 
 var D = {}                            // this is where the magic happens
+var _hop = D._hop = Object.prototype.hasOwnProperty
 
 D.BLOCKS = {}
 D.DIALECTS = {}
@@ -173,7 +174,7 @@ D.is_false = function(value) {
 
 D.is_empty = function(value) {
   for(var key in value)
-    if(value.hasOwnProperty(key))
+    if(_hop.call(value, key))
       return false
 
   return true
@@ -305,7 +306,7 @@ D.recursive_leaves_copy = function(values, fun, seen) {
 D.extend = function(base, value) {
   // NOTE: this extends by reference, but also returns the new value
   for(var key in value) {
-    if(!value.hasOwnProperty(key)) continue
+    if(!_hop.call(value, key)) continue
     base[key] = value[key]
   }
   return base
@@ -314,7 +315,7 @@ D.extend = function(base, value) {
 D.recursive_extend = function(base, value) {
   // NOTE: this extends by reference, but also returns the new value
   for(var key in value) {
-    if(!value.hasOwnProperty(key))    continue
+    if(!_hop.call(value, key))    continue
 
     if(typeof base[key] == 'undefined') {
       base[key] = value[key]
@@ -533,6 +534,11 @@ D.run = function(daimio, space, scope, ultimate_callback) {
   if(!daimio) return ""
 
   daimio = "" + daimio // TODO: ensure this is a string in a nicer fashion...
+
+  if(typeof space == 'function') {
+    ultimate_callback = space
+    space = null
+  }
 
   if(typeof ultimate_callback != 'function') {
     if(!space)

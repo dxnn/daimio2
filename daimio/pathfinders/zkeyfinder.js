@@ -8,7 +8,7 @@ D.import_pathfinder('key', {
       return 'one'
   },
   gather: function(value, key) {
-    return (value && value.hasOwnProperty(key))
+    return (value && D._hop.call(value, key))
            ? [value[key]]
            : []
   },
@@ -16,7 +16,7 @@ D.import_pathfinder('key', {
     if(D.is_banned_key(key))
       return [D.set_error('Illegal key name: ' + key)]
 
-    if(value.hasOwnProperty(key) && (typeof value[key] == 'object') )
+    if(D._hop.call(value, key) && (typeof value[key] == 'object') )
       return [value[key]]
 
     value[key] = {}   // THINK: this line creates a swack of undefineds...
