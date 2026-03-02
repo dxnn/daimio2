@@ -1,3 +1,4 @@
+import D from '../../1_daimio.js'
 // The dagoba interface model
 
 D.import_models({

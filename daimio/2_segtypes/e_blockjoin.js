@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 // puts together discrete segments, or something
 D.SegmentTypes.Blockjoin = {
   try_lex: function(string) {

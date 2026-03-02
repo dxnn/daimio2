@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.Alias = {
   try_lex: function(string) {
     return new D.Token('Command', string) // THINK: this is weird...

@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.import_port_flavour('socket-in', {
   dir: 'in',
   unsafe: true,

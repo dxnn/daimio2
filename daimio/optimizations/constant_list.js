@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.import_optimizer('constant_list', 0.5, function(block) {
   var changed  = false
   var segments = block.segments

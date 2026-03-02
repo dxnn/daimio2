@@ -4,14 +4,14 @@
   "homepage": "http://daimio.in/",
   "author": "dann <dann@bentobox.net>",
   "description": "a Daimio parser",
-  "main": "./lib/daimio",
+  "type": "module",
+  "main": "./daimio.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/dxnn/daimio.git"
   },
   "dependencies": {
-  },  
-  "main": "index",
+  },
   "keywords": [
     "Daimio",
     "template",

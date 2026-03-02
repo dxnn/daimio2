@@ -28,8 +28,9 @@
 
 */
 
+import murmurhash from './lib/murmurhash.js'
 
-D = {}                                // this is where the magic happens
+var D = {}                            // this is where the magic happens
 
 D.BLOCKS = {}
 D.DIALECTS = {}
@@ -564,14 +565,6 @@ D.run = function(daimio, space, scope, ultimate_callback) {
   return ""
 }
 
-
-if (typeof exports !== 'undefined') {
-  // TODO: make this work!
-  // var murmurhash = require('murmurhash3')
-  if (typeof module !== 'undefined' && module.exports)
-    exports = module.exports = D
-  exports.D = D
-}
 
 
 
@@ -1152,7 +1145,7 @@ D.peek = function(base, path) {
   path = D.to_array(path)
 
   if(!path.length)
-    return value
+    return base
 
   var todo = [base]
     , many_flag = false
@@ -1210,6 +1203,7 @@ D.poke = function(base, path, value) {
     base = [base]
 
   var todo = [base]
+    , many_flag = false
 
   for(var i=0, l=path.length; i < l; i++) {
     var key = path[i]
@@ -3123,13 +3117,4 @@ D.make_me_a_space_as_fast_as_you_can = function(seedlike_class, template_attr) {
 
 
 
-// FIRE IT UP
-
-
-D.DIALECTS.top = new D.Dialect() // no params means "use whatever i've imported"
-D.DIALECTS.restricted = D.make_restricted_dialect()
-
-D.ExecutionSpace =
-  new D.Space(
-    D.spaceseed_add(
-      {dialect: {commands:{}, aliases:{}}, stations: [], subspaces: [], ports: [], routes: [], state: {}}))
+export default D

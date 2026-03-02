@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.import_optimizer('simple_peek', 0.4, function(block) {
   if(!D.Etc.OPT_simple_peek)                            // oh hai have some fun
     D.Etc.OPT_simple_peek =

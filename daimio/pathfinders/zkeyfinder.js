@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 
 // NOTE: this is the fallback, and has to be imported last... so if you need to import a custom pathfinder, you'll have to pop this off and push it back on after.
 // TODO: find a better way to manage importee ordering

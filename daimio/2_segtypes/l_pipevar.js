@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.PipeVar = {
   try_lex: function(string) {
     return string // these are always created as Fancy tokens

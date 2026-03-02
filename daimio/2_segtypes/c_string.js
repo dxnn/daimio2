@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.String = {
   try_lex: function(string) {
     if(string[0] != '"' || string.slice(-1) != '"')

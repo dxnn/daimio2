@@ -1,3 +1,5 @@
+import D from '../1_daimio.js'
+
 // inspired by http://dbaron.org/log/20100309-faster-timeouts
 
 ~function() {

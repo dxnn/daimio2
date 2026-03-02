@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.VariableSet = {
   try_lex: function(string) {
     return string // this is never lexed

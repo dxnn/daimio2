@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.Number = {
   try_lex: function(string) {
     return (+string === +string) // NaN !== NaN

@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.import_optimizer('simple_math', 0.5, function(block) {
   var changed  = false
   var segments = block.segments
@@ -34,7 +35,7 @@ D.import_optimizer('simple_math', 0.5, function(block) {
     changed = true
     new_wiring[i] = [wiring[i][1]]
 
-    value = {value: wireseg.value, op: this_segment.value.method}
+    var value = {value: wireseg.value, op: this_segment.value.method}
     new_segments[i] = new D.Segment('OPT_simple_math', value, this_segment)
   }
 

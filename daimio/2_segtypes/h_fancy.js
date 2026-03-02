@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.Fancy = {
   try_lex: function(string) {
     // var regex = new RegExp('^[' + D.FancyGlyphs + ']') // THINK: would anything else ever start with a fancy glyph?

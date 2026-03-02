@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.Terminator = {
   try_lex: function(string) {
     return string // THINK: hmmmm.... these are made elsewhere. what are we doing??

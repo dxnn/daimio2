@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.import_type('number', function(value) {
   if(typeof value == 'number') value = value
   else if(typeof value == 'string') value = +value

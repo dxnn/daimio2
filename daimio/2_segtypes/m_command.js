@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 ~function() {
 
   // HELPER FUNS
@@ -211,7 +212,7 @@
                                           , segment.value.method )  // will always be invoked within the same dialect
 
       if(!segment.method) {
-        error = 'You have failed to provide an adequate method: '
+        var error = 'You have failed to provide an adequate method: '
               + segment.value.handler + ' ' + segment.value.method
         D.set_error(error)
         segment.errors = [error]

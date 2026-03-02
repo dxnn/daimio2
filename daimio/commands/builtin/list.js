@@ -1,3 +1,4 @@
+import D from '../../1_daimio.js'
 // A list in Daimio is an ordered sequence of items that are optionally keyed.
 
 // concat, each, every, filter, forEach, indexOf,

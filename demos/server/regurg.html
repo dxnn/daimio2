@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>Client Server Communion</title>
-  <script type="text/javascript" src="../../daimio_composite.js"></script>
+  <script type="module" src="../../daimio/daimio.js"></script>
 </head>
 <body>
 
@@ -61,7 +61,7 @@
   </script>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script type="text/javascript">
+  <script type="module">
     document.addEventListener('DOMContentLoaded', function() {
       D.Etc.socket = io.connect('/')
 

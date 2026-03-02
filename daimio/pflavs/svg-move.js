@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 
 // ugh hack ugh
 D.string_to_svg_frag = function(string) {

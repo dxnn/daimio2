@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.import_aliases({
   'do':     'list each block',
   'wait':   'process sleep for 0',

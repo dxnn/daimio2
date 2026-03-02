@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.import_type('string', function(value) {
        if(D.is_block(value))                  value = value.toJSON()
   else if(typeof value == 'string')           value = value

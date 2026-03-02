@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.PortSend = {
   // THINK: surely there's some other way to do this -- please destroy this segtype
   try_lex: function(string) {

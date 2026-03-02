@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 D.SegmentTypes.Pipeline = {
   try_lex: function(string) {
     if(string[0] != D.Constants.command_open || string.slice(-1) != D.Constants.command_closed)

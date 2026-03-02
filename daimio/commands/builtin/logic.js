@@ -1,3 +1,4 @@
+import D from '../../1_daimio.js'
 // commands for logic
 
 D.import_models({

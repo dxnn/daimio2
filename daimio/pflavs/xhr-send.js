@@ -1,3 +1,4 @@
+import D from '../1_daimio.js'
 // Seems like a better name for this flavour might be `http-get`, but I'll keep it `xhr-send` in
 // deference to the current naming convention of the ajax sending functions.
 D.import_port_flavour('xhr-send', {
