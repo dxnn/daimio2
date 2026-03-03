@@ -140,6 +140,11 @@ test('daggr spewtime runs without ReferenceError', spewtime_ok)
 var add_graph_src = D.Commands.dagoba.methods.add_graph.fun.toString()
 test('dagoba add_graph declares topics with var', /var topics/.test(add_graph_src))
 
+// dagoba.js update_thing: missing return after D.on_error('Invalid id')
+// Lines 433,435 use `return D.on_error(...)` but line 438 omits `return`.
+var set_data_src = D.Commands.dagoba.methods.set_data.fun.toString()
+test('dagoba set_data returns after Invalid id error', /if\(!thing\)\s*return/.test(set_data_src))
+
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')
 if(fail) process.exit(1)

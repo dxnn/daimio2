@@ -435,7 +435,7 @@ D.import_models({
           if(['nodes', 'paths', 'edges'].indexOf(type) == -1) return D.on_error('Invalid type');
 
           var thing = graph[type][id];
-          if(!thing) D.on_error('Invalid id');
+          if(!thing) return D.on_error('Invalid id');
 
           // TODO: scrub bad paths, like 'startport'
 
