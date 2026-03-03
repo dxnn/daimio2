@@ -307,6 +307,7 @@ D.extend = function(base, value) {
   // NOTE: this extends by reference, but also returns the new value
   for(var key in value) {
     if(!_hop.call(value, key)) continue
+    if(D.is_banned_key(key)) continue
     base[key] = value[key]
   }
   return base
@@ -316,6 +317,7 @@ D.recursive_extend = function(base, value) {
   // NOTE: this extends by reference, but also returns the new value
   for(var key in value) {
     if(!_hop.call(value, key))    continue
+    if(D.is_banned_key(key))      continue
 
     if(typeof base[key] == 'undefined') {
       base[key] = value[key]

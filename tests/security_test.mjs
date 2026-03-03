@@ -49,6 +49,31 @@ test('is_banned_key blocks prototype', D.is_banned_key('prototype'))
 test('is_banned_key allows normal keys', !D.is_banned_key('foo'))
 test('is_banned_key allows normal keys', !D.is_banned_key('name'))
 
+// Runtime prototype pollution tests
+var obj1 = {a: 1}
+D.extend(obj1, {'__proto__': {polluted: true}, b: 2})
+test('extend blocks __proto__ key', obj1.polluted === undefined)
+test('extend still copies normal keys', obj1.b === 2)
+
+var obj2 = {a: 1}
+D.extend(obj2, {'constructor': 'bad', 'prototype': 'bad', c: 3})
+test('extend blocks constructor key', obj2.constructor !== 'bad')
+test('extend blocks prototype key', obj2.prototype === undefined)
+test('extend still copies normal keys alongside banned', obj2.c === 3)
+
+var obj3 = {nested: {x: 1}}
+D.recursive_extend(obj3, {'__proto__': {polluted: true}, nested: {y: 2}})
+test('recursive_extend blocks __proto__ key', obj3.polluted === undefined)
+test('recursive_extend still merges normal keys', obj3.nested.y === 2)
+
+var obj4 = {}
+D.recursive_extend(obj4, {'constructor': 'bad', 'prototype': 'bad'})
+test('recursive_extend blocks constructor key', obj4.constructor !== 'bad')
+test('recursive_extend blocks prototype key', obj4.prototype === undefined)
+
+// Ensure Object.prototype wasn't polluted
+test('Object.prototype not polluted', ({}).polluted === undefined)
+
 console.log('\n=== Regex Safety ===')
 test('safe_string_to_regex works without process', D.safe_string_to_regex('hello', false, null) instanceof RegExp)
 test('string_to_regex still works for regex', D.string_to_regex('/test/i') instanceof RegExp)
