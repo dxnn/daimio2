@@ -17,6 +17,8 @@ D.import_port_flavour('xhr-send', {
       },
     ],
     outside_exit: function (ship) {
-	    xhr_get(ship, D.noop)
+      // DISABLED: `xhr_get` is undefined — never implemented in this module.
+      // Will throw ReferenceError in strict mode (ES modules).
+	    // xhr_get(ship, D.noop)
     }
 })

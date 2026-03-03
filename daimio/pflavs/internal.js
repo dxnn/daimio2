@@ -46,13 +46,16 @@ D.import_port_flavour('down', {
       // THINK: whether we can pass multiple ships or have to queue them depends on our routes: if they're all bidirectional we can chain the callbacks, otherwise we have to send them one at a time.
 
       // THINK: ideally there's only ONE route from a downport. can we formalize that?
-      port = self.outs[0]
-      if(port) {
-        port.enter(ship, process, callback) // wat
-      }
-      else {
-        callback(1234)
-      }
+      // DISABLED: `callback` is undefined, `port` is undeclared (missing `var`).
+      // Both will throw ReferenceError in strict mode (ES modules).
+      // Needs: callback as a third param on exit(), and `var port`.
+      // port = self.outs[0]
+      // if(port) {
+      //   port.enter(ship, process, callback) // wat
+      // }
+      // else {
+      //   callback(1234)
+      // }
     })
   }
 })
