@@ -259,7 +259,8 @@ D.import_models({
 
           var processfun = function(item, prior_starter, item_key) {
             for(var key in item)
-              scope[key] = item[key]
+              if(D._hop.call(item, key))
+                scope[key] = item[key]
 
             scope["__in"] = item
 
@@ -603,6 +604,7 @@ D.import_models({
             //   value = [value]
 
             for(var key in value) {
+              if(!D._hop.call(value, key)) continue
               if(used[key]) continue
               used[key] = 1
 

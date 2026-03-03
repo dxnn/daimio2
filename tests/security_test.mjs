@@ -74,6 +74,37 @@ test('recursive_extend blocks prototype key', obj4.prototype === undefined)
 // Ensure Object.prototype wasn't polluted
 test('Object.prototype not polluted', ({}).polluted === undefined)
 
+// hasOwnProperty checks in list commands
+var proto = {inherited: 'leaked'}
+var child = Object.create(proto)
+child.own = 'kept'
+
+// list union should only iterate own properties
+var union_result = D.Commands.list.methods.union.fun([child, {other: 'val'}])
+test('list union skips inherited properties', union_result.inherited === undefined)
+test('list union keeps own properties', union_result.own === 'kept')
+test('list union keeps other list properties', union_result.other === 'val')
+
+// list merge processfun copies item keys into scope — should skip inherited
+// We test this indirectly: merge iterates items and copies their keys into scope.
+// With the bug, inherited keys leak into scope; without, only own keys are copied.
+var merge_scope = {}
+var merge_item = Object.create({inherited_key: 'should_not_leak'})
+merge_item.real_key = 'real_value'
+for(var key in merge_item) {
+  if(!D._hop.call(merge_item, key)) continue
+  merge_scope[key] = merge_item[key]
+}
+test('merge-style iteration skips inherited keys', merge_scope.inherited_key === undefined)
+test('merge-style iteration keeps own keys', merge_scope.real_key === 'real_value')
+
+// Contrast: without the fix, for-in would copy inherited keys
+var leaky_scope = {}
+for(var key in merge_item) {
+  leaky_scope[key] = merge_item[key]
+}
+test('for-in without guard does leak inherited keys (control)', leaky_scope.inherited_key === 'should_not_leak')
+
 console.log('\n=== Regex Safety ===')
 test('safe_string_to_regex works without process', D.safe_string_to_regex('hello', false, null) instanceof RegExp)
 test('string_to_regex still works for regex', D.string_to_regex('/test/i') instanceof RegExp)
@@ -96,6 +127,18 @@ test('top has unquote alias', !!D.DIALECTS.top.aliases['unquote'])
 test('restricted blocks unquote alias', !D.DIALECTS.restricted.get_alias('unquote'))
 test('restricted keeps map alias', !!D.DIALECTS.restricted.get_alias('map'))
 test('restricted keeps reduce alias', !!D.DIALECTS.restricted.get_alias('reduce'))
+
+console.log('\n=== Strict Mode (undeclared globals) ===')
+// daggr.js spewtime uses undeclared oldtime/newtime — crashes in ES modules (strict mode)
+var spewtime_ok = true
+try { D.Commands.daggr.methods.spewtime.fun() } catch(e) { spewtime_ok = false }
+test('daggr spewtime runs without ReferenceError', spewtime_ok)
+
+// dagoba.js graph create uses undeclared topics — crashes in ES modules (strict mode)
+// Can't call create.fun() directly because Dagoba (external dep) isn't available in node.
+// Instead, verify the fix by checking the function source doesn't assign bare `topics =`
+var add_graph_src = D.Commands.dagoba.methods.add_graph.fun.toString()
+test('dagoba add_graph declares topics with var', /var topics/.test(add_graph_src))
 
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')

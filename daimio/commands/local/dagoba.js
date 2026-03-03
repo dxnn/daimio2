@@ -22,7 +22,7 @@ D.import_models({
           var graph = Dagoba.new_graph(id);
 
           // add graph action bindings
-          topics = ['node/add','node/remove','port/add','port/remove','edge/add','edge/remove'];
+          var topics = ['node/add','node/remove','port/add','port/remove','edge/add','edge/remove'];
           for(var i=0, l=topics.length; i < l; i++) {
             D.Etc.dagoba.set_actions(graph, topics[i]);
           }

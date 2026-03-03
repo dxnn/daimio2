@@ -464,10 +464,10 @@ D.import_models({
 
         ],
         fun: function() {
-          if(typeof oldtime == 'undefined') oldtime = 0;
-          newtime = new Date().getTime();
+          var oldtime = D.Etc.spewtime_last || 0;
+          var newtime = new Date().getTime();
           console.log(newtime - oldtime);
-          oldtime = newtime;
+          D.Etc.spewtime_last = newtime;
         },
       },
 
