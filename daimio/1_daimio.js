@@ -1237,6 +1237,12 @@ D.poke = function(base, path, value) {
         new_todo = new_todo.concat(pf.create(todo[j], key))
       }
       else { // last time: set value
+        if(Array.isArray(todo[j]) && test == 'one' && typeof key == 'string' && !/#-?\d/.test(key)) {
+          var obj = {}
+          for(var m = 0; m < todo[j].length; m++) obj[m] = todo[j][m]
+          if(todo[j] === base) base = obj
+          todo[j] = obj
+        }
         pf.set(todo[j], key, value)
       }
     }
