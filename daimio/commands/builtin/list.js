@@ -151,6 +151,7 @@ D.import_models({
             scope = {'__in': _with[0]}
 
           // THINK: this manual fiddling is weird. should we just accept a starting element to get it over with?
+          data = data.slice() // avoid mutating input
           if(!data.length)
             return []
 

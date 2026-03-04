@@ -128,6 +128,33 @@ test('restricted blocks unquote alias', !D.DIALECTS.restricted.get_alias('unquot
 test('restricted keeps map alias', !!D.DIALECTS.restricted.get_alias('map'))
 test('restricted keeps reduce alias', !!D.DIALECTS.restricted.get_alias('reduce'))
 
+console.log('\n=== Data Integrity ===')
+// list reduce mutates its input array via data.shift()
+var reduce_fn = D.Commands.list.methods.reduce.fun
+var noop_block = function(ps, scope) { return scope.total + scope.value }
+var noop_ps = function(v) {}
+
+// Test 1: input array should not lose its first element
+var input = [1, 2, 3, 4]
+var input_copy = input.slice()
+reduce_fn(input, noop_block, null, noop_ps)
+test('list reduce does not mutate input array length', input.length === input_copy.length)
+test('list reduce does not remove first element', input[0] === input_copy[0])
+test('list reduce preserves all elements', JSON.stringify(input) === JSON.stringify(input_copy))
+
+// Test 2: calling reduce twice on same data should give same result
+var data2 = [10, 20, 30]
+reduce_fn(data2, noop_block, null, noop_ps)
+var len_after_first = data2.length
+reduce_fn(data2, noop_block, null, noop_ps)
+test('list reduce is idempotent on input', data2.length === len_after_first)
+
+// Test 3: single-element array should not become empty
+var single = [42]
+reduce_fn(single, noop_block, null, noop_ps)
+test('list reduce does not empty single-element array', single.length === 1)
+test('list reduce preserves single element value', single[0] === 42)
+
 console.log('\n=== Strict Mode (undeclared globals) ===')
 // daggr.js spewtime uses undeclared oldtime/newtime — crashes in ES modules (strict mode)
 var spewtime_ok = true
