@@ -42,6 +42,10 @@ import D from '../1_daimio.js'
       else
         paramlist_obj.typefun = D.Types.anything
 
+      if(method_param.allow) paramlist_obj.allow = method_param.allow
+      if(method_param.deny)  paramlist_obj.deny  = method_param.deny
+      paramlist_obj.name = method_param.key
+
       if(paramlist_obj.key == -1) {
         // if(param_value !== undefined) {
           // param_value = typefun(param_value)
@@ -73,6 +77,17 @@ import D from '../1_daimio.js'
     return paramlist
   }
 
+  function check_constraint(pval, pfunk) {
+    if(!pfunk.allow && !pfunk.deny) return true
+
+    var allowed = pfunk.allow
+    if(allowed && pfunk.deny)
+      allowed = allowed.filter(function(v) { return pfunk.deny.indexOf(v) === -1 })
+
+    if(allowed) return allowed.indexOf(pval) !== -1
+    return pfunk.deny.indexOf(pval) === -1                          // deny only
+  }
+
   function prep_params(paramlist, inputs) {
     var params = []
     for(var i=0, l=paramlist.length; i < l; i++) {
@@ -80,6 +95,11 @@ import D from '../1_daimio.js'
       var pval  = pfunk.key == -1
                 ? pfunk.value
                 : pfunk.typefun(inputs[pfunk.key])                  // we have to do this part at runtime
+
+      if(!check_constraint(pval, pfunk)) {
+        D.set_error('Value "' + pval + '" not allowed for parameter "' + pfunk.name + '"')
+        return false
+      }
 
       params.push(pval)
     }
@@ -93,6 +113,7 @@ import D from '../1_daimio.js'
     }                                                               // so false flows through instead of previous value
 
     var params = prep_params(segment.paramlist, inputs)
+    if(params === false) return ""
     if(segment.port) params.push(segment.port)
     params.push(prior_starter)
     params.push(process)

@@ -30,7 +30,7 @@ test('restricted allows process.run', !!D.DIALECTS.restricted.get_method('proces
 test('restricted allows process.quote', !!D.DIALECTS.restricted.get_method('process', 'quote'))
 
 console.log('\n=== Unsafe Port Flavours ===')
-test('dom-set-html is unsafe', D.PortFlavours['dom-set-html'].unsafe === true)
+test('dom-set-raw-html is unsafe', D.PortFlavours['dom-set-raw-html'].unsafe === true)
 test('exec is unsafe', D.PortFlavours['exec'].unsafe === true)
 test('to-js is unsafe', D.PortFlavours['to-js'].unsafe === true)
 test('xhr-send is unsafe', D.PortFlavours['xhr-send'].unsafe === true)
@@ -171,6 +171,102 @@ test('dagoba add_graph declares topics with var', /var topics/.test(add_graph_sr
 // Lines 433,435 use `return D.on_error(...)` but line 438 omits `return`.
 var set_data_src = D.Commands.dagoba.methods.set_data.fun.toString()
 test('dagoba set_data returns after Invalid id error', /if\(!thing\)\s*return/.test(set_data_src))
+
+console.log('\n=== Param Constraints (allow/deny) ===')
+
+// Register a test command with allow/deny params
+D.import_models({
+  ttest: {
+    desc: 'Test commands for param constraints',
+    methods: {
+      allow_only: {
+        desc: 'Only accepts allowed values for mode',
+        params: [
+          {
+            key: 'value',
+            desc: 'Any value',
+            type: 'string'
+          },
+          {
+            key: 'mode',
+            desc: 'Restricted mode param',
+            type: 'string',
+            allow: ['fast', 'slow']
+          }
+        ],
+        fun: function(value, mode) { return value + ':' + mode }
+      },
+      deny_only: {
+        desc: 'Denies certain values for tag',
+        params: [
+          {
+            key: 'value',
+            desc: 'Any value',
+            type: 'string'
+          },
+          {
+            key: 'tag',
+            desc: 'Tag param with deny list',
+            type: 'string',
+            deny: ['admin', 'root']
+          }
+        ],
+        fun: function(value, tag) { return value + ':' + tag }
+      },
+      both: {
+        desc: 'Has both allow and deny on same param',
+        params: [
+          {
+            key: 'color',
+            desc: 'Color with allow minus deny',
+            type: 'string',
+            allow: ['red', 'green', 'blue'],
+            deny: ['blue']
+          }
+        ],
+        fun: function(color) { return color }
+      }
+    }
+  }
+})
+
+// Helper: run Daimio code synchronously and collect result
+function run(code) {
+  var result = D.execute_then_stringify(
+    D.ExecutionSpace.execute(
+      D.Parser.string_to_block_segment(code)))
+  return result
+}
+
+// allow-only tests
+test('allow param accepts allowed value "fast"',
+  run('{ttest allow_only value "hi" mode "fast"}') === 'hi:fast')
+test('allow param accepts allowed value "slow"',
+  run('{ttest allow_only value "hi" mode "slow"}') === 'hi:slow')
+test('allow param rejects disallowed value',
+  run('{ttest allow_only value "hi" mode "turbo"}') === '')
+
+// deny-only tests
+test('deny param accepts non-denied value',
+  run('{ttest deny_only value "hi" tag "user"}') === 'hi:user')
+test('deny param rejects denied value "admin"',
+  run('{ttest deny_only value "hi" tag "admin"}') === '')
+test('deny param rejects denied value "root"',
+  run('{ttest deny_only value "hi" tag "root"}') === '')
+
+// both allow and deny: effective allow is ['red', 'green']
+test('allow+deny accepts value in allow minus deny',
+  run('{ttest both color "red"}') === 'red')
+test('allow+deny accepts green',
+  run('{ttest both color "green"}') === 'green')
+test('allow+deny rejects value in deny (blue)',
+  run('{ttest both color "blue"}') === '')
+test('allow+deny rejects value not in allow',
+  run('{ttest both color "yellow"}') === '')
+
+// no constraints: existing params should still work fine
+test('unconstrained param passes anything through',
+  run('{ttest allow_only value "anything" mode "fast"}') === 'anything:fast')
 
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')
