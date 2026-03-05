@@ -33,7 +33,9 @@ import D from '../1_daimio.js'
 
   }
 
-  if(typeof window != 'undefined') {
+  if(typeof globalThis.setImmediate === 'function') {
+    D.setImmediate = globalThis.setImmediate
+  } else if(typeof window != 'undefined') {
     window.addEventListener("message", handleMessage, true)
     D.setImmediate = setImmediate
   }

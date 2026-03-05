@@ -1,9 +1,6 @@
 // Security test suite for Daimio restricted dialect
 // Run with: node tests/security_test.mjs
 
-globalThis.window = {addEventListener: function(){}, location: {origin: 'test'}, postMessage: function(){}}
-globalThis.document = {getElementById: function(){return null}, querySelectorAll: function(){return []}, getElementsByClassName: function(){return []}, createElementNS: function(){return {}}}
-
 var D = (await import('../daimio/daimio.js')).default
 
 var pass = 0, fail = 0

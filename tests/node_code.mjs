@@ -34,12 +34,13 @@
 
 // LE PRELUDE
 
-globalThis.window = {addEventListener: function(){}, location: {origin: 'test'}, postMessage: function(){}}
-globalThis.document = {getElementById: function(){return null}, querySelectorAll: function(){return []}, getElementsByClassName: function(){return []}, createElementNS: function(){return {}}}
-
 var D = (await import('../daimio/daimio.js')).default
 
 var ERRORS = []
+var pass = 0
+var pending = 0
+var all_registered = false
+var reported = false
 
 var string_to_tokens_and_segments_and_block_test
 var s2ABt = string_to_tokens_and_segments_and_block_test = function(string, result_tokens, result_segments, result_blocks) {
@@ -74,13 +75,17 @@ var funtest = function(string, result) {
   //   , segment = D.Parser.string_to_block_segment(string)
   //   , ABlocks = D.BLOCKS
   //   , block = ABlocks[segment.value.id]
-  // 
+  //
   // space.execute(block, function(output) {
+  pending++
   D.run(string, function(output) {
     if(JSON.stringify(output) == JSON.stringify(result))
-      return false
+      pass++
+    else
+      ERRORS.push({in: string, out: output, was: result})
 
-    ERRORS.push({in: string, out: output, was: result})
+    pending--
+    if(all_registered && pending === 0) report()
   })
 }
 
@@ -331,6 +336,9 @@ funtest('{(1 2 3 4 5) | map block "{times (__ __ __)}"}', '[1,8,27,64,125]')
 
 funtest('{(1 2 3 4 5) | map block "{(__ __ __) | times}"}', '[1,8,27,64,125]')
 
+// async test: process sleep for 0 uses D.setImmediate, returns NaN (async signal)
+funtest('{:hello | process sleep for 0}', 'hello')
+
 funtest('{(1 2 3 4 5) | map block "{__ | times __ | times __}"}', '[1,16,81,256,625]')
 
 funtest('{begin block | map data (1 2 3) | string join on ","} asdf {end block}', ' asdf , asdf , asdf ')
@@ -446,10 +454,31 @@ var show_errors = function(error) {
   console.log("")
 }
 
-if(ERRORS.length) {
-  console.log("ERRORS!\n")
-  ERRORS.forEach(show_errors)
-}
-else {
-  console.log('you win!')
+// // Old synchronous check — replaced by async report() below
+// if(ERRORS.length) {
+//   console.log("ERRORS!\n")
+//   ERRORS.forEach(show_errors)
+// }
+// else {
+//   console.log('you win!')
+// }
+
+all_registered = true
+if(pending === 0) report()
+
+function report() {
+  if(reported) return
+  reported = true
+  var total = pass + ERRORS.length
+  console.log('\n=== node_code Tests ===')
+  console.log(total + ' tests: ' + pass + ' passed, ' + ERRORS.length + ' failed')
+
+  if(ERRORS.length) {
+    console.log('\nFailures:')
+    ERRORS.forEach(show_errors)
+  }
+
+  if(!ERRORS.length) console.log('\nYou win!')
+
+  if(ERRORS.length) process.exit(1)
 }
