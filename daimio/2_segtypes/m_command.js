@@ -225,18 +225,33 @@ import D from '../1_daimio.js'
       return [new D.Segment(token.type, token.value, token)]        // TODO: suck out any remaining null params here
     }
   , execute: function(segment, inputs, dialect, prior_starter, process) {
-      if(segment.paramlist)
-        return run_fun(segment, inputs, prior_starter, process)
+      var did = dialect.did
+      var dc = segment._dcache && segment._dcache[did]
 
+      if(dc) {
+        segment.handler   = dc.handler
+        segment.method    = dc.method
+        segment.paramlist = dc.paramlist
+        segment.errors    = dc.errors
+        if(segment.method && segment.method.port && process)
+          segment.port = D.filter_ports(process.space.ports, process.station_id, segment.method.port)
+        return run_fun(segment, inputs, prior_starter, process)
+      }
+
+      segment.errors = null
       segment.handler = dialect.get_handler(segment.value.handler)
-      segment.method  = dialect.get_method( segment.value.handler   // THINK: caching the method assumes this segment
-                                          , segment.value.method )  // will always be invoked within the same dialect
+      segment.method  = dialect.get_method( segment.value.handler
+                                          , segment.value.method )
 
       if(!segment.method) {
         var error = 'You have failed to provide an adequate method: '
               + segment.value.handler + ' ' + segment.value.method
         D.set_error(error)
         segment.errors = [error]
+
+        if(!segment._dcache) segment._dcache = {}
+        segment._dcache[did] = {handler: segment.handler, method: null, paramlist: null, errors: segment.errors}
+
         return ""                                                   // THINK: maybe {} or {noop: true} or something
       }                                                             // so false flows through instead of previous value
 
@@ -258,10 +273,16 @@ import D from '../1_daimio.js'
       // }
 
 
-      if(segment.method.port)                                       // does this command have a port? take action!
+      if(segment.method.port && process)                            // does this command have a port? take action!
         segment.port = D.filter_ports(process.space.ports, process.station_id, segment.method.port)
 
       segment.paramlist = build_paramlist(segment, segment.method, inputs)
+
+      if(!segment._dcache) segment._dcache = {}
+      segment._dcache[did] = {
+        handler: segment.handler, method: segment.method,
+        paramlist: segment.paramlist, errors: segment.errors
+      }
 
       return run_fun(segment, inputs, prior_starter, process)
     }

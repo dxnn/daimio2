@@ -265,6 +265,88 @@ test('allow+deny rejects value not in allow',
 test('unconstrained param passes anything through',
   run('{ttest allow_only value "anything" mode "fast"}') === 'anything:fast')
 
+console.log('\n=== Dialect Identity ===')
+test('top dialect has a did', typeof D.DIALECTS.top.did === 'number')
+test('restricted dialect has a did', typeof D.DIALECTS.restricted.did === 'number')
+test('different dialects have different dids', D.DIALECTS.top.did !== D.DIALECTS.restricted.did)
+
+console.log('\n=== Segment Cache Isolation ===')
+// Two dialects: one blocks math.add, one allows it
+var no_math = D.make_restricted_dialect({blocked_methods: {'math': ['add']}})
+
+// Find the Command segment inside a parsed block
+function find_command_seg(code) {
+  var bseg = D.Parser.string_to_block_segment(code)
+  var block = D.BLOCKS[bseg.value.id]
+  for(var i = 0; i < block.segments.length; i++)
+    if(block.segments[i].type === 'Command') return block.segments[i]
+  return null
+}
+
+var seg = find_command_seg('{math add value 1 to 2}')
+var fake_p = {space: D.ExecutionSpace, station_id: undefined, actor: null}
+
+// Run under blocking dialect first
+var r1 = D.SegmentTypes.Command.execute(seg, [1, 2], no_math, function(){}, fake_p)
+test('blocking dialect returns empty for math.add', r1 === '')
+
+// Now run under top dialect — should succeed despite cache from blocking run
+var r2 = D.SegmentTypes.Command.execute(seg, [1, 2], D.DIALECTS.top, function(){}, fake_p)
+test('top dialect still works after blocking dialect cached', r2 === 3)
+
+// Reverse: top first, then blocking
+var seg2 = find_command_seg('{math add value 5 to 10}')
+var r3 = D.SegmentTypes.Command.execute(seg2, [5, 10], D.DIALECTS.top, function(){}, fake_p)
+test('top dialect executes math.add = 15', r3 === 15)
+var r4 = D.SegmentTypes.Command.execute(seg2, [5, 10], no_math, function(){}, fake_p)
+test('blocking dialect blocks after top cached', r4 === '')
+
+console.log('\n=== Actor ===')
+test('D.Actor exists', typeof D.Actor === 'function')
+var actor_a = new D.Actor('alice')
+test('Actor has id', actor_a.id === 'alice')
+test('Actor dialect is null by default', actor_a.dialect === null)
+
+var actor_b = new D.Actor('bob', {dialect: D.DIALECTS.restricted})
+test('Actor accepts dialect option', actor_b.dialect === D.DIALECTS.restricted)
+
+console.log('\n=== make_actor_dialect ===')
+test('D.make_actor_dialect exists', typeof D.make_actor_dialect === 'function')
+var app_dialect = D.DIALECTS.top
+var bob_dialect = D.make_actor_dialect(app_dialect, {blocked_methods: {'string': ['grep']}})
+test('actor dialect blocks denied method', !bob_dialect.get_method('string', 'grep'))
+test('actor dialect allows other methods', !!bob_dialect.get_method('math', 'add'))
+test('actor dialect allows same handler other methods', !!bob_dialect.get_method('string', 'join'))
+
+// Chain: actor dialect on top of already-restricted base
+var strict_base = D.make_restricted_dialect({blocked_methods: {'process': ['unquote']}})
+var strict_actor = D.make_actor_dialect(strict_base, {blocked_methods: {'math': ['add']}})
+test('chained dialect blocks base restriction', !strict_actor.get_method('process', 'unquote'))
+test('chained dialect blocks actor restriction', !strict_actor.get_method('math', 'add'))
+test('chained dialect allows unrestricted', !!strict_actor.get_method('list', 'map'))
+
+console.log('\n=== Closed Space ===')
+var closed_seed = D.spaceseed_add({
+  dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}, closed: true
+})
+var closed_space = new D.Space(closed_seed)
+test('closed space has closed flag', closed_space.closed === true)
+
+// Execute without actor in closed space -> should fail
+var closed_result = closed_space.execute(
+  D.Parser.string_to_block_segment('{math add value 1 to 2}'))
+test('closed space rejects execution without actor', closed_result === '')
+
+// Execute with actor in closed space -> should work
+var actor_for_closed = new D.Actor('testuser', {dialect: D.DIALECTS.top})
+var closed_result2 = closed_space.execute(
+  D.Parser.string_to_block_segment('{math add value 1 to 2}'),
+  null, null, null, actor_for_closed)
+test('closed space allows execution with actor', closed_result2 === 3)
+
+// Open space (default) still works without actor
+test('open space works without actor', run('{math add value 1 to 2}') === '3')
+
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')
 if(fail) process.exit(1)
