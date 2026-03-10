@@ -6,8 +6,25 @@ D.import_models({
     desc: "Commands for exploding temporal quonsets",
     methods: {
 
-      // TODO: add a {time now} command that returns the current timestamp and uses a downport to find it
-      // TODO: then remove the default 'now' from stampwrap
+      now: {
+        desc: 'Returns the current time as a structured value',
+        params: [],
+        effect: {
+          portType: 'time-now',
+          defaultValue: false,
+        },
+        fun: function(prior_starter, process) {
+          var date = new Date()
+          return { year:   date.getFullYear()
+                 , month:  date.getMonth() + 1
+                 , day:    date.getDate()
+                 , hour:   date.getHours()
+                 , minute: date.getMinutes()
+                 , second: date.getSeconds()
+                 , stamp:  Math.floor(date.getTime() / 1000)
+                 }
+        },
+      },
 
       stampwrap: {
         desc: "",

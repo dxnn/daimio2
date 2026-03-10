@@ -2245,6 +2245,54 @@ D.Space.prototype.get_state = function(param) {
   return (typeof this.state[param] != 'undefined') ? this.state[param] : this.seed.state[param]
 }
 
+D.Space.prototype.resolvePort = function(portType) {
+  // Find an existing port matching the portType
+  // Check flavour first, then settings.thing (used by down ports declared as @name down type)
+  for (var i = 0, l = this.ports.length; i < l; i++) {
+    if (this.ports[i].flavour === portType)
+      return this.ports[i]
+  }
+  for (var i = 0, l = this.ports.length; i < l; i++) {
+    if (this.ports[i].settings && this.ports[i].settings.thing === portType)
+      return this.ports[i]
+  }
+
+  // Demand-create: check wiring rules for a matching handler
+  if (this.wiringRules) {
+    var rule = D.match_wiring_rule(this.wiringRules, portType)
+    if (rule && rule.handler) {
+      // Create a synthetic down port that routes to the handler
+      var handler = rule.handler
+      return {
+        outs: [],
+        pair: true,                                        // truthy so m_command.js knows it's wired
+        sync: function(ship, callback) {
+          D.setImmediate(function() {
+            handler(ship, callback)
+          })
+          return NaN
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+D.match_wiring_rule = function(rules, portType) {
+  var other = null
+  for (var i = 0, l = rules.length; i < l; i++) {
+    var rule = rules[i]
+    if (rule.pattern === 'OTHER') {
+      other = rule
+      continue
+    }
+    if (rule.pattern && rule.pattern.portType === portType)
+      return rule
+  }
+  return other                                             // fallback to OTHER if no specific match
+}
+
 D.Space.prototype.dock = function(ship, station_id, actor) {
   var block_id = this.seed.stations[station_id - 1]
   var block    = D.BLOCKS[block_id]

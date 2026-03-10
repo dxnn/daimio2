@@ -112,6 +112,53 @@ import D from '../1_daimio.js'
       return ""                                                     // THINK: maybe {} or {noop: true} or something
     }                                                               // so false flows through instead of previous value
 
+    // Effectful command: check for wired port, or use default handler
+    if(segment.method.effect && process) {
+      var effect = segment.method.effect
+      var space = process.space
+      var port = space.resolvePort ? space.resolvePort(effect.portType) : null
+
+      if(port && (port.outs.length || port.pair)) {
+        // Port is wired — send request through port, go async
+        var params = prep_params(segment.paramlist, inputs)
+        if(params === false) return ""
+        var request = { value: params[0] || '', handler: segment.value.handler, method: segment.value.method, params: params }
+
+        if(port.sync) {
+          // Down port: use sync for request/response with callback
+          // Wrap with timeout: resume with default value if no response
+          var timeout_ms = effect.timeout || (space.defaultTimeout) || 10000
+          var completed = false
+          var timer = setTimeout(function() {
+            if(completed) return
+            completed = true
+            D.set_error('Timeout on effectful command "' + segment.value.handler + ' ' + segment.value.method + '"')
+            prior_starter(effect.defaultValue !== undefined ? effect.defaultValue : '')
+          }, timeout_ms)
+
+          port.sync(request, function(response) {
+            if(completed) {
+              // Orphaned response — arrived after timeout
+              D.set_error('Orphaned response for "' + segment.value.handler + ' ' + segment.value.method + '" (arrived after timeout)')
+              return
+            }
+            completed = true
+            clearTimeout(timer)
+            prior_starter(response)
+          })
+        } else {
+          // Non-sync port: fire and forget through exit
+          port.exit(request, function(response) {
+            prior_starter(response)
+          }, process)
+        }
+
+        return NaN
+      }
+      // Port is unwired or doesn't exist — use default handler (fun)
+      // Fall through to normal execution below
+    }
+
     var params = prep_params(segment.paramlist, inputs)
     if(params === false) return ""
     if(segment.port) params.push(segment.port)

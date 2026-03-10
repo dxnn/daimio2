@@ -53,7 +53,7 @@ var known_failures = new Set([
   '{$x | >$x.d}',
   '{* (:xyz :z 10 :z 3 :z 1 :z :a :z)}',
   '{* (:xyz :9z 10 :8z 3 :6z 1 :4z :a :2z) | sort}',
-  '{"2" | is in (2) | then :true else :false}',
+  // '{"2" | is in (2) | then :true else :false}',  // FIXED: added loose equality in is-in
   '{:ash | >$hash.{"two"}} {$hash}',
   '{:ash | >$hash.{"two"}.monkey.flu} {$hash}',
   '{:ash | >$hash.{"two"}.monkey.{(:x :y :z)}.flu} {$hash}',
