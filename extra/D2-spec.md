@@ -106,8 +106,9 @@ $foo       — space variable (read); set with >$foo
 ```
 
 **Scope hierarchy:**
-  - `__` — previous pipe segment (one pipeline, resets each segment)
-  - `_foo` — pipeline variable (one pipeline/block, set with `>foo`)
+  - `__` — previous pipe segment (resets each segment)
+  - `_foo` — pipeline variable (set with `>foo`; inherited by inner
+    blocks, but bindings inside a block don't propagate back out)
   - `$foo` — space variable (persists across pipelines within a space)
 
 ### The `||` barrier
@@ -273,10 +274,12 @@ A ship is the unit of execution flowing through a space. It carries its
 payload and its local state (pipeline vars). Pipeline vars are immutable
 within a segment but can be bound via >x.
 
-**Env scope is one pipeline/block execution.** Each pipeline execution
-(whether a station's top-level pipeline or a block invoked by a command
-like `list map`) gets a fresh env. Pipeline variables set with `>x` in
-one block are not visible in other blocks or in the enclosing pipeline.
+**Env scope:** pipeline variables are write-once and scoped to one
+pipeline/block execution. When a block is invoked by a command (like
+`list map`), it inherits a copy of the parent pipeline's env — all
+the parent's pipeline vars are readable inside the block. But vars
+bound inside the block (via `>x`) do not propagate back to the parent.
+The inheritance is one-way: parent → child, never child → parent.
 
 When a ship exits a station's _out port, its env is cleared. The ship
 arrives at the next station with only its payload (v).
@@ -528,23 +531,30 @@ accept block parameters and invoke them iteratively:
 ```
 {(1 2 3) | list map block "{_value | math add value 1}"}
 {$items | list reduce block "{_total | math add value _value}" with 0}
-{$data | list filter block "{_value | is gt value 5}"}
+{* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}"}
 ```
 
 When a command invokes a block:
 
-  1. The command provides a **scope**: a set of bindings injected into
-     the block's pipeline variable environment.
-  2. Standard injected names:
+  1. The block **inherits the parent pipeline's env**. All pipeline
+     variables bound before the block was invoked are available inside
+     the block. This is safe because pipeline vars are write-once
+     (immutable bindings) — the block gets lexical closure over
+     frozen values.
+  2. The command **injects scope variables** on top of the inherited
+     env. Standard injected names:
        `_value`       — the current item being processed
        `_key`         — the current item's key (for keyed collections)
        `_total`       — accumulator value (for reduce/fold)
+     Injected vars shadow parent vars of the same name.
   3. Within the block, `__in` is the block's input (typically `_value`).
      `__` is the previous pipe segment's output — at the start of the
      block, `__` equals `__in`.
   4. The block executes as a pipeline in the current outer space,
      under the current dialect, with access to space variables.
   5. The block's result is collected by the command.
+  6. Pipeline vars bound inside the block (via `>x`) do NOT propagate
+     back to the parent pipeline. The block's env is its own scope.
 
 Commands that invoke blocks are still Pure if the block itself
 contains only pure commands. If a block contains effectful commands,
@@ -913,8 +923,10 @@ just running a pipeline. It happens constantly during normal execution:
 
 In all cases, the block's pipeline executes in the current outer space,
 under the outer space's dialect, with access to the outer space's
-space variables. There is no distinction between "built-in" pipelines
-(in station definitions) and "received" pipelines (arriving as data).
+space variables. Blocks inherit the parent pipeline's env (see §2,
+Block invocation). A program received as data and run as a block
+inherits the env of whatever pipeline evaluates it — if there are no
+pipeline vars in scope, the received program simply sees an empty env.
 The execution model — segment atomicity, fresh space var reads,
 effectful commands creating async boundaries — applies uniformly.
 
@@ -1200,3 +1212,10 @@ cross the barrier. A trailing `||` causes the pipeline to return empty.
 This enables running independent computations in sequence within one
 pipeline, stashing results in pipeline vars, and suppressing output
 in templating contexts.
+
+### D18: Blocks inherit parent pipeline vars
+Inner blocks get lexical closure over the parent pipeline's env.
+This is safe because pipeline vars are write-once (immutable
+bindings). Vars bound inside the block don't propagate back.
+This eliminates the need for explicit `with` params in the common
+case of accessing outer variables from inner blocks.
