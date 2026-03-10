@@ -1344,9 +1344,9 @@ D.Parser.string_to_block_segment = function(string) {
   var segment = D.Parser.segments_to_block_segment(D.Parser.string_to_segments(string))
     , block_id = segment.value.id
 
-  D.add_decorator(block_id, 'OriginalString', string, true)           // THINK: why is this unique?
-                                                                      // what should we do with different
-  return segment                                                      // strings that compile to the same block?
+  segment.original_string = string                                    // per-segment source for toJSON
+  D.add_decorator(block_id, 'OriginalString', string, true)           // fallback for blocks without segment context
+  return segment
 }
 
 D.Parser.segments_to_block_segment = function(segments) {
@@ -1849,7 +1849,9 @@ D.wash_keys = function(segments, wiring) {
     // also 'wait'
 
 
-    new_segments.push(new D.Segment(segment.type, segment.value, null))
+    var new_seg = new D.Segment(segment.type, segment.value, null)
+    if(segment.original_string) new_seg.original_string = segment.original_string
+    new_segments.push(new_seg)
   }
 
   return {segments: new_segments, wiring: new_wiring}

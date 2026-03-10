@@ -64,8 +64,8 @@ var known_failures = new Set([
   // '{(1 2 3) | subtract $jklj}',  // FIXED: undefined vars + singleArray false→0
   // '{9 | range _asdf}',  // FIXED: undefined vars return false (zero)
   // '{"{123}" | quote}',  // FIXED: __ fancy handler fix
-  '{"{777}" | quote}',
-  '{"{xxx}" | quote}',
+  // '{"{777}" | quote}',  // FIXED: per-segment original_string avoids synonymization
+  // '{"{xxx}" | quote}',  // FIXED: per-segment original_string avoids synonymization
 ])
 
 function eat_line(value, prior_starter) {

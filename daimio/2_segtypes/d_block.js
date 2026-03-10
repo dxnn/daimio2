@@ -15,6 +15,7 @@ D.SegmentTypes.Block = {
     return [segment]
   }
 , toJSON: function(segment) {
+    if(segment.original_string) return segment.original_string        // per-segment source (avoids synonymization)
     var block_id = segment.value.id
       , decorators = D.get_decorators(block_id, 'OriginalString')
 

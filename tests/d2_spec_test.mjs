@@ -1062,6 +1062,25 @@ test(
 
 
 // =====================================================
+// Block synonymization: quote returns per-segment source
+// =====================================================
+
+// Two blocks with different source strings can compile to
+// identical segment structures (same hash). quote should
+// return the source of THIS block, not the first-parsed synonym.
+test(
+  'quote preserves original source despite synonymization',
+  '{"{777}" | quote}',
+  '{777}'
+)
+test(
+  'quote preserves original source for alias-like blocks',
+  '{"{xxx}" | quote}',
+  '{xxx}'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 
