@@ -26,7 +26,7 @@ var failures = []
 // Pre-existing failures — keyed by code string.
 // If a failure is in this set, it's known; if not, it's a regression.
 var known_failures = new Set([
-  '{5 | >$ints.{$ints | count}}  {// (DATA BUG) //}',
+  // '{5 | >$ints.{$ints | count}}  {// (DATA BUG) //}',  // FIXED: >$x.path passthrough
   '{"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}',
   '{* (:a 1 :b 2 :c 3) | list poke path ("#5") value 999}',
   '{() | list poke path ("*" "*") value 999}',
@@ -49,13 +49,13 @@ var known_failures = new Set([
   '{$data | list sort by {* (:two.#2 :desc :one :asc)} | __.*.one}',
   '{* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}" with {* (:l _l)}}',
   '{* (:c 3 :b 2 :a 1) | list sort}',
-  '{* (:a 1 :b 2) | >$x | >$x.c}',
-  '{$x | >$x.d}',
+  // '{* (:a 1 :b 2) | >$x | >$x.c}',  // FIXED: >$x.path passthrough
+  // '{$x | >$x.d}',  // FIXED: >$x.path passthrough
   '{* (:xyz :z 10 :z 3 :z 1 :z :a :z)}',
   '{* (:xyz :9z 10 :8z 3 :6z 1 :4z :a :2z) | sort}',
   // '{"2" | is in (2) | then :true else :false}',  // FIXED: added loose equality in is-in
-  '{:ash | >$hash.{"two"}} {$hash}',
-  '{:ash | >$hash.{"two"}.monkey.flu} {$hash}',
+  // '{:ash | >$hash.{"two"}} {$hash}',  // FIXED: >$x.path passthrough
+  // '{:ash | >$hash.{"two"}.monkey.flu} {$hash}',  // FIXED: >$x.path passthrough
   '{:ash | >$hash.{"two"}.monkey.{(:x :y :z)}.flu} {$hash}',
   '{123 | >foo || __foo}',
   '{5 | >foo | (1 2 3) | map block "{__ | subtract _o}"}',

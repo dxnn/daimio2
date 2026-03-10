@@ -934,7 +934,9 @@ D.import_fancy('>@', {
 D.import_fancy('>$', {
   eat: function(token) {
 
-    // TODO: change path to name, make >$foo set foo, make >$foo.baz.baa -> list poke path (:baz :baa) data $foo value __ | >$foo
+    // >$foo sets space var foo. >$foo.baz.baa desugars to:
+    //   >tempN | list poke path (:baz :baa) data $foo value _tempN | >$foo | _tempN
+    // The save/get pair ensures the original pipe value passes through unchanged.
 
     var pieces = D.Parser.split_on(token.value, '.')
       , name = pieces.shift().slice(2)
@@ -950,19 +952,28 @@ D.import_fancy('>$', {
              : item
       })
 
+      // Unique temp var name for saving/restoring the pipe value
+      var temp_name = '_poke' + D.Etc.token_counter
+
+      var save = new D.Token('VariableSet', {type: 'pipeline', name: temp_name})
+      save.prevkey = token.prevkey
+
       var path = new D.Token('List', pieces.join(' '))
         , poker = new D.Token('Command', 'list poke data $' + name)
 
       poker.names = ['path', 'value']
-      poker.inputs = [path.key, token.prevkey]
+      poker.inputs = [path.key, save.key]
 
       token.names = ['value']
       token.inputs = [poker.key]
 
-      poke_tokens = [path, poker]
+      var get = new D.Token('Variable', {type: 'pipeline', name: temp_name})
+
+      poke_tokens = [save, path, poker]
+      return poke_tokens.concat(token, get)
     }
 
-    return poke_tokens.concat(token)
+    return [token]
   }
 })
 

@@ -223,9 +223,9 @@
       {* (:a 1 :b 2 :c 3) | poke 4 path :d}
         {"a":1,"b":2,"c":3,"d":4}
 
-    dots are poke sugar too
+    dots are poke sugar too (>$x.path passes through the pipe value, not the updated object)
       {5 | >$foo.#2}
-        [1,5,3]
+        5
 
 
   And that's everything there is to know about Daimio. Well, almost. Let's explore a couple ideas in greater depth.
@@ -1179,9 +1179,9 @@
       {(1 2 3) | list poke path (:a) value 999}
         {"0":1,"1":2,"2":3,"a":999}
 
-    when you poke by key to a non-existent var, it borks completely. (DATA BUG)
+    poke by key to a non-existent var creates the var; pipe value passes through
       {1234 | >$qwe.rty}
-        {"rty":1234}
+        1234
 
     the second set should override the first one (DATA BUG)
       {"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}
@@ -3107,9 +3107,9 @@ BASIC SYNTAX TESTS
       {"{xxx}" | quote}
         {xxx}
         
-    This should set by key, not position
+    This should set by key, not position (pipe value passes through)
       {5 | >$pqpq.3}
-        {"3":5}
+        5
 
     // {"{_x | run with {* (:x _x)} }" | >x | run with {* (:x _x)} }
     // (leads to immediate stack overflow... maybe that's an ok solution for infinite recursion? just let it blow up?)

@@ -936,6 +936,40 @@ test(
 
 
 // =====================================================
+// >$x.path passthrough: pipe value should not change
+// =====================================================
+
+// The >$x.path operator writes to the space variable's subpath
+// but the pipe value should pass through unchanged (the original
+// value, not the full updated object).
+
+test(
+  '>$x.path passes through original value',
+  '{* (:a 1) | >$pt1 | 42 | >$pt1.sub || $pt1}',
+  '{"a":1,"sub":42}'
+)
+
+// The 42 should flow through, not the full {sub:42} object
+test(
+  '>$x.path passthrough value is the pipe input, not the poked object',
+  '{* (:a 1) | >$pt2 | 55 | >$pt2.b}',
+  '55'
+)
+
+test(
+  '>$x.path passthrough with nested path',
+  '{* (:a 1) | >$pt3 | :hello | >$pt3.b.c}',
+  'hello'
+)
+
+test(
+  '>$x.path self-reference poke passes through original',
+  '{* (:a 1 :b 2) | >$pt4 | >$pt4.c}',
+  '{"a":1,"b":2}'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 
