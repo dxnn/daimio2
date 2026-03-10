@@ -57,13 +57,13 @@ var known_failures = new Set([
   // '{:ash | >$hash.{"two"}} {$hash}',  // FIXED: >$x.path passthrough
   // '{:ash | >$hash.{"two"}.monkey.flu} {$hash}',  // FIXED: >$x.path passthrough
   '{:ash | >$hash.{"two"}.monkey.{(:x :y :z)}.flu} {$hash}',
-  '{123 | >foo || __foo}',
+  // '{123 | >foo || __foo}',  // FIXED: __ fancy handler returns empty string instead of dropping
   // '{5 | >foo | (1 2 3) | map block "{__ | subtract _o}"}',  // FIXED: undefined vars return false (zero)
   // '{5 | >foo | (1 2 3) | map block "{__ | range _o}"}',  // FIXED: undefined vars return false (zero)
   // '{(1 2 3) | subtract _zxcv}  {// subtraction and division are weird for this internally //}',  // FIXED: undefined vars return false (zero)
   // '{(1 2 3) | subtract $jklj}',  // FIXED: undefined vars + singleArray false→0
   // '{9 | range _asdf}',  // FIXED: undefined vars return false (zero)
-  '{"{123}" | quote}',
+  // '{"{123}" | quote}',  // FIXED: __ fancy handler fix
   '{"{777}" | quote}',
   '{"{xxx}" | quote}',
 ])

@@ -1005,7 +1005,9 @@ D.import_fancy('__', {
 
     if(token.value != '__' && token.value != '__in') {
       D.set_error('Only __ and __in are allow to start with __')
-      return []
+      token.type = 'String'                                           // error segment stays in pipeline
+      token.value = ''                                                // and produces empty value
+      return [token]
     }
 
     return [token].concat(D.eat_fancy_var_pieces(pieces, token))

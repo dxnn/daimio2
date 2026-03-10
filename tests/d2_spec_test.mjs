@@ -1049,6 +1049,19 @@ test(
 
 
 // =====================================================
+// || double pipe: error after || should not leak value
+// =====================================================
+
+// When the segment after || produces an error and is removed,
+// the pre-|| value should not leak through as output.
+test(
+  'double pipe blocks value leak on error',
+  '{123 | >foo || __foo}',
+  ''
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 
