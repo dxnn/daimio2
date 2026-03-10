@@ -28,6 +28,7 @@ import './commands/builtin/math.js'
 import './commands/builtin/process.js'
 import './commands/builtin/string.js'
 import './commands/builtin/time.js'
+import './commands/builtin/var.js'
 import './commands/local/daggr.js'
 import './commands/local/dagoba.js'
 

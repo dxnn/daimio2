@@ -96,6 +96,19 @@ D.set_error = function(error) {
 D.on_error = function(command, error) {
   // use this to report errors in low-level daimio processes
   console.log('error: ' + error, command)
+
+  // Route to space's error port if available
+  var space = D.Etc.active_space
+  if(space) {
+    for(var i = 0, l = space.ports.length; i < l; i++) {
+      var port = space.ports[i]
+      if(port.flavour === 'err' && !port.station) {
+        port.enter(error || command)                       // enter → pair.exit → outside_exit
+        break
+      }
+    }
+  }
+
   return ""
 }
 
@@ -2293,6 +2306,35 @@ D.match_wiring_rule = function(rules, portType) {
   return other                                             // fallback to OTHER if no specific match
 }
 
+D.Space.prototype.loadSubspace = function(daml) {
+  // Parse DAML source text into a space seed and install as a subspace
+  var seed_id = D.make_some_space(daml)
+  if (typeof seed_id !== 'number')
+    return D.set_error('Failed to load subspace from DAML')
+
+  // Create the subspace with this space as parent
+  var subspace = new D.Space(seed_id, this)
+  this.subspaces.push(subspace)
+
+  // Create paired ports: for each of the subspace's space-level ports,
+  // create a matching port in the parent and pair them together
+  var self = this
+  subspace.ports
+    .filter(function(port) {
+      return port.space === subspace                               // belongs to the subspace
+          && !port.station                                         // not a station port
+          && !port.pair                                            // not already paired (sub-subspace)
+    })
+    .forEach(function(port) {
+      // Create an outside port for the parent side
+      var outside_template = {flavour: port.flavour, name: port.name, settings: port.settings || {}}
+      var parent_port = new D.Port(outside_template)               // no space → outside port
+      parent_port.pairup(port)
+    })
+
+  return subspace
+}
+
 D.Space.prototype.dock = function(ship, station_id, actor) {
   var block_id = this.seed.stations[station_id - 1]
   var block    = D.BLOCKS[block_id]
@@ -2481,19 +2523,8 @@ D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, st
   // }
 
   if(this.processes.length && this.only_one_process) {
-    // NOTE: we kind of need this -- it keeps all the process requests in order (using JS's event loop) and clears our closet of skeletal callstacks
-    var thunk = function() {
-      var result = self.real_execute(block, scope, prior_starter, station_id, actor)
-      if(result === result)
-        prior_starter(result) // we're asynced, but the process didn't know it
-    }
-
-    D.setImmediate(thunk)
-    // setTimeout(thunk, 0)
-
-    // this.queue.push(function() {
-    //   self.real_execute(block, scope, prior_starter, when_done)
-    // })
+    // Queue the work: execute when current process completes
+    this.queue.push({block: block, scope: scope, prior_starter: prior_starter, station_id: station_id, actor: actor})
     return NaN
   }
 
@@ -2544,7 +2575,20 @@ D.Space.prototype.cleanup = function(process) {
     // this.run_listeners(process.last_value, listeners) // THINK: is process.last_value right?
   }
 
-  // this.run_queue()
+  this.run_queue()
+}
+
+D.Space.prototype.run_queue = function() {
+  if(this.processes.length || !this.queue.length) return     // busy or nothing to do
+
+  var self = this
+  var item = this.queue.shift()
+
+  D.setImmediate(function() {
+    var result = self.real_execute(item.block, item.scope, item.prior_starter, item.station_id, item.actor)
+    if(result === result)
+      item.prior_starter(result)                             // was queued (async from caller's perspective) but completed sync
+  })
 }
 
 D.Space.prototype.scrub_process = function(pid) {
@@ -2672,6 +2716,8 @@ D.Process.prototype.run = function() {
   var dialect = (this.actor && this.actor.dialect) || this.space.dialect
   var current = this.current
   var segment = segs[current]
+
+  D.Etc.active_space = this.space
 
   while(segment) {
     value = this.next(segment, current, wires, dialect)             // TODO: this is not a trampoline

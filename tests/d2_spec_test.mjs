@@ -562,6 +562,380 @@ test(
 
 
 // =====================================================
+// §4 Soft errors: route to space error port
+// =====================================================
+
+// When a space has an error port, soft errors should be sent to it.
+;(function() {
+  pending++
+
+  // Space with an error port
+  var seed_id = D.make_some_space(
+    'outer\n' +
+    '  @errsink err\n' +
+    '  @init from-js start\n' +
+    '  @out  to-js\n' +
+    '  @init -> {foo asdf | math add value 1 to 2} -> @out\n'
+  )
+
+  var space = new D.Space(seed_id)
+  var from_port = space.ports.find(function(p) { return p.flavour === 'from-js' })
+  var to_port = space.ports.find(function(p) { return p.flavour === 'to-js' })
+  var err_port = space.ports.find(function(p) { return p.flavour === 'err' && !p.station })
+
+  if (!from_port || !to_port || !err_port) {
+    fail++
+    failures.push({
+      label: 'error port space setup',
+      input: '(port setup)',
+      expected: 'all ports found',
+      actual: 'from=' + !!from_port + ' to=' + !!to_port + ' err=' + !!err_port
+    })
+    pending--
+    return
+  }
+
+  // Capture errors on the err port's outside pair
+  var errors_received = []
+  var err_outside = err_port.pair
+  err_outside.outside_exit = function(value) {
+    errors_received.push(value)
+  }
+
+  // Capture output on the to-js port
+  var to_outside = to_port.pair
+  to_outside.outside_exit = function(value) {
+    // Pipeline should still complete: {foo asdf} errors, returns "", then {math add value 1 to 2} returns 3
+    var actual = String(value)
+    // Check that we got at least one error routed to the error port
+    if (errors_received.length > 0 && actual === '3') {
+      pass++
+    } else {
+      fail++
+      failures.push({
+        label: 'soft error routes to error port',
+        input: '{foo asdf | math add value 1 to 2}',
+        expected: 'errors_received > 0 and output 3',
+        actual: 'errors=' + errors_received.length + ' output=' + actual
+      })
+    }
+    pending--
+    if (all_registered && pending === 0) report()
+  }
+
+  from_port.pair.enter('start')
+})()
+
+
+// =====================================================
+// §6 Cross-boundary state: var read/write (unwired)
+// =====================================================
+
+// var read and var write are effectful commands.
+// When unwired, the default handler accesses the current space's state.
+
+test(
+  'var write sets space variable',
+  '{var write name :testvar value 42 | var read name :testvar}',
+  '42'
+)
+
+test(
+  'var read returns empty for unset variable',
+  '{var read name :nonexistent}',
+  ''
+)
+
+
+// =====================================================
+// §6 Cross-boundary state: var read/write (wired)
+// =====================================================
+
+// When wired, var read/write go through down ports to a parent handler.
+;(function() {
+  pending++
+
+  var seed_id = D.make_some_space(
+    'outer\n' +
+    '  @init from-js start\n' +
+    '  @out  to-js\n' +
+    '  @init -> {var write name :color value :blue | var read name :color} -> @out\n'
+  )
+
+  var space = new D.Space(seed_id)
+
+  // Mock parent state via wiring rules
+  var parent_state = {}
+  space.wiringRules = [
+    {
+      pattern: { portType: 'var-write' },
+      handler: function(request, callback) {
+        parent_state[request.params[0]] = request.params[1]
+        callback(request.params[1])
+      }
+    },
+    {
+      pattern: { portType: 'var-read' },
+      handler: function(request, callback) {
+        callback(parent_state[request.params[0]] || '')
+      }
+    }
+  ]
+
+  var from_port = space.ports.find(function(p) { return p.flavour === 'from-js' })
+  var to_port = space.ports.find(function(p) { return p.flavour === 'to-js' })
+
+  var to_outside = to_port.pair
+  to_outside.outside_exit = function(value) {
+    var actual = String(value)
+    if (actual === 'blue') {
+      pass++
+    } else {
+      fail++
+      failures.push({
+        label: 'wired var read/write through parent',
+        input: '{var write name :color value :blue | var read name :color}',
+        expected: 'blue',
+        actual: actual
+      })
+    }
+    pending--
+    if (all_registered && pending === 0) report()
+  }
+
+  from_port.pair.enter('start')
+})()
+
+
+// =====================================================
+// §1 D14: Copy semantics at command boundaries
+// =====================================================
+
+// Storing in $x then modifying should not affect $x
+test(
+  'space var copy: poke does not mutate original',
+  '{(1 2 3) | >$x | poke 4 | >$y || $x | add}',
+  '6'
+)
+
+test(
+  'space var copy: remove does not mutate original',
+  '{(1 2 3) | >$x | list remove by_value 2 || $x | add}',
+  '6'
+)
+
+
+// =====================================================
+// §6 Socket loading: load DAML source as subspace
+// =====================================================
+
+// loadSubspace parses DAML source and installs a new subspace at runtime.
+;(function() {
+  pending++
+
+  // Parent space
+  var seed_id = D.make_some_space(
+    'outer\n' +
+    '  @init from-js start\n' +
+    '  @out  to-js\n'
+  )
+
+  var parent = new D.Space(seed_id)
+
+  // Load a subspace dynamically
+  var child_daml =
+    'inner\n' +
+    '  @in in\n' +
+    '  @out out\n' +
+    '  @in -> {__ | math add value __ to 10} -> @out\n'
+
+  var subspace = parent.loadSubspace ? parent.loadSubspace(child_daml) : null
+
+  if (!subspace) {
+    fail++
+    failures.push({
+      label: 'loadSubspace exists',
+      input: '(socket loading)',
+      expected: 'loadSubspace returns space',
+      actual: 'null or undefined'
+    })
+    pending--
+    return
+  }
+
+  // Find the subspace's paired ports in the parent
+  var child_in = subspace.ports.find(function(p) { return p.name === 'in' && !p.station })
+  var child_out = subspace.ports.find(function(p) { return p.name === 'out' && !p.station })
+
+  if (!child_in || !child_out) {
+    fail++
+    failures.push({
+      label: 'subspace has ports',
+      input: '(socket loading)',
+      expected: 'in and out ports',
+      actual: 'in=' + !!child_in + ' out=' + !!child_out
+    })
+    pending--
+    return
+  }
+
+  // The child_in port's pair should exist (parent-side port)
+  var parent_in = child_in.pair
+  var parent_out = child_out.pair
+
+  if (!parent_in || !parent_out) {
+    fail++
+    failures.push({
+      label: 'subspace ports paired with parent',
+      input: '(socket loading)',
+      expected: 'paired ports',
+      actual: 'parent_in=' + !!parent_in + ' parent_out=' + !!parent_out
+    })
+    pending--
+    return
+  }
+
+  // Capture output from the child space through its paired parent port
+  parent_out.outside_exit = function(value) {
+    var actual = String(value)
+    if (actual === '15') {
+      pass++
+    } else {
+      fail++
+      failures.push({
+        label: 'loaded subspace processes correctly',
+        input: '5 | math add to 10 (in subspace)',
+        expected: '15',
+        actual: actual
+      })
+    }
+    pending--
+    if (all_registered && pending === 0) report()
+  }
+
+  // Send value into the subspace via the parent-side in port
+  parent_in.enter(5)
+})()
+
+
+// =====================================================
+// §6 Socket loading with wiring rules
+// =====================================================
+
+// A loaded subspace's effectful commands should be routed
+// by the parent's wiring rules.
+;(function() {
+  pending++
+
+  // Parent space with wiring rules
+  var seed_id = D.make_some_space(
+    'outer\n' +
+    '  @init from-js start\n' +
+    '  @out  to-js\n'
+  )
+
+  var parent = new D.Space(seed_id)
+
+  // Parent wiring: mock handler for time-now effects
+  parent.wiringRules = [
+    {
+      pattern: 'OTHER',
+      handler: function(request, callback) {
+        callback({ stamp: 999 })
+      }
+    }
+  ]
+
+  // Load a subspace that uses an effectful command
+  var child_daml =
+    'inner\n' +
+    '  @in in\n' +
+    '  @out out\n' +
+    '  @in -> {time now | __.stamp} -> @out\n'
+
+  var subspace = parent.loadSubspace(child_daml)
+
+  // The subspace needs to inherit parent's wiring rules for effectful commands
+  subspace.wiringRules = parent.wiringRules
+
+  var child_in = subspace.ports.find(function(p) { return p.name === 'in' && !p.station })
+  var child_out = subspace.ports.find(function(p) { return p.name === 'out' && !p.station })
+
+  var parent_out = child_out.pair
+  parent_out.outside_exit = function(value) {
+    var actual = String(value)
+    if (actual === '999') {
+      pass++
+    } else {
+      fail++
+      failures.push({
+        label: 'loaded subspace uses parent wiring rules',
+        input: '{time now | __.stamp} in subspace with parent wiring',
+        expected: '999',
+        actual: actual
+      })
+    }
+    pending--
+    if (all_registered && pending === 0) report()
+  }
+
+  // Enter via the parent-side paired port
+  child_in.pair.enter('start')
+})()
+
+
+// =====================================================
+// §8 Scheduling: sequential execution of concurrent ships
+// =====================================================
+
+// Two ships entering the same space should execute sequentially.
+// Both increment a counter, so the final value should be 2.
+;(function() {
+  pending++
+
+  var seed_id = D.make_some_space(
+    'outer\n' +
+    '  @init from-js start\n' +
+    '  @out  to-js\n' +
+    '  $counter 0\n' +
+    '  @init -> {$counter | math add value __ to 1 | >$counter} -> @out\n'
+  )
+
+  var space = new D.Space(seed_id)
+  var from_port = space.ports.find(function(p) { return p.flavour === 'from-js' })
+  var to_port = space.ports.find(function(p) { return p.flavour === 'to-js' })
+
+  var results = []
+  var to_outside = to_port.pair
+  to_outside.outside_exit = function(value) {
+    results.push(String(value))
+    if (results.length === 2) {
+      // Both ships completed — final counter should be 2
+      // Ship 1: read 0, write 1 → output 1
+      // Ship 2: read 1, write 2 → output 2
+      if (results[0] === '1' && results[1] === '2') {
+        pass++
+      } else {
+        fail++
+        failures.push({
+          label: 'sequential execution of concurrent ships',
+          input: 'two ships incrementing counter',
+          expected: 'outputs [1, 2]',
+          actual: JSON.stringify(results)
+        })
+      }
+      pending--
+      if (all_registered && pending === 0) report()
+    }
+  }
+
+  // Send two ships concurrently
+  from_port.pair.enter('a')
+  from_port.pair.enter('b')
+})()
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 
