@@ -426,6 +426,7 @@ D.Etc.Math.singleArray = function(value, to, fun) {
   }
 
   // one array, one number
+  if(to === false || to === null) to = 0                             // false/null mean zero (e.g. undefined var)
   if(D.is_numeric(to)) {
     return value.map(function(val) {
       return fun(D.to_numeric(val), D.to_numeric(to));

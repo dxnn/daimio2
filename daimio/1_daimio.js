@@ -530,7 +530,8 @@ D.nicify = function(list, state) {
   var result = []
   for(var i=0, l=list.length; i < l; i++) {
     var item = state[list[i]]
-    result.push( D.is_nice(item) ? item : null )                    // THINK: why null?
+    result.push( D.is_nice(item) ? item
+               : typeof list[i] === 'string' ? false : null )       // string keys are var refs; undefined vars = false (zero)
   }
   return result
 }

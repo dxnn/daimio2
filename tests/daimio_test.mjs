@@ -41,7 +41,7 @@ var known_failures = new Set([
   // '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}"}',  // FIXED: group by always returns object
   // '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}" | list group by "{__.#1 | mod 2}"}',  // FIXED: group by always returns object
   // '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}" | sort by "{__.#1}" | list reverse | list group by "{__.#1 | mod 2}"}',  // FIXED: group by always returns object
-  '{5 | >foo | (1 2 3) | map block "{__ | add _foo}" with {* (:foo _foo)}}',
+  // '{5 | >foo | (1 2 3) | map block "{__ | add _foo}" with {* (:foo _foo)}}',  // FIXED: undefined vars return false (zero)
   // '{* (:x 3 :y 2 :z 4 :q 1) | list reverse}',  // FIXED: reverse preserves keys
   // '{$data | list sort by {* (:three :desc :one :asc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
   // '{$data | list sort by {* (:three :desc :one :desc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
@@ -58,11 +58,11 @@ var known_failures = new Set([
   // '{:ash | >$hash.{"two"}.monkey.flu} {$hash}',  // FIXED: >$x.path passthrough
   '{:ash | >$hash.{"two"}.monkey.{(:x :y :z)}.flu} {$hash}',
   '{123 | >foo || __foo}',
-  '{5 | >foo | (1 2 3) | map block "{__ | subtract _o}"}',
-  '{5 | >foo | (1 2 3) | map block "{__ | range _o}"}',
-  '{(1 2 3) | subtract _zxcv}  {// subtraction and division are weird for this internally //}',
-  '{(1 2 3) | subtract $jklj}',
-  '{9 | range _asdf}',
+  // '{5 | >foo | (1 2 3) | map block "{__ | subtract _o}"}',  // FIXED: undefined vars return false (zero)
+  // '{5 | >foo | (1 2 3) | map block "{__ | range _o}"}',  // FIXED: undefined vars return false (zero)
+  // '{(1 2 3) | subtract _zxcv}  {// subtraction and division are weird for this internally //}',  // FIXED: undefined vars return false (zero)
+  // '{(1 2 3) | subtract $jklj}',  // FIXED: undefined vars + singleArray false→0
+  // '{9 | range _asdf}',  // FIXED: undefined vars return false (zero)
   '{"{123}" | quote}',
   '{"{777}" | quote}',
   '{"{xxx}" | quote}',

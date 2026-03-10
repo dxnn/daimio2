@@ -1018,6 +1018,37 @@ test(
 
 
 // =====================================================
+// Undefined pipeline variables: should behave as zero/empty
+// =====================================================
+
+// An undefined pipeline variable used as a math param should
+// act as zero (false), not cause the pipe value to leak through.
+test(
+  'undefined pipeline var in range acts as zero',
+  '{9 | range _asdf}',
+  '[]'
+)
+
+test(
+  'undefined pipeline var in subtract acts as zero',
+  '{(1 2 3) | subtract _zxcv}',
+  '[1,2,3]'
+)
+
+test(
+  'undefined space var in subtract acts as zero',
+  '{(1 2 3) | subtract $jklj}',
+  '[1,2,3]'
+)
+
+test(
+  'undefined pipeline var in add acts as zero',
+  '{5 | add _nope}',
+  '5'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 
