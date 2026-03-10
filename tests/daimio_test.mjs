@@ -35,24 +35,24 @@ var known_failures = new Set([
   '{* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}',
   '{* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}',
   '{((2 1) (3 4) (4 5)) | list poke path ( ("#1" "#3") ("#2" "#4") ) value 999}',
-  '{$dlist |  __.*.one | filter block "{_parent.parent.one.1 | eq :3}"}',
-  '{(1 2 3 4 5 6) | list group by "{__ | mod 2}"}',
-  '{( {* (:a 1)} {* (:a 4)} {* (:a 3)} {* (:a 1)} ) | list group by :a}',
-  '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}"}',
-  '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}" | list group by "{__.#1 | mod 2}"}',
-  '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}" | sort by "{__.#1}" | list reverse | list group by "{__.#1 | mod 2}"}',
+  // '{$dlist |  __.*.one | filter block "{_parent.parent.one.1 | eq :3}"}',  // DISABLED: _parent not yet implemented
+  // '{(1 2 3 4 5 6) | list group by "{__ | mod 2}"}',  // FIXED: group by always returns object
+  // '{( {* (:a 1)} {* (:a 4)} {* (:a 3)} {* (:a 1)} ) | list group by :a}',  // FIXED: group by always returns object
+  // '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}"}',  // FIXED: group by always returns object
+  // '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}" | list group by "{__.#1 | mod 2}"}',  // FIXED: group by always returns object
+  // '{(1 2 3 4 5 6 7 8) | list group by "{__ | mod 4}" | sort by "{__.#1}" | list reverse | list group by "{__.#1 | mod 2}"}',  // FIXED: group by always returns object
   '{5 | >foo | (1 2 3) | map block "{__ | add _foo}" with {* (:foo _foo)}}',
-  '{* (:x 3 :y 2 :z 4 :q 1) | list reverse}',
-  '{$data | list sort by {* (:three :desc :one :asc)} | __.*.one}',
-  '{$data | list sort by {* (:three :desc :one :desc)} | __.*.one}',
-  '{$data | list sort by {* (:two.#2 :desc :one :desc)} | __.*.one}',
-  '{$data | list sort by {* (:two.#2 :desc :one :asc)} | __.*.one}',
+  // '{* (:x 3 :y 2 :z 4 :q 1) | list reverse}',  // FIXED: reverse preserves keys
+  // '{$data | list sort by {* (:three :desc :one :asc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
+  // '{$data | list sort by {* (:three :desc :one :desc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
+  // '{$data | list sort by {* (:two.#2 :desc :one :desc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
+  // '{$data | list sort by {* (:two.#2 :desc :one :asc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
   '{* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}" with {* (:l _l)}}',
-  '{* (:c 3 :b 2 :a 1) | list sort}',
+  // '{* (:c 3 :b 2 :a 1) | list sort}',  // FIXED: sort preserves keys on keyed lists
   // '{* (:a 1 :b 2) | >$x | >$x.c}',  // FIXED: >$x.path passthrough
   // '{$x | >$x.d}',  // FIXED: >$x.path passthrough
-  '{* (:xyz :z 10 :z 3 :z 1 :z :a :z)}',
-  '{* (:xyz :9z 10 :8z 3 :6z 1 :4z :a :2z) | sort}',
+  // '{* (:xyz :z 10 :z 3 :z 1 :z :a :z)}',  // DISABLED: JS integer key ordering limitation
+  // '{* (:xyz :9z 10 :8z 3 :6z 1 :4z :a :2z) | sort}',  // DISABLED: JS integer key ordering limitation
   // '{"2" | is in (2) | then :true else :false}',  // FIXED: added loose equality in is-in
   // '{:ash | >$hash.{"two"}} {$hash}',  // FIXED: >$x.path passthrough
   // '{:ash | >$hash.{"two"}.monkey.flu} {$hash}',  // FIXED: >$x.path passthrough

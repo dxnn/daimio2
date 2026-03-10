@@ -970,6 +970,54 @@ test(
 
 
 // =====================================================
+// Key-preserving operations: reverse, sort, group by
+// =====================================================
+
+// Reverse on a keyed list should preserve keys (reverse insertion order).
+test(
+  'reverse preserves keys on keyed list',
+  '{* (:x 3 :y 2 :z 4 :q 1) | list reverse}',
+  '{"q":1,"z":4,"y":2,"x":3}'
+)
+
+// Reverse on an unkeyed list still returns an array.
+test(
+  'reverse on unkeyed list returns array',
+  '{(3 2 4 1) | list reverse}',
+  '[1,4,2,3]'
+)
+
+// Sort on a keyed list should preserve keys (reorder by value).
+test(
+  'sort preserves keys on keyed list',
+  '{* (:c 3 :b 2 :a 1) | list sort}',
+  '{"a":1,"b":2,"c":3}'
+)
+
+// Sort on an unkeyed list still returns an array.
+test(
+  'sort on unkeyed list returns array',
+  '{(3 2 4 1) | list sort}',
+  '[1,2,3,4]'
+)
+
+// Group by always returns an object (keyed list), even with integer keys.
+// Note: integer-like string keys may be reordered by JS engines.
+test(
+  'group by with integer keys returns object',
+  '{(1 2 3 4 5 6) | list group by "{__ | mod 2}"}',
+  '{"0":[2,4,6],"1":[1,3,5]}'
+)
+
+// Group by with string keys returns object.
+test(
+  'group by with string keys returns object',
+  '{( {* (:a :x :b 1)} {* (:a :z :b 2)} {* (:a :x :b 3)} ) | list group by :a}',
+  '{"x":[{"a":"x","b":1},{"a":"x","b":3}],"z":[{"a":"z","b":2}]}'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

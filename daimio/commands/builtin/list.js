@@ -759,7 +759,7 @@ D.import_models({
 
       sort: {
         desc: 'Sort a list by something',
-        help: 'Careful using this on keyed lists, as it currently eats keys.',
+        help: 'Preserves keys on keyed lists.',
         params: [
           {
             key: 'data',
@@ -807,9 +807,10 @@ D.import_models({
 
           // NOTE: we're creating an temp array of sortable values, sorting that array, then building a new array of the old values in the right order. mostly from https://developer.mozilla.org/en-US/docs/JavaScript/Reference/Global_Objects/Array/sort
 
+          var isArray = Array.isArray(data)
+
           finalfun = function(valuelist) {
             var tempmap = []
-              , result = []
 
             for(var i=0, l=keys.length; i < l; i++) {
               tempmap.push({ index: keys[i] // remember the index within the original array
@@ -821,11 +822,16 @@ D.import_models({
               return a.value > b.value ? 1 : -1
             })
 
-            for(var i=0, length = tempmap.length; i < length; i++) {
-              result.push(data[tempmap[i].index])
-              // THINK: could this eat supplied variables? maybe deep clone here...
+            if(isArray) {
+              var result = []
+              for(var i=0, length = tempmap.length; i < length; i++)
+                result.push(data[tempmap[i].index])
+              return result
             }
 
+            var result = {}
+            for(var i=0, length = tempmap.length; i < length; i++)
+              result[tempmap[i].index] = data[tempmap[i].index]
             return result
           }
 
@@ -883,7 +889,7 @@ D.import_models({
 
       reverse: {
         desc: 'Reverse a list',
-        help: 'Careful using this on keyed lists, as it currently eats keys.',
+        help: 'Preserves keys on keyed lists.',
         params: [
           {
             key: 'data',
@@ -893,13 +899,19 @@ D.import_models({
           },
         ],
         fun: function(data) {
-          var newlist = []
-            , keys = Object.keys(data)
+          var keys = Object.keys(data)
 
-          for(var i = keys.length - 1; i >= 0; i--) {
-            newlist.push(data[keys[i]])
+          if(Array.isArray(data)) {
+            var newlist = []
+            for(var i = keys.length - 1; i >= 0; i--)
+              newlist.push(data[keys[i]])
+            return newlist
           }
-          return newlist
+
+          var result = {}
+          for(var i = keys.length - 1; i >= 0; i--)
+            result[keys[i]] = data[keys[i]]
+          return result
         },
       },
 
