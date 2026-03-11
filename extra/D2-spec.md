@@ -64,10 +64,11 @@ svar_write ::= '>$' name path?          — e.g. >$count, >$user.name
 
 port_send  ::= '>@' name               — send to a named space-level port
 
-path       ::= ('.' key)*
-key        ::= name                     — string key: .foo
+path       ::= ('.' selector)*
+selector   ::= name                     — string key: .foo
              | '#' integer              — positional index: .#0, .#-1
-             | '*'                      — wildcard: all children
+             | '*'                      — star: all children
+             | '(' path+ ')'           — par: multiple paths gathered
 ```
 
 ### The implicit pipe value
@@ -196,34 +197,126 @@ From the programmer's perspective, pipeline flow is functionally pure.
 Implementations may use mutation internally for efficiency (linear types
 style optimization when no future references exist).
 
-### Path expressions
+### Path expressions and accessors
 
-A path is a sequence of keys applied to a Val to access nested structure.
-Paths appear in variable access (`$user.name`, `_x.#0.items`) and in
-the `list peek` / `list poke` commands.
+A path is a sequence of selectors applied to a Val to access nested
+structure. Paths appear in variable access (`$user.name`, `_x.#0.items`)
+and in the `list peek` / `list poke` commands.
+
+#### Selectors
 
 ```
-path ::= key₁ . key₂ . ... . keyₙ
+Selector = Name(string)     — keyed access: .foo
+         | Pos(integer)     — positional access: .#0, .#-1 (negative from end)
+         | Star             — all children: .*
+         | Par(path list)   — multiple paths: .(:a :b :c)
+```
 
-key  ::= name         — string key (object property)
-       | #n           — positional index (0-based; negative counts from end)
-       | *            — wildcard (all children, returns list)
+Name and Pos are **affine** — they focus on at most one location.
 
-Semantics:
-  peek(v, [])     = v
-  peek(v, k::ks)  = peek(select(v, k), ks)
+Star is a **traversal** — it focuses on all existing children.
 
-  select(v, name) = v[name]           if v has key `name`
-  select(v, #n)   = v at position n   if v is ordered
-  select(v, *)    = all values of v   (returns list)
+Par is a **multiplexer** — it maps an operation across multiple paths.
+Each sub-path carries its own semantics: a Par of affine paths
+behaves like multiple affine accesses, a Par containing Star paths
+behaves like multiple traversals.
 
-If any key doesn't match (missing property, out of bounds), the
+#### Peek (read)
+
+Peek reads the value at a path. All selectors work uniformly in peek.
+
+```
+peek(v, []) = v
+
+peek(v, Name(s) :: rest)  = peek(v[s], rest)       — or Empty if missing
+peek(v, Pos(n)  :: rest)  = peek(v at n, rest)      — or Empty if missing
+peek(v, Star :: rest)     = [peek(child, rest) for child in children(v)]
+peek(v, Par(ps) :: rest)  = [peek(v, p ++ rest) for p in ps]
+
+peek(nonCollection, _ :: _) = Empty
+```
+
+If any selector doesn't match (missing key, out of bounds), the
 result is the empty value. Consistent with totality.
+
+#### Poke (write)
+
+Poke writes a value at a path. The only selector with special
+behavior is Star: it modifies existing children but never creates
+new ones. Everything else creates structure as needed.
+
+**Name, Pos** — create intermediate structure if missing:
+
+```
+poke(v, [], new) = new                          — replace entirely
+
+poke(Collection, Name(s) :: rest, new) =
+  if key s exists: update its val with poke(val, rest, new)
+  else:            append (key=s, val=poke(Empty, rest, new))
+
+poke(Collection, Pos(n) :: rest, new) =
+  if position n exists: update its val with poke(val, rest, new)
+  else:                 extend with Empty entries, set position n
+
+poke(Empty, Name(s) :: rest, new) =
+  create Collection with one entry (key=s, poke(Empty, rest, new))
+
+poke(Empty, Pos(n) :: rest, new) =
+  create Collection with Empty entries up to n, then set position n
+
+poke(scalar, sel :: rest, new) =
+  replace scalar with poke(Empty, sel :: rest, new)
 ```
 
-Poke (write at path) creates intermediate structure as needed:
-`>$data.items.#0.name` will create empty objects for `data`, `items`,
-and position 0 if they don't exist, then set `name`.
+**Star** — modify existing children only, never create:
+
+```
+poke(Collection, Star :: rest, new) =
+  for each existing child: poke(child, rest, new)
+  — no new children are created
+  — if the collection is empty, nothing happens
+
+poke(Empty, Star :: rest, new) = Empty          — no children to modify
+```
+
+**Par** — delegate to each sub-path, which carries its own semantics:
+
+```
+poke(v, Par(ps) :: rest, new) =
+  apply poke(v, p ++ rest, new) for each path p in ps, sequentially
+  — if p is affine (Name/Pos only), it creates as needed
+  — if p contains Star, the Star portion doesn't create
+```
+
+The rule is simple: **Star is the only thing that means "whatever's
+already here."** Name and Pos assert that a location should exist.
+Par just runs multiple paths — each path does whatever it would do
+on its own.
+
+#### Laws
+
+For paths containing no Star:
+
+```
+PutGet:  peek(poke(v, p, x), p) = x              — you get what you put
+PutPut:  poke(poke(v, p, x), p, y) = poke(v, p, y)   — last write wins
+GetPut:  poke(v, p, peek(v, p)) = v               — EXCEPT at creation
+         (violated when poke creates intermediate structure that
+         didn't exist before — the price of totality)
+```
+
+For paths containing Star, all three laws hold (Star only modifies
+existing structure, never creates, so GetPut is safe).
+
+For Par, the laws hold per-sub-path: each sub-path satisfies the
+laws according to whether it contains Star or not.
+
+#### Delete
+
+Delete is NOT a path operation. It changes the shape of a collection
+(positions shift, keys disappear). Use explicit commands like
+`list remove` instead. Setting a path to Empty via poke stores the
+empty value — it does not remove the entry.
 
 ### Identifiers
 ```
@@ -471,8 +564,10 @@ value (consistent with totality — no errors, just defaults).
   (ship, σ) —[WriteSVar(s, path)]→ (ship, σ')
 ```
 
-If path is empty, this sets s directly. If path is non-empty, poke
-creates intermediate structure as needed (see §1, Path expressions).
+If path is empty, this sets s directly. If the path contains only
+Name/Pos selectors, poke creates intermediate structure as needed.
+If the path contains Star, poke modifies only existing children.
+See §1, Path expressions.
 
 **Read pipeline variable:**
 ```
@@ -1193,10 +1288,13 @@ programmer's perspective. Commands receive copies; mutations don't
 propagate back. Implementations may optimize with mutation when no
 future references exist (linear types style).
 
-### D15: Path expressions use totality
-Accessing a missing path returns empty, never an error. Writing to
-a missing path creates intermediate structure. This extends the
-totality principle from commands to data access.
+### D15: Paths follow optics semantics
+Paths are composed selectors. Name and Pos create structure in poke
+if it doesn't exist. Star only modifies existing children — it's the
+sole "whatever's already here" selector. Par delegates to its
+sub-paths, each of which carries its own create/modify behavior.
+Delete is not a path operation. Lens laws hold everywhere except
+at creation boundaries (affine poke on missing structure).
 
 ### D16: The empty value coerces by context
 The empty value is not a distinct type — it becomes "", 0, or []
