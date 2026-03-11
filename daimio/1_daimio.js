@@ -1235,7 +1235,7 @@ D.poke = function(base, path, value) {
     path = [base.length]
 
   if(typeof base != 'object')
-    base = [base]
+    base = []
 
   var todo = [base]
     , many_flag = false

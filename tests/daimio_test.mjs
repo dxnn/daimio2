@@ -30,8 +30,8 @@ var known_failures = new Set([
   '{"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}',
   '{* (:a 1 :b 2 :c 3) | list poke path ("#5") value 999}',
   '{() | list poke path ("*" "*") value 999}',
-  '{(1 2 3) | list poke path ("*" "*" "*") value 999}',
-  '{(1 2 3) | list poke path ("*" "*" "#2") value 999}',
+  // '{(1 2 3) | list poke path ("*" "*" "*") value 999}',  // FIXED: star never creates
+  // '{(1 2 3) | list poke path ("*" "*" "#2") value 999}',  // FIXED: star never creates
   '{* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}',
   '{* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}',
   '{((2 1) (3 4) (4 5)) | list poke path ( ("#1" "#3") ("#2" "#4") ) value 999}',
