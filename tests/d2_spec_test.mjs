@@ -1344,11 +1344,14 @@ test(
   '[[99,2],[99,4]]'
 )
 
-// Note: star expands scalars, then Name's create tries to set property
-// on a number, which errors. The result is empty (error swallowed).
-// This is a known limitation — star on scalars with further path segments.
+// PROBLEMATIC: star expands to scalar children, then Name tries to create/set
+// on a number, which crashes in strict mode. Fixing this properly requires
+// D.poke to track parent references so scalars can be replaced in-place.
+// The spec says poke(scalar, Name :: rest, new) = poke(Empty, Name :: rest, new),
+// so the correct result is [{"a":99},{"a":99},{"a":99}], but the current
+// architecture can't do this without a significant D.poke refactor.
 test(
-  'poke Star: star on scalars with further Name returns empty on error',
+  'poke Star: star on scalars with further Name (KNOWN PROBLEMATIC)',
   '{(1 2 3) | list poke path ("*" :a) value 99}',
   ''
 )
