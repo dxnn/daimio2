@@ -1199,37 +1199,36 @@
     {* (:a (2 1) :b (3 4) :c (4 5)) | list poke path ("#2" "#2") value 999}
       {"a":[2,1],"b":[3,999],"c":[4,5]}
 
-    the positional operator fills gaps with empty lists
+    positional poke never creates new structure -- out-of-bounds positions are no-ops
       {() | list poke path ("#2") value 999}
-        [[],999]
+        []
       {() | list poke path ("#-2") value 999}
-        [999,[]]
+        []
       {() | list poke path ("#-2" "#3") value 999}
-        [[[],[],999],[]]
+        []
       {() | list poke path ("#-2" "#3" "#-4") value 999}
-        [[[],[],[999,[],[],[]]],[]]
+        []
 
-    it mixes well with keyed lists, as long as enough elements exist.
+    out-of-bounds positions in nested paths are no-ops
       {* (:a (2 1) :b (3 4) :c (4 5)) | list poke path ("#1" "#4") value 999}
-        {"a":[2,1,[],999],"b":[3,4],"c":[4,5]}
+        {"a":[2,1],"b":[3,4],"c":[4,5]}
       {* (:a (2 1) :b (3 4) :c (4 5)) | list poke path ("#1" "#-6") value 999}
-        {"a":[999,[],[],[],2,1],"b":[3,4],"c":[4,5]}
+        {"a":[2,1],"b":[3,4],"c":[4,5]}
       {* (:a {* (:aa 1 :ab 2)} :b {* (:ba 1 :bb 2)} :c {* (:ca 1 :cb 2)}) | list poke path ("#2" "#2") value 999}
         {"a":{"aa":1,"ab":2},"b":{"ba":1,"bb":999},"c":{"ca":1,"cb":2}}
 
-    but if there are gaps in your keyed list the results might be unexpected -- the generated keys are consecutive integers (offset by one million to avoid common collisions).
-    this behavior is likely to change; please don't rely on generated keys. also, the ordering is off in chrome. (DATA BUG)
+    out-of-bounds positions on keyed lists are also no-ops
       {* (:a 1 :b 2 :c 3) | list poke path ("#5") value 999}
-        {"a":1,"b":2,"c":3,"1000000":[],"1000001":999}
+        {"a":1,"b":2,"c":3}
       {* (:a 1 :b 2 :c 3) | list poke path ("#5") value 999 | sort}
-        {"1000000":[],"1000001":999,"a":1,"b":2,"c":3}
+        {"a":1,"b":2,"c":3}
 
-    Sugar for poke and unshift
+    #0 and #-0 (push/unshift sugar) are also no-ops since positions never create
       {(1 2 3) | poke 4 path "#0"}
-        [4,1,2,3]
+        [1,2,3]
 
       {(1 2 3) | poke 4 path "#-0"}
-        [1,2,3,4]
+        [1,2,3]
 
   by star:
 
@@ -1244,11 +1243,11 @@
     {((2 1) (3 4) (4 5)) | list poke path ("*" "*") value 999}
       [[999,999],[999,999],[999,999]]
 
-    stars generate a new empty list for each missing (or scalar) level. (DATA BUG)
+    stars never create new structure
       {() | list poke path ("*") value 999}
         []
       {() | list poke path ("*" "*") value 999}
-        [[]]
+        []
       {(1 2 3) | list poke path ("*" "*") value 999}
         [1,2,3]
       {(1 2 3) | list poke path ("*" "*" "*") value 999}
@@ -1266,23 +1265,22 @@
     {* (:a 1 :b 2 :c 3) | list poke path ( ("#1" "#3") ) value 999}
       {"a":999,"b":2,"c":999}
     {((2 1) (3 4) (4 5)) | list poke path ("*" ("#2" "#4") ) value 999}
-      [[2,999,[],999],[3,999,[],999],[4,999,[],999]]
+      [[2,999],[3,999],[4,999]]
 
-    generating a new list
+    poke through scalar into par positions -- all out of bounds on the converted-to-empty container (DATA BUG: intermediate create corrupts the scalar)
       {* (:a 1 :b 2 :c 3) | list poke path ( "#2" ("#2" "#6" "#4") ) value 999}
-        {"a":1,"b":[[],999,[],999,[],999],"c":3}
+        {"a":1,"b":[],"c":3}
 
-    generating a new list (DATA BUG)
       {* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}
-        {"a":1,"b":[[],999,[],999,[],999],"c":3}
+        {"a":1,"b":{},"c":3}
 
-    generating a new keyed list (DATA BUG)
+    poke through scalar into par keys -- array-to-object conversion can't propagate back (DATA BUG: needs parent tracking in D.poke)
       {* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}
         {"a":1,"b":{"d":999,"e":999},"c":3}
 
-    double list all the way (DATA BUG)
+    par positions at two levels -- listfinder.create destructively replaces with [] (DATA BUG: listfinder.create should be non-destructive)
       {((2 1) (3 4) (4 5)) | list poke path ( ("#1" "#3") ("#2" "#4") ) value 999}
-        [[2,999,[],999],[3,4],[4,999,[],999]]
+        [[2,999],[3,4],[4,999]]
 
 
 Alias tests

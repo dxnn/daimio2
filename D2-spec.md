@@ -179,9 +179,15 @@ is no special mechanism for named blocks.
 v ∈ Val       — numbers, strings, lists (the single universal collection)
 ```
 
-Values are the single data type. A list is a universal collection that
-supports ordered access (by position), keyed access (by string key),
-and nesting (values can contain other values to arbitrary depth).
+Values are the single data type. A collection is a universal data
+structure that supports ordered access (by position), keyed access
+(by string key), and nesting (values can contain other values to
+arbitrary depth).
+
+A collection's entries may be keyed, unkeyed, or a mix. `(1 2 3)` is
+unkeyed (positional only). `{* (:a 1 :b 2)}` is keyed. This
+distinction matters for poke: Name can create new entries on keyed
+collections but not on unkeyed ones (see Path expressions).
 
 **The empty value** is the zero/identity element. It coerces based on
 context: `""` when used as a string, `0` when used as a number, `[]`
@@ -241,75 +247,95 @@ result is the empty value. Consistent with totality.
 
 #### Poke (write)
 
-Poke writes a value at a path. The only selector with special
-behavior is Star: it modifies existing children but never creates
-new ones. Everything else creates structure as needed.
-
-**Name, Pos** — create intermediate structure if missing:
+Poke writes a value at a path. Creation is conservative — only Name
+on a keyed collection (or Empty) can create new entries. Everything
+else modifies in place or fails silently (returns unchanged).
 
 ```
 poke(v, [], new) = new                          — replace entirely
+```
 
-poke(Collection, Name(s) :: rest, new) =
+**Name** — creates on keyed collections, Empty, and scalars; fails on unkeyed:
+
+```
+poke(KeyedCollection, Name(s) :: rest, new) =
   if key s exists: update its val with poke(val, rest, new)
   else:            append (key=s, val=poke(Empty, rest, new))
 
-poke(Collection, Pos(n) :: rest, new) =
-  if position n exists: update its val with poke(val, rest, new)
-  else:                 extend with Empty entries, set position n
+poke(UnkeyedCollection, Name(s) :: rest, new) =
+  v unchanged                                   — can't key an unkeyed list
 
 poke(Empty, Name(s) :: rest, new) =
-  create Collection with one entry (key=s, poke(Empty, rest, new))
+  create KeyedCollection with one entry (key=s, poke(Empty, rest, new))
 
-poke(Empty, Pos(n) :: rest, new) =
-  create Collection with Empty entries up to n, then set position n
-
-poke(scalar, sel :: rest, new) =
-  replace scalar with poke(Empty, sel :: rest, new)
+poke(scalar, Name(s) :: rest, new) =
+  create KeyedCollection with one entry (key=s, poke(Empty, rest, new))
+  — scalar is replaced
 ```
 
-**Star** — modify existing children only, never create:
+**Pos** — modifies existing positions only, never extends:
+
+```
+poke(Collection, Pos(n) :: rest, new) =
+  if position n exists: update its val with poke(val, rest, new)
+  else:                 v unchanged             — out of bounds, no-op
+
+poke(Empty, Pos(n) :: rest, new) = Empty        — nothing to index into
+```
+
+**Star** — modifies all existing children, never creates:
 
 ```
 poke(Collection, Star :: rest, new) =
   for each existing child: poke(child, rest, new)
-  — no new children are created
-  — if the collection is empty, nothing happens
 
 poke(Empty, Star :: rest, new) = Empty          — no children to modify
 ```
 
-**Par** — delegate to each sub-path, which carries its own semantics:
+**Par** — delegates to each sub-path:
 
 ```
 poke(v, Par(ps) :: rest, new) =
   apply poke(v, p ++ rest, new) for each path p in ps, sequentially
-  — if p is affine (Name/Pos only), it creates as needed
-  — if p contains Star, the Star portion doesn't create
+  — each sub-path follows its own rules
 ```
 
-The rule is simple: **Star is the only thing that means "whatever's
-already here."** Name and Pos assert that a location should exist.
-Par just runs multiple paths — each path does whatever it would do
-on its own.
+**Scalars** — poke on a scalar (number, string) with a Name selector
+replaces the scalar with a new keyed collection (same as the Empty
+case). Poke on a scalar with Pos or Star is a no-op.
+
+The creation rule in one sentence: **Name creates on keyed
+collections, Empty, and scalars; everything else only modifies
+what exists.**
+
+Examples:
+```
+{(1 2) | poke 5 path :b}                       — [1, 2]  (unkeyed, no-op)
+{(1 2) | poke 5 path "#4"}                     — [1, 2]  (out of bounds, no-op)
+{* (:a 1 :b 2 :c 3) | poke 5 path "#4"}       — {a:1, b:2, c:3}  (out of bounds, no-op)
+{* (:a 1 :b 2) | poke 5 path :c}              — {a:1, b:2, c:5}  (keyed, creates)
+```
 
 #### Laws
-
-For paths containing no Star:
 
 ```
 PutGet:  peek(poke(v, p, x), p) = x              — you get what you put
 PutPut:  poke(poke(v, p, x), p, y) = poke(v, p, y)   — last write wins
-GetPut:  poke(v, p, peek(v, p)) = v               — EXCEPT at creation
-         (violated when poke creates intermediate structure that
-         didn't exist before — the price of totality)
+GetPut:  poke(v, p, peek(v, p)) = v               — round-trip is identity
 ```
 
-For paths containing Star, all three laws hold (Star only modifies
-existing structure, never creates, so GetPut is safe).
+PutPut holds universally.
 
-For Par, the laws hold per-sub-path: each sub-path satisfies the
-laws according to whether it contains Star or not.
+GetPut holds except when Name creates a new entry — poke(v, p, Empty)
+adds structure that wasn't there, so it doesn't return v unchanged.
+For no-op cases (out of bounds, unkeyed), GetPut holds trivially:
+peek returns Empty, poke with Empty is a no-op, so you get v back.
+
+PutGet holds when poke actually writes. When poke is a no-op (out
+of bounds, unkeyed), PutGet fails: you tried to put x but poke
+didn't write it, so peek doesn't find x. This is by design — the
+alternative (creating structure to make the put succeed) was rejected
+as too surprising.
 
 #### Delete
 
@@ -564,10 +590,9 @@ value (consistent with totality — no errors, just defaults).
   (ship, σ) —[WriteSVar(s, path)]→ (ship, σ')
 ```
 
-If path is empty, this sets s directly. If the path contains only
-Name/Pos selectors, poke creates intermediate structure as needed.
-If the path contains Star, poke modifies only existing children.
-See §1, Path expressions.
+If path is empty, this sets s directly. If the path uses Name on a
+keyed collection or Empty, poke creates new entries. Pos and Star
+only modify existing structure. See §1, Path expressions.
 
 **Read pipeline variable:**
 ```
@@ -1288,13 +1313,13 @@ programmer's perspective. Commands receive copies; mutations don't
 propagate back. Implementations may optimize with mutation when no
 future references exist (linear types style).
 
-### D15: Paths follow optics semantics
-Paths are composed selectors. Name and Pos create structure in poke
-if it doesn't exist. Star only modifies existing children — it's the
-sole "whatever's already here" selector. Par delegates to its
-sub-paths, each of which carries its own create/modify behavior.
-Delete is not a path operation. Lens laws hold everywhere except
-at creation boundaries (affine poke on missing structure).
+### D15: Paths follow optics semantics with conservative creation
+Name creates new entries on keyed collections, Empty, and scalars
+(overwriting the scalar). Pos, Star, and Par never create. Pos fails
+silently on out-of-bounds, Name fails silently on unkeyed lists,
+Star only touches existing children. Delete is not a path operation.
+PutPut always holds. GetPut breaks only at Name creation. PutGet
+breaks only on no-ops (silent failures where poke didn't write).
 
 ### D16: The empty value coerces by context
 The empty value is not a distinct type — it becomes "", 0, or []

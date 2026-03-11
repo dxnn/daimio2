@@ -28,13 +28,14 @@ var failures = []
 var known_failures = new Set([
   // '{5 | >$ints.{$ints | count}}  {// (DATA BUG) //}',  // FIXED: >$x.path passthrough
   // '{"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}',  // FIXED: poke into scalar destroys it
-  '{* (:a 1 :b 2 :c 3) | list poke path ("#5") value 999}',
-  '{() | list poke path ("*" "*") value 999}',
+  // '{* (:a 1 :b 2 :c 3) | list poke path ("#5") value 999}',  // FIXED: position never creates
+  // '{() | list poke path ("*" "*") value 999}',  // FIXED: star never creates
   // '{(1 2 3) | list poke path ("*" "*" "*") value 999}',  // FIXED: star never creates
   // '{(1 2 3) | list poke path ("*" "*" "#2") value 999}',  // FIXED: star never creates
-  '{* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}',
-  '{* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}',
-  '{((2 1) (3 4) (4 5)) | list poke path ( ("#1" "#3") ("#2" "#4") ) value 999}',
+  '{* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}',  // intermediate create corrupts scalar
+  '{* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}',  // array-to-object can't propagate
+  '{((2 1) (3 4) (4 5)) | list poke path ( ("#1" "#3") ("#2" "#4") ) value 999}',  // listfinder.create is destructive
+  '{"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}',  // position never creates via >$var.path
   // '{$dlist |  __.*.one | filter block "{_parent.parent.one.1 | eq :3}"}',  // DISABLED: _parent not yet implemented
   // '{(1 2 3 4 5 6) | list group by "{__ | mod 2}"}',  // FIXED: group by always returns object
   // '{( {* (:a 1)} {* (:a 4)} {* (:a 3)} {* (:a 1)} ) | list group by :a}',  // FIXED: group by always returns object

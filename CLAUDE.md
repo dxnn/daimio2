@@ -7,8 +7,8 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 44 spec alignment tests
-node tests/daimio_test.mjs       # ~843 legacy tests (9 known failures)
+node tests/d2_spec_test.mjs     # 93 spec alignment tests
+node tests/daimio_test.mjs       # ~843 legacy tests (6 known failures)
 node tests/node_code.mjs         # 69 internal tests (2 known)
 ```
 
@@ -183,3 +183,8 @@ The formal execution model is in `D2-spec.md`. Key sections:
 - **node_code**: 67/69 (2 known)
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
+
+One test is marked KNOWN PROBLEMATIC: `poke([1,2,3], ["*", :a], 99)` — star expands
+to scalar children, then keyfinder can't create/set on primitives because D.poke doesn't
+track parent references. Fixing requires refactoring D.poke to carry `{parent, key}`
+context for each todo item.

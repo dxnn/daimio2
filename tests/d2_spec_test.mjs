@@ -1298,15 +1298,15 @@ test(
 )
 
 test(
-  'poke Pos: extend with empty entries',
+  'poke Pos: out-of-bounds position is no-op',
   '{(10 20) | list poke path "#4" value 99}',
-  '[10,20,[],99]'
+  '[10,20]'
 )
 
 test(
-  'poke Pos: into empty list extends',
+  'poke Pos: position on empty list is no-op',
   '{() | list poke path "#2" value 99}',
-  '[[],99]'
+  '[]'
 )
 
 test(
