@@ -43,13 +43,17 @@ D.SegmentTypes.VariableSet = {
         future_segment.prevkey = new_key
     })
 
-    return [L, R]
+    return [L.concat(segment), R]
   }
 , execute: function(segment, inputs, dialect, prior_starter, process) {
-    var state = process.space.state
-      , name  = segment.value.name
+    var name  = segment.value.name
 
-    state[name] = inputs[0] // OPT: only copy if you have to
+    if(segment.value.type == 'space')
+      process.space.state[name] = inputs[0] // OPT: only copy if you have to
+    else {
+      if(!process.pipeline_vars) process.pipeline_vars = {}
+      process.pipeline_vars[name] = inputs[0]
+    }
 
     // state[name] = D.clone(inputs[0]) // DATA
     // state[name] = D.deep_copy(inputs[0]) // NOTE: we have to deep copy here because cloning (via JSON) destroys blocks...

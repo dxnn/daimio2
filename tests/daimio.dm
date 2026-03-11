@@ -1474,19 +1474,17 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
 
 
   <h3>IF</h3>
-    Note that both 'if' and 'cond' take a 'with' param, which includes pipeline variables in the block scope.
-    If the 'with' param is provided the selected block will be executed. Otherwise it will be returned as is.
-    The magic key __in becomes the process input, if 'with' is a keyed list. If 'with' is scalar the value is taken to be __in. If 'with' is an unkeyed list the effects are chaotic-evil.
-    Note that the short form of e.g. "with __" can only be used if __ is scalar: otherwise, use "with {* (:__in __)}"
+    Inner blocks inherit pipeline variables from the parent scope automatically.
+    Use 'run value X' to pass X as __in to the block.
 
       {1 | else "{fff fff}" | add 1}
         2
 
       {0 | else "{10}" | run | add 1}
         11
-      {10 | >a | then "{__}" | run with _a | add 1}
+      {10 | >a | then "{__}" | run value _a | add 1}
         11
-      {10 | >a | then "{_x}" | run with {* (:x _a)} | add 1}
+      {10 | >a | then "{_a}" | run | add 1}
         11
 
       {10 | >x | then 1}
@@ -1580,7 +1578,7 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
         2
 
     Ensure blocks are passed properly
-      {cond (0 :foo 1 "{_n | add _k}") | run with {* (:n 11 :k 2)} }
+      {11 | >n | 2 | >k | cond (0 :foo 1 "{_n | add _k}") | run}
         13
 
 
@@ -1609,7 +1607,7 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
 
       {1 | switch (1 "{:good}") | run | split}
         ["g","o","o","d"]
-      {2 | switch (1 :bad 2 "{_n | add _k}") | run with {* (:n 11 :k 2)} }
+      {11 | >n | 2 | >k | 2 | switch (1 :bad 2 "{_n | add _k}") | run}
         13
 
     Ensure proper short-circuiting for results
@@ -1620,7 +1618,7 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
       {:foo | switch ("{:boo}" :bad "{:foo}" :bad :foo :good)}
         good
 
-      {10 | switch ("{_n | minus _k}" :bad "{_n | add _k}" :bad 10 :good) | run with {* (:n 5 :k 5)} }
+      {5 | >n | 5 | >k | 10 | switch ("{_n | minus _k}" :bad "{_n | add _k}" :bad 10 :good) | run}
         good
 
 //    TODO: test for 'otherwise'-style default
@@ -1874,7 +1872,7 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
     {({* (:one (2 3 5) :two (1 3 4))} {* (:one (3 4 5) :two (1 3 4))}) | __.*.*.* | filter block "{__ | less than 4}"}
       [2,3,1,3,3,1,3]
 
-    {123 | >x | (1001 202 100 333 77) | filter block "{__ | less than _x}" with {* (:x _x)}}
+    {123 | >x | (1001 202 100 333 77) | filter block "{__ | less than _x}"}
       [100,77]
           
 
@@ -1893,7 +1891,7 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
     {( {* (:x 1 :y 2)} {* (:x 11 :y 3)} {* (:x 1 :y 4)} ) | first block "{__.x | eq 1}"}
       {"x":1,"y":2}
 
-    {123 | >x | (1001 202 100 333) | first block "{__ | less than _x}" with {* (:x _x)}}
+    {123 | >x | (1001 202 100 333) | first block "{__ | less than _x}"}
       100
 
   <h3>GROUP</h3>
@@ -1987,10 +1985,6 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
         ["x1","x2","x3"]
 
       {5 | >foo | (1 2 3) | map block "{__ | add _foo}"}
-        [1,2,3]
-        
-    UGH (BUG) 
-      {5 | >foo | (1 2 3) | map block "{__ | add _foo}" with {* (:foo _foo)}}
         [6,7,8]
 
       {* (:a 1 :b 2 :c 3) | map block "{__ | times __}"}
@@ -2036,10 +2030,9 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
       {merge data {* (:one {* (:name :paul)} :two {* (:name :john)} :three {* (:name :george)})} block "hey {_name}! "}
         hey paul! hey john! hey george!
 
-    merge issue: injected vars override imported vars.
-    [THINK: change 'with' to 'import'?]
-      {merge data $names block "hey {_name}! " with {* (:name :bob)}}
-        hey paul! hey john! hey george!
+// merge issue: injected vars override imported vars. (removed: `with` no longer supported)
+//      {merge data $names block "hey {_name}! " with {* (:name :bob)}}
+//        hey paul! hey john! hey george!
 
     merge issue: injected vars can collide with pipeline vars.
     each pipeline var rewires any future references to itself, so {_name} means two different things here.
@@ -2174,9 +2167,9 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
       {$klist | list sort by "{(__.y __.x) | string join}" | map block "{__.y}{__.x}"}
         ["a3","b4","c2","d1","d2"]
 
-    sort by keys (BUG)
-      {* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}" with {* (:l _l)}}
-        {"a":4,"b":2,"c":3}
+    sort by keys
+      {* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}"}
+        [4,2,3]
 
     sort should preserve keys (DATA BUG)
       {* (:c 3 :b 2 :a 1) | list sort}
@@ -2263,15 +2256,15 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
       {(5 12) | run | add 1}
         [6,13]
     
-    Simple 'with' params are passed as process input
-      { "{__ | add 1}" | run with 7}
+    Simple 'value' param is passed as process input (__in)
+      { "{__ | add 1}" | run value 7}
         8
-        
-    Keyed 'with' params inject pipeline variables into the process input
-      { "{_foo | add 1}" | run with {* (:foo 91)} | add 1}
+
+    Pipeline vars are inherited by inner blocks
+      {91 | >foo | "{_foo | add 1}" | run | add 1}
         93
-    
-    Calling run without a 'with' param defaults to passing the current process input
+
+    Calling run without a 'value' param inherits scope
       {(1 2 3) | map block "{"{__ | add 1}" | run}" | add 1}
         [3,4,5]
 

@@ -7,11 +7,25 @@ D.import_type('block', function(value) {
       // TODO: how does this fit with parent processes and parallelization?
       var space = process ? process.space : D.ExecutionSpace
         , station_id = process ? process.station_id : false
-      if(process && process.state && process.state.secret) { // FIXME: this seems really quite silly
-        scope.parent_process = process
-        scope.secret = process.state.secret
+
+      var inherited = {}
+      if(process && process.state) {
+        for(var key in process.state)
+          if(+key != +key)                                   // copy named keys, skip numeric indices
+            inherited[key] = process.state[key]
       }
-      return space.real_execute(D.BLOCKS[value.value.id], scope, prior_starter, station_id)
+      if(process && process.pipeline_vars) {                 // pipeline vars stored separately from wiring refs
+        for(var key in process.pipeline_vars)
+          inherited[key] = process.pipeline_vars[key]
+      }
+      for(var key in scope)                                  // caller scope overrides
+        inherited[key] = scope[key]
+
+      if(process && process.state && process.state.secret) { // FIXME: this seems really quite silly
+        inherited.parent_process = process
+        inherited.secret = process.state.secret
+      }
+      return space.real_execute(D.BLOCKS[value.value.id], inherited, prior_starter, station_id)
     }
   }
   else {

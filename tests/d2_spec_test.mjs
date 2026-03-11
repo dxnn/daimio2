@@ -1081,6 +1081,53 @@ test(
 
 
 // =====================================================
+// Inner block scope inheritance
+// =====================================================
+
+// Inner blocks should automatically inherit parent pipeline variables.
+test(
+  'inner block inherits parent pipeline var',
+  '{5 | >foo | (1 2 3) | map block "{__ | add _foo}"}',
+  '[6,7,8]'
+)
+
+// Nested inheritance: grandchild block gets grandparent variable.
+test(
+  'nested inheritance: grandchild gets grandparent var',
+  '{10 | >x | (1 2 3) | map block "{__ | >y | (1) | map block "{_y | add _x}"}"}',
+  '[[11],[12],[13]]'
+)
+
+// Caller scope overrides inherited variable.
+test(
+  'caller scope overrides inherited var',
+  '{99 | >x | (1 2 3) | map block "{_x}"}',
+  '[99,99,99]'
+)
+
+// Pipeline var not used in same pipeline, only in inner block.
+test(
+  'pipeline var only used in inner block',
+  '{42 | >secret | "{_secret}" | run}',
+  '42'
+)
+
+// process.run with value param sets __in.
+test(
+  'process.run value param sets __in',
+  '{"{__ | add 1}" | run value 7}',
+  '8'
+)
+
+// Sort by keys using inherited variable.
+test(
+  'sort by keys via inherited variable',
+  '{* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}"}',
+  '[4,2,3]'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

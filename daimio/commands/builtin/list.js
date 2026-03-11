@@ -36,13 +36,8 @@ D.import_models({
             type: 'block',
             required: true
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, block, _with, prior_starter, process) {
+        fun: function(data, block, prior_starter, process) {
 
           // (because you can't write to it, and these *should* be immutable -- plus then they're cheaper!)
 
@@ -104,10 +99,7 @@ D.import_models({
 
           // TODO: 'zip' command: takes N arrays of M elements and makes a single array with M elements where the Kth item is an array of the Kth items from all of the initial arrays. e.g. ((1 2 3) (4 5 6)) -> ((1 4) (2 5) (3 6))
 
-          var scope = _with || {}
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
+          var scope = {}
 
           var processfun = function(item, prior_starter, key) {
             scope["__in"] = item
@@ -138,17 +130,9 @@ D.import_models({
             type: 'block',
             required: true
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, block, _with, prior_starter, process) {
-          var scope = _with || {}
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
+        fun: function(data, block, prior_starter, process) {
+          var scope = {}
 
           // THINK: this manual fiddling is weird. should we just accept a starting element to get it over with?
           data = data.slice() // avoid mutating input
@@ -194,17 +178,9 @@ D.import_models({
             type: 'block',
             required: true
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, block, _with, prior_starter, process) {
-          var scope = _with || {}
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
+        fun: function(data, block, prior_starter, process) {
+          var scope = {}
 
           var processfun = function(item, prior_starter, key) {
             scope["__in"] = item
@@ -246,17 +222,9 @@ D.import_models({
             type: 'block',
             required: true
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, block, _with, prior_starter, process) {
-          var scope = _with || {}
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
+        fun: function(data, block, prior_starter, process) {
+          var scope = {}
 
           var processfun = function(item, prior_starter, item_key) {
             for(var key in item)
@@ -645,18 +613,10 @@ D.import_models({
             type: 'either:block,string',
             fallback: false,
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, by, _with, prior_starter, process) {
+        fun: function(data, by, prior_starter, process) {
           var processfun, finalfun
-            , scope = _with || {}
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
+            , scope = {}
 
           if(typeof by == 'function') {
             processfun = function(item, prior_starter) {
@@ -704,19 +664,11 @@ D.import_models({
             type: 'either:block,string',
             required: true,
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, by, _with, prior_starter, process) {
+        fun: function(data, by, prior_starter, process) {
           var keys = Object.keys(data)
-          var scope = _with || {}
+          var scope = {}
           var processfun, finalfun
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
 
           // key cases: a simple array, named by 'by', or... nope, that's it.
 
@@ -772,19 +724,11 @@ D.import_models({
             desc: 'A data path, like _id or my.user.group, or a block like "{__.foo | times 2}"',
             type: 'either:block,string',
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, by, _with, prior_starter, process) {
+        fun: function(data, by, prior_starter, process) {
           var keys = Object.keys(data)
             , processfun, finalfun
-            , scope = _with || {}
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
+            , scope = {}
 
           // TODO: # vs A-Z
 
@@ -969,30 +913,11 @@ D.import_models({
             type: 'block',
             required: true,
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, block, _with, prior_starter, process) {
-          var scope = _with || {}
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
+        fun: function(data, block, prior_starter, process) {
+          var scope = {}
 
           // THINK: this should probably use 'by' instead of 'block', and filter on truthiness of a path
-
-          /*
-            TODO:
-            we should add a 'context' param to anything that takes a block, and you can pass in keys and values
-            then pipeline vars can be passed down by value without complicated scoping rules, var shadowing,
-            cumbersome wiring hacks etc.
-
-            also, ensure that space vars can only be created by fixed strings (not at runtime) so we can
-            coordinate concurrency between stations
-
-          */
 
           var processfun = function(item, tramp_prior_starter) {
             var my_tramp_prior_starter = function(bool) {
@@ -1035,19 +960,11 @@ D.import_models({
             type: 'block',
             required: true,
           },
-          {
-            key: 'with',
-            desc: 'Given a hash, values are imported into the block scope.',
-            type: 'maybe-list'
-          },
         ],
-        fun: function(data, block, _with, prior_starter, process) {
+        fun: function(data, block, prior_starter, process) {
           var found = false
           var the_item = false
-          var scope = _with || {}
-
-          if(Array.isArray(_with))
-            scope = {'__in': _with[0]}
+          var scope = {}
 
           var processfun = function(item, tramp_prior_starter) {
             if(found)

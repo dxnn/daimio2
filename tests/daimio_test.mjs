@@ -47,7 +47,7 @@ var known_failures = new Set([
   // '{$data | list sort by {* (:three :desc :one :desc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
   // '{$data | list sort by {* (:two.#2 :desc :one :desc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
   // '{$data | list sort by {* (:two.#2 :desc :one :asc)} | __.*.one}',  // DISABLED: multi-key sort not yet implemented
-  '{* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}" with {* (:l _l)}}',
+  // '{* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}" with {* (:l _l)}}',  // FIXED: inner blocks inherit pipeline vars
   // '{* (:c 3 :b 2 :a 1) | list sort}',  // FIXED: sort preserves keys on keyed lists
   // '{* (:a 1 :b 2) | >$x | >$x.c}',  // FIXED: >$x.path passthrough
   // '{$x | >$x.d}',  // FIXED: >$x.path passthrough

@@ -165,28 +165,15 @@ D.import_models({
             required: true,
           },
           {
-            key: 'with',
-            desc: 'If provided values are imported into the block scope.',
-            help: 'The magic key __in becomes the process input. If scalar the value is taken to be __in.',
+            key: 'value',
+            desc: 'Input for the block (__in)',
             type: 'anything'
           },
         ],
-        fun: function(block, _with, prior_starter, process) {
+        fun: function(block, value, prior_starter, process) {
           var scope = {}
-
-          if(Array.isArray(_with)) {                    // unkeyed list? pass it as process input
-            scope = {'__in': _with}
-          } else
-          if(typeof _with == 'object') {                //   keyed list? use it as the scope
-            scope = _with
-          } else
-          if(_with === "" || !D.is_nice(_with)) {       // default to current process scope (__in plus injected vars)
-            scope = Object.keys(process.state)
-                          .filter(function(key) {return +key != +key})
-                          .reduce(function(acc, key) {acc[key] = process.state[key]; return acc}, {})
-          } else {
-            scope = {'__in': _with}                     // scalar value? pass it as process input
-          }
+          if(value !== "")
+            scope['__in'] = value
 
           return block(function(value) {
             prior_starter(value)
