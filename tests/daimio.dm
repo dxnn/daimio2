@@ -1185,10 +1185,10 @@
 
     the second set should override the first one (DATA BUG)
       {"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}
-        {y:123}
+        {"y":123}
     it works this way
       {"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}
-        ["{:foo}x",[],123]
+        [[],[],123]
 
 
   by position:

@@ -27,7 +27,7 @@ var failures = []
 // If a failure is in this set, it's known; if not, it's a regression.
 var known_failures = new Set([
   // '{5 | >$ints.{$ints | count}}  {// (DATA BUG) //}',  // FIXED: >$x.path passthrough
-  '{"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}',
+  // '{"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}',  // FIXED: poke into scalar destroys it
   '{* (:a 1 :b 2 :c 3) | list poke path ("#5") value 999}',
   '{() | list poke path ("*" "*") value 999}',
   // '{(1 2 3) | list poke path ("*" "*" "*") value 999}',  // FIXED: star never creates
