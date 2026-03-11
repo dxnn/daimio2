@@ -1128,6 +1128,376 @@ test(
 
 
 // =====================================================
+// §1 Peek: Name selector
+// =====================================================
+
+test(
+  'peek Name: existing key',
+  '{* (:a 1 :b 2 :c 3) | list peek path :b}',
+  '2'
+)
+
+test(
+  'peek Name: missing key returns empty',
+  '{* (:a 1 :b 2) | list peek path :z}',
+  ''
+)
+
+test(
+  'peek Name: nested key path',
+  '{* (:a {* (:x 10 :y 20)}) | list peek path (:a :y)}',
+  '20'
+)
+
+test(
+  'peek Name: missing nested key returns empty',
+  '{* (:a {* (:x 10)}) | list peek path (:a :z)}',
+  ''
+)
+
+test(
+  'peek Name: on non-collection returns empty',
+  '{42 | list peek path :a}',
+  ''
+)
+
+
+// =====================================================
+// §1 Peek: Pos selector
+// =====================================================
+
+test(
+  'peek Pos: existing position',
+  '{(10 20 30) | list peek path "#2"}',
+  '20'
+)
+
+test(
+  'peek Pos: negative position (from end)',
+  '{(10 20 30) | list peek path "#-1"}',
+  '30'
+)
+
+test(
+  'peek Pos: out of bounds returns empty',
+  '{(10 20 30) | list peek path "#5"}',
+  ''
+)
+
+test(
+  'peek Pos: nested position path',
+  '{((1 2) (3 4) (5 6)) | list peek path ("#2" "#1")}',
+  '3'
+)
+
+
+// =====================================================
+// §1 Peek: Star selector
+// =====================================================
+
+test(
+  'peek Star: all children of list',
+  '{(10 20 30) | list peek path "*"}',
+  '[10,20,30]'
+)
+
+test(
+  'peek Star: all children of keyed list',
+  '{* (:a 1 :b 2) | list peek path "*"}',
+  '[1,2]'
+)
+
+test(
+  'peek Star: empty list returns empty list',
+  '{() | list peek path "*"}',
+  '[]'
+)
+
+// Note: 42 is coerced to [42] by list type before peek sees it
+test(
+  'peek Star: on scalar (list-coerced) returns its children',
+  '{42 | list peek path "*"}',
+  '[42]'
+)
+
+test(
+  'peek Star: nested star-then-key',
+  '{(  {* (:x 1)} {* (:x 2)} {* (:x 3)}  ) | list peek path ("*" :x)}',
+  '[1,2,3]'
+)
+
+test(
+  'peek Star: nested star-then-pos',
+  '{((10 20) (30 40) (50 60)) | list peek path ("*" "#2")}',
+  '[20,40,60]'
+)
+
+// Star expands children, then Name on scalars returns empty for each
+// Empty values stringify to nothing, so the result is an empty-looking list
+test(
+  'peek Star: star of scalars then Name returns empties',
+  '{(1 2 3) | list peek path ("*" :a)}',
+  '[]'
+)
+
+
+// =====================================================
+// §1 Peek: Par selector
+// =====================================================
+
+test(
+  'peek Par: multiple keys',
+  '{* (:a 1 :b 2 :c 3) | list peek path ((:a :c))}',
+  '[1,3]'
+)
+
+test(
+  'peek Par: multiple positions',
+  '{(10 20 30 40) | list peek path (("#1" "#3"))}',
+  '[10,30]'
+)
+
+
+// =====================================================
+// §1 Poke: Name selector — creates if missing
+// =====================================================
+
+test(
+  'poke Name: update existing key',
+  '{* (:a 1 :b 2) | list poke path :b value 99}',
+  '{"a":1,"b":99}'
+)
+
+test(
+  'poke Name: create missing key',
+  '{* (:a 1) | list poke path :b value 99}',
+  '{"a":1,"b":99}'
+)
+
+test(
+  'poke Name: create nested path from existing',
+  '{* (:a 1) | list poke path (:b :c) value 99}',
+  '{"a":1,"b":{"c":99}}'
+)
+
+test(
+  'poke Name: into empty creates structure',
+  '{() | list poke path (:x) value 42}',
+  '{"x":42}'
+)
+
+
+// =====================================================
+// §1 Poke: Pos selector — extends if missing
+// =====================================================
+
+test(
+  'poke Pos: update existing position',
+  '{(10 20 30) | list poke path "#2" value 99}',
+  '[10,99,30]'
+)
+
+test(
+  'poke Pos: extend with empty entries',
+  '{(10 20) | list poke path "#4" value 99}',
+  '[10,20,[],99]'
+)
+
+test(
+  'poke Pos: into empty list extends',
+  '{() | list poke path "#2" value 99}',
+  '[[],99]'
+)
+
+test(
+  'poke Pos: nested position path',
+  '{((1 2) (3 4)) | list poke path ("#2" "#1") value 99}',
+  '[[1,2],[99,4]]'
+)
+
+
+// =====================================================
+// §1 Poke: Star — modify existing only, never create
+// =====================================================
+
+test(
+  'poke Star: set all children',
+  '{(1 2 3) | list poke path "*" value 0}',
+  '[0,0,0]'
+)
+
+test(
+  'poke Star: set all children of keyed list',
+  '{* (:a 1 :b 2) | list poke path "*" value 0}',
+  '{"a":0,"b":0}'
+)
+
+test(
+  'poke Star: on empty list is no-op',
+  '{() | list poke path "*" value 99}',
+  '[]'
+)
+
+test(
+  'poke Star: nested star-then-pos modifies existing children',
+  '{((1 2) (3 4)) | list poke path ("*" "#1") value 99}',
+  '[[99,2],[99,4]]'
+)
+
+// Note: star expands scalars, then Name's create tries to set property
+// on a number, which errors. The result is empty (error swallowed).
+// This is a known limitation — star on scalars with further path segments.
+test(
+  'poke Star: star on scalars with further Name returns empty on error',
+  '{(1 2 3) | list poke path ("*" :a) value 99}',
+  ''
+)
+
+test(
+  'poke Star: nested star-star on collections modifies all',
+  '{((1 2) (3 4)) | list poke path ("*" "*") value 0}',
+  '[[0,0],[0,0]]'
+)
+
+test(
+  'poke Star: nested star-star on scalars is no-op',
+  '{(1 2 3) | list poke path ("*" "*") value 0}',
+  '[1,2,3]'
+)
+
+test(
+  'poke Star: pos-then-star modifies one child',
+  '{((1 2) (3 4)) | list poke path ("#2" "*") value 0}',
+  '[[1,2],[0,0]]'
+)
+
+test(
+  'poke Star: star into empty nested is no-op',
+  '{() | list poke path ("*" "*") value 99}',
+  '[]'
+)
+
+
+// =====================================================
+// §1 Poke: scalar base destroyed
+// =====================================================
+
+// Note: list poke coerces scalar to [scalar] via list type before D.poke sees it.
+// The scalar-destroy behavior applies when D.poke receives a raw scalar (e.g. >$x.path).
+// Through list poke, the string is wrapped as ["hello"], so poke operates on an array.
+test(
+  'poke: scalar base via list poke (coerced to array)',
+  '{:hello | list poke path :a value 99}',
+  '{"0":"hello","a":99}'
+)
+
+// >$x.path desugars to list poke, which coerces string to [string].
+// So string scalars are preserved (wrapped), unlike blocks which coerce to [].
+test(
+  'poke: string base via >$x.path (coerced to array)',
+  '{:hello | >$sp1 || 99 | >$sp1.a || $sp1}',
+  '{"0":"hello","a":99}'
+)
+
+// Block base is destroyed because list type coerces Block to []
+test(
+  'poke: block base via >$x.path (block destroyed)',
+  '{"{:foo}x" | >$sp2 || 99 | >$sp2.a || $sp2}',
+  '{"a":99}'
+)
+
+
+// =====================================================
+// §1 Poke: Par selector
+// =====================================================
+
+test(
+  'poke Par: multiple existing keys',
+  '{* (:a 1 :b 2 :c 3) | list poke path ((:a :b)) value 99}',
+  '{"a":99,"b":99,"c":3}'
+)
+
+test(
+  'poke Par: create missing keys',
+  '{* (:a 1) | list poke path ((:b :c)) value 99}',
+  '{"a":1,"b":99,"c":99}'
+)
+
+test(
+  'poke Par: multiple existing positions',
+  '{(10 20 30 40) | list poke path (("#1" "#3")) value 99}',
+  '[99,20,99,40]'
+)
+
+
+// =====================================================
+// §1 Lens laws: PutGet — peek(poke(v, p, x), p) = x
+// =====================================================
+
+test(
+  'PutGet: Name path',
+  '{* (:a 1 :b 2) | list poke path :b value 42 | list peek path :b}',
+  '42'
+)
+
+test(
+  'PutGet: Pos path',
+  '{(10 20 30) | list poke path "#2" value 42 | list peek path "#2"}',
+  '42'
+)
+
+test(
+  'PutGet: nested Name path',
+  '{* (:a {* (:x 1)}) | list poke path (:a :x) value 42 | list peek path (:a :x)}',
+  '42'
+)
+
+test(
+  'PutGet: Name path creates then reads back',
+  '{* (:a 1) | list poke path :z value 42 | list peek path :z}',
+  '42'
+)
+
+
+// =====================================================
+// §1 Lens laws: PutPut — poke(poke(v, p, x), p, y) = poke(v, p, y)
+// =====================================================
+
+test(
+  'PutPut: last write wins for Name',
+  '{* (:a 1) | list poke path :a value 10 | list poke path :a value 20}',
+  '{"a":20}'
+)
+
+test(
+  'PutPut: last write wins for Pos',
+  '{(1 2 3) | list poke path "#1" value 10 | list poke path "#1" value 20}',
+  '[20,2,3]'
+)
+
+
+// =====================================================
+// §1 Lens laws for Star: all three hold
+// =====================================================
+
+// GetPut for star: poke(v, *, peek(child)) for each child = v
+// We test this by peeking all children, then poking them back.
+// Since star doesn't create, this is safe.
+
+test(
+  'Star PutGet: poke star then peek star',
+  '{(1 2 3) | list poke path "*" value 0 | list peek path "*"}',
+  '[0,0,0]'
+)
+
+test(
+  'Star PutPut: double star poke, last wins',
+  '{(1 2 3) | list poke path "*" value 5 | list poke path "*" value 9}',
+  '[9,9,9]'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

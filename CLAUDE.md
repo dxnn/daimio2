@@ -110,12 +110,12 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (44 tests)
+  d2_spec_test.mjs     — spec alignment tests (93 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
   node_code.mjs        — internal JS-level tests (69 tests)
   daimio.dm            — test definitions (text format)
+D2-spec.md             — formal execution model specification
 extra/
-  D2-spec.md           — formal execution model specification
   D2-spec-commentary.md — spec discussion/commentary
 demos/                 — demo applications (automata, todomvc, mandelbrot, etc.)
 ```
@@ -163,7 +163,7 @@ Effectful commands declare an `effect` property instead of (or alongside) `fun`.
 
 ## Spec reference
 
-The formal execution model is in `extra/D2-spec.md`. Key sections:
+The formal execution model is in `D2-spec.md`. Key sections:
 - §0: Concrete syntax (grammar)
 - §1: Domains (values, paths, ships, spaces, ports)
 - §2: Synchronous execution
@@ -178,8 +178,8 @@ The formal execution model is in `extra/D2-spec.md`. Key sections:
 
 ## Test status
 
-- **d2_spec_test**: 44/44 pass
-- **daimio_test**: 834/843 (9 known failures in `known_failures` set)
+- **d2_spec_test**: 93/93 pass
+- **daimio_test**: 837/843 (6 known failures in `known_failures` set)
 - **node_code**: 67/69 (2 known)
 
-Known failures are mostly edge cases in nested poke paths with star/par combinations.
+Known failures are mostly edge cases in nested poke paths with par combinations.
