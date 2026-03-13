@@ -179,7 +179,7 @@ The formal execution model is in `D2-spec.md`. Key sections:
 ## Test status
 
 - **d2_spec_test**: 93/93 pass
-- **daimio_test**: 837/843 (6 known failures in `known_failures` set)
+- **daimio_test**: 839/843 (4 known failures in `known_failures` set)
 - **node_code**: 67/69 (2 known)
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
