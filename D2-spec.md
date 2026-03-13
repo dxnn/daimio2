@@ -3,17 +3,14 @@
 
 ## 0. Concrete Syntax
 
-DAML (Daimio Markup Language) is a templating language. A DAML source
-string is a mix of literal text and command invocations delimited by
-curly braces. Literal text passes through unchanged; commands are
-evaluated and their results are interpolated into the output.
+DAML (Daimio Ain't Markup Language, aka Drat Another Markup Language, aka Dragon Ate My Lambdas) is a templating language. A DAML source string is a mix of literal text and command invocations delimited by curly braces. Literal text passes through unchanged; commands are evaluated and their results are interpolated into the output. And then we eat lunch.
 
 ### Grammar
 
 ```
 daml       ::= (text | command | namedblock)*
 
-text       ::= any characters not containing '{' or '}'
+text       ::= any characters not containing paired curlies -- or an unpaired front curly
 
 command    ::= '{' pipeline '}'
 
@@ -21,25 +18,25 @@ namedblock ::= '{begin' name '}' daml '{end' name '}'
 
 pipeline   ::= segment (pipe segment)*
 
-pipe       ::= '|'                      — normal: implicit value flows through
+pipe       ::= '|'                      — normal:  implicit value (chi) flows
              | '||'                     — barrier: implicit value is blocked
 
 segment    ::= command_call
              | literal
+             | list_literal
+             | block
              | pvar_read
              | pvar_write
              | svar_read
              | svar_write
              | port_send
-             | block
-             | list_literal
 
 command_call ::= handler method (param_name value)*
 
-handler    ::= name                    — e.g. math, string, list, db
-method     ::= name                    — e.g. add, split, query
+handler    ::= name                     — e.g. math, string, list
+method     ::= name                     — e.g. add, split, transmogrify
 
-param_name ::= name                    — e.g. value, to, block, sql
+param_name ::= name                     — e.g. value, to, block
 
 value      ::= string_literal
              | number_literal
@@ -50,25 +47,25 @@ value      ::= string_literal
              | name_literal
 
 string_literal ::= '"' (char | command | namedblock)* '"'
-number_literal ::= '-'? digit+ ('.' digit+)?
+number_literal ::= '-'? digit+ ('.' digit+)?    - actually any JS numeric string... so like 0x3e3 is cool :shrug: 
 name_literal   ::= ':' name             — e.g. :foo produces the string "foo"
 list_literal   ::= '(' value* ')'       — e.g. (1 2 3), (:a :b :c)
 
 block      ::= '"{' pipeline '}"'       — a quoted pipeline as a value
-             | '"' daml '"'             — a quoted DAML template as a value
+             | '"' daml '"'             — a quoted DAML template as a value (those quotes are hard to parse)
 
+pvar_write ::= '>' name                 — e.g. >result, >x -- NB NO path for pvar writes!
 pvar_read  ::= '_' name path?           — e.g. _foo, _x.bar.#1
-pvar_write ::= '>' name                 — e.g. >result, >x
-svar_read  ::= '$' name path?           — e.g. $count, $user.name
 svar_write ::= '>$' name path?          — e.g. >$count, >$user.name
+svar_read  ::= '$' name path?           — e.g. $count, $user.name
 
-port_send  ::= '>@' name               — send to a named space-level port
+port_send  ::= '>@' name                — send to a named space-level port
 
 path       ::= ('.' selector)*
-selector   ::= name                     — string key: .foo
-             | '#' integer              — positional (1-based): .#1, .#-1
+selector   ::= name                     — Key: a key: .foo, 12
+             | '#' integer              — Pos: a positional (1-based) index: .#1, .#-1
              | '*'                      — star: all children
-             | '(' path+ ')'           — par: multiple paths gathered
+             | '(' path+ ')'            — par: multiple paths gathered -- NOTE! inside a dot-path this only works in curlies
 ```
 
 ### The implicit pipe value
@@ -88,7 +85,8 @@ the flowing value — it's injected automatically.
 
 This implicit value is also available explicitly as `__`. And `__in`
 refers to the input to the current pipeline/block (fixed for the
-whole execution, unlike `__` which updates each segment):
+whole execution, unlike `__` which updates each segment). 
+Note that `__` is the ONLY pipeline var that updates inside a pipeline. All other `_` vars are static (they actually get compiled down to wiring, if you can believe that.)
 
 ```
 — given pipeline input of 10:
@@ -139,7 +137,7 @@ of its last segment's result. Useful in templating contexts where
 side-effectful operations shouldn't produce visible output:
 
 ```
-{>$count | >@notify ||}                          — side effects, no output
+{$count | >@notify ||}                           — side effects, no output
 ```
 
 ### Named blocks
@@ -150,25 +148,22 @@ literal text with commands to produce an output string:
 ```
 {begin greeting}
   Hello, {$user.name}! You have {$count} messages.
-  {list each block "{_value | string uppercase}" with $items}
+  {$msgs | list each block "{_value | string uppercase}" with $items}
 {end greeting}
 ```
 
-The name is for readability and scoping. The block's content is DAML:
-literal text is preserved, commands are evaluated and interpolated.
-This is the same evaluation model as any other DAML string — there
-is no special mechanism for named blocks.
+Names are nice to read. They're also good for scoping and reuse. The block's content is DAML: literal text is preserved, commands are evaluated then smushed into the text sandwich. Note that this is the same evaluation model as any other DAML string — there is no special mechanism for named blocks.
 
 ### Concrete examples
 
 ```
-{3 | math add value 2}                          — pure command: 5
+{3 | math add value 2}                           — pure command: 5
 {(1 2 3) | list map block "{__ | math add value 1}"}  — [2, 3, 4]
 {$user.name | string uppercase}                  — path + command
-{>x | db query sql "SELECT * FROM t" | _x}     — save, effect, restore
-{:hello | >@output}                              — send to space port
-{begin row}{$name}: {$score}{end row}            — named template block
-{>$count || >@notify ||}                         — side effects, no output
+{>x | user fetch id :bob | _x}                   — save, effect, restore
+{:hello | >@spaceout}                            — send to space port
+{begin roe}{$name}: {$score}{end roe}            — named template block
+{$count | >@notify ||}                           — side effects, no output
 ```
 
 
@@ -503,7 +498,7 @@ After positional delete, positions shift: `peek(delete([a,b,c], [#2]),
 ```
 x ∈ PVar      — pipeline variable names (_foo, _bar)
 s ∈ SVar      — space variable names ($foo, $bar)
-c ∈ Cmd       — command names (math.add, time.now, db.query)
+c ∈ Cmd       — command names (math.add, time.now)
 p ∈ PortId    — port identifiers, generated at runtime
 ```
 
@@ -665,7 +660,7 @@ direction ::= In | Out | Down | Up
   Down — round-trip outward (request/response, the space needs something)
   Up   — round-trip inward (the space provides a service)
 
-flavour   — the port's type (e.g. "time-now", "db-query", "socket-in")
+flavour   — the port's type (e.g. "time-now", "socket-in")
 
 wiring    — how this port connects to the outside; determined by the
             parent space's wiring declarations (see §5)
@@ -870,7 +865,7 @@ design decision with several consequences:
 
 This means multi-shot continuations (nondeterminism, backtracking) are
 NOT expressible via down ports. These are exotic for Daimio's use cases
-(db queries, time, network APIs are all naturally call-response).
+(app actions, network APIs, and other CRUD are all naturally call-response).
 
 ### Effectful command execution
 
@@ -1042,8 +1037,8 @@ pattern ::= Match(properties)      — match ports with these properties
            | OTHER                  — default fallback (everything unmatched)
 
 properties = {
-  handler? : string | !string,  — e.g. "user", "db", or !user (NOT user)
-  method?  : string | !string,  — e.g. "add", "query", or !add
+  handler? : string | !string,  — e.g. user, logic, or !math (NOT math)
+  method?  : string | !string,  — e.g. add, twitterpate, or !remove
   type?    : Read | Write,      — polarity of the effect
 }
 
@@ -1057,9 +1052,9 @@ Multiple properties in a single Match are conjunctive (all must hold).
 
 Concrete syntax example:
 ```
-S.@[handler:db]                   → match all db commands
+S.@[handler:math]                 → match all math commands 
 S.@[handler:!user type:read]      → match reads that are NOT user commands
-S.@[handler:user type:write]      → match user writes specifically
+S.@[handler:math method:fizzbuzz] → you can only fizzbuzz nothing else
 ```
 
 Rules are evaluated in order. The first matching rule determines the
@@ -1084,21 +1079,14 @@ A.defaultTimeout = 15s
 A's wiring rules for S:
   S.@[handler:db]                → dbHandler             timeout: 30s
   S.@[handler:time]              → up-port on sibling T  (inherits 15s)
-  S.@[handler:user type:write]   → /dev/null             (no timeout needed)
+  S.@[handler:user type:write]   → dev-null              (no timeout needed)
   S.@[handler:!user type:!write] → down-port on A        (inherits 15s)
   OTHER                          → down-port on A        (inherits 15s)
 ```
 
-This means: db effects are handled locally with a generous 30s timeout,
-time effects are served by subspace T with A's default 15s, user writes
-are suppressed (returns empty immediately, no async), and everything
-else is forwarded to A's parent environment with the default timeout.
+This means: db effects are handled locally with a generous 30s timeout. (The 'db' here is for 'dragon biscuits'. Alice would never give database access to Bob, she's not daft. I mean you know what he's like.) Time effects are served by subspace T with A's default 15s, user writes are suppressed (returns empty immediately, no async), and everything else is forwarded to A's parent environment with the default timeout.
 
-If A is itself inside a space Z, and Z's wire to A has a timeout of
-10s, then the effective timeout for any round trip through A is
-min(A's wire timeout, Z's wire timeout). Even though A gives the db
-handler 30s, Z will only wait 10s for the overall round trip. If Z
-times out first, A's in-flight db request becomes orphaned.
+If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes orphaned.
 
 
 ## 6. Sockets and Space Serialization
