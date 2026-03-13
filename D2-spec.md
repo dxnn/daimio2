@@ -57,7 +57,7 @@ list_literal   ::= '(' value* ')'       — e.g. (1 2 3), (:a :b :c)
 block      ::= '"{' pipeline '}"'       — a quoted pipeline as a value
              | '"' daml '"'             — a quoted DAML template as a value
 
-pvar_read  ::= '_' name path?           — e.g. _foo, _x.bar.#0
+pvar_read  ::= '_' name path?           — e.g. _foo, _x.bar.#1
 pvar_write ::= '>' name                 — e.g. >result, >x
 svar_read  ::= '$' name path?           — e.g. $count, $user.name
 svar_write ::= '>$' name path?          — e.g. >$count, >$user.name
@@ -66,7 +66,7 @@ port_send  ::= '>@' name               — send to a named space-level port
 
 path       ::= ('.' selector)*
 selector   ::= name                     — string key: .foo
-             | '#' integer              — positional index: .#0, .#-1
+             | '#' integer              — positional (1-based): .#1, .#-1
              | '*'                      — star: all children
              | '(' path+ ')'           — par: multiple paths gathered
 ```
@@ -206,16 +206,16 @@ style optimization when no future references exist).
 ### Path expressions and accessors
 
 A path is a sequence of selectors applied to a Val to access nested
-structure. Paths appear in variable access (`$user.name`, `_x.#0.items`)
-and in the `list peek` / `list poke` commands.
+structure. Paths appear in variable access (`$user.name`, `_x.#1.items`)
+and in the four path operations: peek, poke, map, delete.
 
 #### Selectors
 
 ```
 Selector = Name(string)     — keyed access: .foo
-         | Pos(integer)     — positional access: .#0, .#-1 (negative from end)
+         | Pos(integer)     — positional access: .#1, .#-1 (1-based, negative from end)
          | Star             — all children: .*
-         | Par(path list)   — multiple paths: .(:a :b :c)
+         | Par(path list)   — multiple paths in parallel
 ```
 
 Name and Pos are **affine** — they focus on at most one location.
@@ -223,126 +223,281 @@ Name and Pos are **affine** — they focus on at most one location.
 Star is a **traversal** — it focuses on all existing children.
 
 Par is a **multiplexer** — it maps an operation across multiple paths.
-Each sub-path carries its own semantics: a Par of affine paths
-behaves like multiple affine accesses, a Par containing Star paths
-behaves like multiple traversals.
+Each sub-path carries its own semantics.
+
+**Pos is 1-indexed.** `#1` is first element, `#-1` is last. Pos works
+on both keyed and unkeyed collections (keyed collections are accessed
+by insertion order).
+
+**Key access is 0-indexed.** Name with a numeric string on an unkeyed
+list uses 0-based indexing (see Key coercion below).
+
+#### Key coercion
+
+Keys in paths may be strings or numbers. Coercion depends on the
+target collection:
+
+```
+String key on unkeyed list:  coerce to nat using (x|0) === +x
+                              if success: 0-indexed array access
+                              if failure: soft error
+
+Number key on keyed list:    treat as string (JS: obj[2] is obj["2"])
+
+Number key on unkeyed list:  0-indexed array access
+
+String key on keyed list:    normal key lookup
+```
+
+Examples:
+```
+peek([10,20,30], ["#2"])      →  20    (Pos, 1-indexed)
+peek([10,20,30], [2])          →  30    (number key, 0-indexed)
+peek([10,20,30], ["2"])        →  30    (string coerced to nat, 0-indexed)
+peek([10,20,30], ["a"])        →  soft error (can't coerce)
+peek({a:1, "2":99}, [2])      →  99    (number key on object, as string "2")
+peek({a:1, b:2, c:3}, ["#2"]) →  2     (Pos on keyed list, by insertion order)
+```
+
+#### The four path operations
+
+All four share the same path language.
+
+| Operation | Creates structure? | Changes shape? | Optics analog |
+|---|---|---|---|
+| **peek** | No | No | get / view |
+| **poke** | Yes (Name only) | No | set / put |
+| **map** | No | No | over |
+| **delete** | No | Yes | — |
 
 #### Peek (read)
-
-Peek reads the value at a path. All selectors work uniformly in peek.
 
 ```
 peek(v, []) = v
 
-peek(v, Name(s) :: rest)  = peek(v[s], rest)       — or Empty if missing
-peek(v, Pos(n)  :: rest)  = peek(v at n, rest)      — or Empty if missing
-peek(v, Star :: rest)     = [peek(child, rest) for child in children(v)]
-peek(v, Par(ps) :: rest)  = [peek(v, p ++ rest) for p in ps]
+peek(Collection, Name(s) :: rest) = peek(v[s], rest)     — or Empty
+peek(Collection, Pos(n)  :: rest) = peek(v at n, rest)    — or Empty
+peek(Collection, Star :: rest)    = [peek(child, rest) for child in children(v)]
+peek(Collection, Par(ps) :: rest) = [peek(v, p ++ rest) for p in ps]
 
-peek(nonCollection, _ :: _) = Empty
+peek(scalar, _ :: _) = Empty              — no navigation into scalars
+peek(Empty, _ :: _)  = Empty
 ```
 
-If any selector doesn't match (missing key, out of bounds), the
-result is the empty value. Consistent with totality.
+**No scalar wrapping.** Applying any non-empty path to a scalar
+always yields Empty.
+
+**Return type is path-dependent:** if any selector in the path is
+Star or Par, the result is always a list (even if empty: `[]`).
+If all selectors are affine (Name or Pos), the result is a single
+value or Empty. The caller can predict the return shape from the
+path alone, regardless of data.
 
 #### Poke (write)
 
-Poke writes a value at a path. Creation is conservative — only Name
-on a keyed collection (or Empty) can create new entries. Everything
-else modifies in place or fails silently (returns unchanged).
+Poke writes a constant value at a path. **Only Name creates new
+structure.** Everything else modifies in place, soft errors, or
+is a no-op.
 
 ```
-poke(v, [], new) = new                          — replace entirely
+poke(v, [], new) = new                    — replace entirely
 ```
 
-**Name** — creates on keyed collections, Empty, and scalars; fails on unkeyed:
+**Name** — creates on keyed collections, Empty, and scalars:
 
 ```
 poke(KeyedCollection, Name(s) :: rest, new) =
-  if key s exists: update its val with poke(val, rest, new)
-  else:            append (key=s, val=poke(Empty, rest, new))
+  if key s exists: update val with poke(val, rest, new)
+  else:            add entry (key=s, val=poke(Empty, rest, new))
 
 poke(UnkeyedCollection, Name(s) :: rest, new) =
-  v unchanged                                   — can't key an unkeyed list
+  apply key coercion; if s coerces to nat, update that element
+  otherwise: soft error, return unchanged (no promotion)
 
 poke(Empty, Name(s) :: rest, new) =
-  create KeyedCollection with one entry (key=s, poke(Empty, rest, new))
+  create KeyedCollection with (key=s, val=poke(Empty, rest, new))
 
 poke(scalar, Name(s) :: rest, new) =
-  create KeyedCollection with one entry (key=s, poke(Empty, rest, new))
-  — scalar is replaced
+  if affine path (no Star): poke(Empty, Name(s) :: rest, new)
+                              — scalar is replaced
+  if traversal (through Star): unchanged — scalar is skipped
 ```
 
-**Pos** — modifies existing positions only, never extends:
+**Pos** — modifies existing positions only:
 
 ```
 poke(Collection, Pos(n) :: rest, new) =
-  if position n exists: update its val with poke(val, rest, new)
-  else:                 v unchanged             — out of bounds, no-op
+  if position n exists: update val with poke(val, rest, new)
+  else:                 unchanged         — out of bounds, no-op
 
-poke(Empty, Pos(n) :: rest, new) = Empty        — nothing to index into
+poke(Empty, Pos(n) :: rest, new) = Empty
+poke(scalar, Pos(n) :: rest, new) = unchanged
 ```
 
 **Star** — modifies all existing children, never creates:
 
 ```
 poke(Collection, Star :: rest, new) =
-  for each existing child: poke(child, rest, new)
+  for each child: poke(child, rest, new)
+  — scalar children are skipped (see scalar rule above)
 
-poke(Empty, Star :: rest, new) = Empty          — no children to modify
+poke(Empty, Star :: rest, new) = Empty
+poke(scalar, Star :: rest, new) = unchanged
 ```
 
-**Par** — delegates to each sub-path:
+**Par** — delegates to each sub-path, sequentially left-to-right:
 
 ```
 poke(v, Par(ps) :: rest, new) =
-  apply poke(v, p ++ rest, new) for each path p in ps, sequentially
-  — each sub-path follows its own rules
+  for each path p in ps (left to right):
+    v = poke(v, p ++ rest, new)
+  return v
 ```
 
-**Scalars** — poke on a scalar (number, string) with a Name selector
-replaces the scalar with a new keyed collection (same as the Empty
-case). Poke on a scalar with Pos or Star is a no-op.
+**Scalar mid-path rule (affine vs traversal):** when poke encounters
+a scalar mid-path, behavior depends on whether the overall path is
+affine (no Star) or a traversal (passes through Star):
 
-The creation rule in one sentence: **Name creates on keyed
-collections, Empty, and scalars; everything else only modifies
-what exists.**
+  - **Affine:** Name replaces the scalar and continues.
+    `poke({x: 42}, [:x, :a], 99)` → `{x: {a: 99}}`
+  - **Traversal:** scalar children are skipped.
+    `poke([1, 2, 3], ["*", :a], 99)` → `[1, 2, 3]`
 
-Examples:
+#### Map (transform at focus)
+
+Map applies a block to each value at a path focus. **Map never
+creates structure** (it doesn't add keys or extend collections).
+However, map **will overwrite scalars with structure** if the block
+returns a complex value. If the path doesn't reach any focus, the
+structure is returned unchanged.
+
 ```
-{(1 2) | poke 5 path :b}                       — [1, 2]  (unkeyed, no-op)
-{(1 2) | poke 5 path "#4"}                     — [1, 2]  (out of bounds, no-op)
-{* (:a 1 :b 2 :c 3) | poke 5 path "#4"}       — {a:1, b:2, c:3}  (out of bounds, no-op)
-{* (:a 1 :b 2) | poke 5 path :c}              — {a:1, b:2, c:5}  (keyed, creates)
+map(v, [], block) = block(v)
+
+map(Collection, Name(s) :: rest, block) =
+  if key s exists: update val with map(val, rest, block)
+  else:            unchanged
+
+map(Collection, Pos(n) :: rest, block) =
+  if position n exists: update val with map(val, rest, block)
+  else:                 unchanged
+
+map(Collection, Star :: rest, block) =
+  for each child: map(child, rest, block)
+
+map(scalar, _ :: _, block) = unchanged
+map(Empty, _ :: _, block) = Empty
 ```
+
+**Par-map is sequential** (same as Par-poke).
+
+**When path is omitted, default is `("*")`** — this matches current
+`list map` behavior (map over all children).
+
+**Block receives:**
+  - `__` — the value at the focus
+  - `_key` — the key of the focus in its parent
+  - `_index` — the index of the focus in its parent
+  - `_path` — the full path from root to focus, as a list (new)
+
+`_path` uses **keys, not positions**, so it is **0-indexed** for
+array elements. Even when the selector was Pos (e.g. `"#2"`),
+`_path` records the resolved 0-indexed key.
+
+#### Delete (remove at focus)
+
+Delete removes the entry at a path focus. **Delete changes
+collection shape** (positions shift, entries disappear). If the
+path doesn't reach any focus, the structure is returned unchanged.
+
+```
+delete(v, []) = Empty
+
+delete(KeyedCollection, Name(s) :: []) =
+  remove entry with key s (no-op if missing)
+
+delete(UnkeyedCollection, Name(s) :: []) =
+  apply key coercion; if s coerces to nat, splice (shift)
+  otherwise: soft error, return unchanged
+
+delete(Collection, Pos(n) :: []) =
+  if position n exists: splice (shift remaining elements)
+  else:                 unchanged
+
+delete(Collection, Star :: []) =
+  remove all children (preserve keyed/unkeyed type)
+
+delete(Collection, selector :: rest) =
+  navigate to child(ren) via selector, recurse with rest
+```
+
+**Par-delete uses collect-then-remove semantics.** It identifies
+all targets from the original structure, then removes them all at
+once (in reverse index order for positional deletes to preserve
+correctness as indices shift).
+
+This differs from Par-poke and Par-map, which are sequential. The
+justification: poke and map preserve collection shape, so sequential
+application over non-overlapping paths is equivalent to parallel.
+Delete changes shape — sequential positional deletes shift indices
+between steps, causing later sub-paths to target wrong positions.
+We accept the asymmetry because it is justified by the operations'
+different relationship to shape.
+
+#### Conversion commands
+
+Switching between keyed and unkeyed is explicit:
+
+```
+{* (:a 1 :b 2) | list values}   →  [1, 2]          (keyed → unkeyed)
+{(1 2) | list rekey}             →  {"0":1, "1":2}   (unkeyed → keyed)
+```
+
+#### Path command signatures
+
+```
+list peek   — params: data, path
+list poke   — params: data, path, value
+list map    — params: data, path (default "*"), block
+list delete — params: data, path
+list append — params: data, value
+list values — params: data                    (keyed → unkeyed)
+list rekey  — params: data                    (unkeyed → keyed)
+```
+
+`list map` with path omitted defaults to `("*")` (current behavior:
+map over all children). `list append` replaces the old empty-path
+poke behavior; empty path in poke means "replace entirely."
 
 #### Laws
 
 ```
-PutGet:  peek(poke(v, p, x), p) = x              — you get what you put
-PutPut:  poke(poke(v, p, x), p, y) = poke(v, p, y)   — last write wins
-GetPut:  poke(v, p, peek(v, p)) = v               — round-trip is identity
+PutGet:    peek(poke(v, p, x), p) = x
+PutPut:    poke(poke(v, p, x), p, y) = poke(v, p, y)
+GetPut:    poke(v, p, peek(v, p)) = v
+DeleteGet: peek(delete(v, p), p) = Empty
+DeleteDel: delete(delete(v, p), p) = delete(v, p)
+MapId:     map(v, p, "{__}") = v
+PokeAsMap: poke(v, p, x) = map(v, p, "{x}")
 ```
 
-PutPut holds universally.
+PutPut holds universally. DeleteDel (idempotent) holds universally.
+MapId (identity block preserves structure) holds universally.
 
-GetPut holds except when Name creates a new entry — poke(v, p, Empty)
-adds structure that wasn't there, so it doesn't return v unchanged.
-For no-op cases (out of bounds, unkeyed), GetPut holds trivially:
-peek returns Empty, poke with Empty is a no-op, so you get v back.
+GetPut holds except when Name creates a new entry.
 
-PutGet holds when poke actually writes. When poke is a no-op (out
-of bounds, unkeyed), PutGet fails: you tried to put x but poke
-didn't write it, so peek doesn't find x. This is by design — the
-alternative (creating structure to make the put succeed) was rejected
-as too surprising.
+PutGet holds when poke actually writes. Fails on no-ops (out-of-bounds
+Pos, Name soft error on unkeyed) and on traversal scalar skips.
 
-#### Delete
+DeleteGet holds when delete actually removed something.
 
-Delete is NOT a path operation. It changes the shape of a collection
-(positions shift, keys disappear). Use explicit commands like
-`list remove` instead. Setting a path to Empty via poke stores the
-empty value — it does not remove the entry.
+PokeAsMap holds when both would write. Diverges when focus doesn't
+exist: poke creates (via Name), map skips. Also diverges on traversal
+scalar mid-path: poke skips scalars through Star, but map through
+Star would also skip (both unchanged), so they actually agree there.
+
+After positional delete, positions shift: `peek(delete([a,b,c], [#2]),
+[#2])` = `c`. Consistent with splice semantics.
 
 ### Identifiers
 ```
@@ -590,9 +745,10 @@ value (consistent with totality — no errors, just defaults).
   (ship, σ) —[WriteSVar(s, path)]→ (ship, σ')
 ```
 
-If path is empty, this sets s directly. If the path uses Name on a
-keyed collection or Empty, poke creates new entries. Pos and Star
-only modify existing structure. See §1, Path expressions.
+If path is empty, this sets s directly. See §1 Path expressions for
+full poke semantics: Name creates on keyed/Empty/scalar (affine only),
+Pos only modifies existing, Star only modifies existing children,
+Name on unkeyed lists coerces or soft errors.
 
 **Read pipeline variable:**
 ```
@@ -665,7 +821,10 @@ When a command invokes a block:
      env. Standard injected names:
        `_value`       — the current item being processed
        `_key`         — the current item's key (for keyed collections)
+       `_index`       — the current item's index
        `_total`       — accumulator value (for reduce/fold)
+       `_path`        — full path from root to focus, as a list
+                        (for path-aware map; uses 0-indexed keys)
      Injected vars shadow parent vars of the same name.
   3. Within the block, `__in` is the block's input (typically `_value`).
      `__` is the previous pipe segment's output — at the start of the
@@ -835,6 +994,8 @@ error conditions:
   - orphaned response (response arrives for already-completed request)
   - unbound space variable read (returns empty, may also emit error)
   - type mismatch in command params (command returns default value)
+  - key coercion failure (non-numeric string key on unkeyed list)
+  - Name poke on unkeyed list (no promotion, returns unchanged)
 ```
 
 A soft error:
@@ -1313,13 +1474,16 @@ programmer's perspective. Commands receive copies; mutations don't
 propagate back. Implementations may optimize with mutation when no
 future references exist (linear types style).
 
-### D15: Paths follow optics semantics with conservative creation
-Name creates new entries on keyed collections, Empty, and scalars
-(overwriting the scalar). Pos, Star, and Par never create. Pos fails
-silently on out-of-bounds, Name fails silently on unkeyed lists,
-Star only touches existing children. Delete is not a path operation.
-PutPut always holds. GetPut breaks only at Name creation. PutGet
-breaks only on no-ops (silent failures where poke didn't write).
+### D15: Paths follow optics semantics with four operations
+Four path operations: peek (get), poke (set), map (over), delete.
+All share the same selector language. Name is the only selector
+that creates in poke — on keyed collections, Empty, and scalars
+(affine only; traversal through Star skips scalars). Pos never
+creates. Star never creates. Delete changes shape (splice
+semantics); Par-delete uses collect-then-remove to handle index
+shifting, unlike Par-poke/Par-map which are sequential. Pos is
+1-indexed; key access is 0-indexed. Key coercion: string keys on
+unkeyed lists coerce to nat or soft error.
 
 ### D16: The empty value coerces by context
 The empty value is not a distinct type — it becomes "", 0, or []
