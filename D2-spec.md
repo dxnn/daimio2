@@ -70,47 +70,80 @@ selector   ::= name                     — Key: a key: .foo, 12
 
 ### The implicit pipe value
 
-The `|` operator does more than sequence segments — it **automatically
-fills the first unfilled parameter** of the next command with the
-previous segment's output. This is the core pipe mechanic:
+TODO: move this and the other notes down below the concrete syntax introduction and grammar 
+
+The `|` operator sequences segments. It also automatically **fills a parameter** of the next command. The first unfilled parameter takes the previous segment's output. 
+This is the core pipe mechanic:
 
 ```
-{2 | math add value 5 | math add value 3}
+{3 | math add to 5}
 ```
 
-Here, `2` flows into `math add` as its implicit first parameter (the
-value being added to), producing 7. Then 7 flows into the next
-`math add` the same way, producing 10. The programmer never names
-the flowing value — it's injected automatically.
-
-This implicit value is also available explicitly as `__`. And `__in`
-refers to the input to the current pipeline/block (fixed for the
-whole execution, unlike `__` which updates each segment). 
-Note that `__` is the ONLY pipeline var that updates inside a pipeline. All other `_` vars are static (they actually get compiled down to wiring, if you can believe that.)
+Here the value `3` flows in to the `value` parameter of `math add`, producing `8`. The flowing value is never named, it's injected automatically into the first unnamed parameter.
 
 ```
-— given pipeline input of 10:
-{math add value 5 | math add value __in}
-— math add value 5: implicit input is 10, result is 15
-— math add value __in: implicit input is 15, but __in is still 10, result is 25
+{2 | list range}
+{2 | list range length 3}
+{2 | list range length 3 start 4}
 ```
+
+Note that **parameter ordering** is important. 
+The command `list range` is defined with parameters `length`, `start`, and `step`, in that order. In the first example, the `length` parameter is filled by `2`, yielding `(1 2)`. In the second the `start` parameter is the first unfilled parameter by definition order, so it takes the `2`, yielding `(2 3 4)`. Only after the first two parameters are explicitly filled is the `2` finally allowed to infest `step`, producing `(4 6 8)`.
+
+```
+{2 |  list range length 3 step __}
+{2 || list range length 3 step __}
+```
+
+What if you want to fill the `step` parameter? The implicit value is also available explicitly as `__`. In the first example `step` is explicitly taking the previous pipe's value -- but `start` is also taking the implicit piped value, yielding `(2 4 6)`.
+
+Astute readers will have noticed the subtle difference in the second example. The `||` construction blocks the implicit value from flowing through, while still allowing the previous segment's value to be referenced explicitly. Here `step` receives `2` but `start` is unfilled, yielding `(1 3 5)`. This is useful when you want to set a specific parameter explicitly without filling any others implicitly. 
+
+
+```
+{( 1 2 3 ) | map block "{__ | add 1 | add __in | add __}"}
+```
+
+Pipelines can also take an initial input value, for instance when used as part of a block applied to data, as in this example. 
+This does not implicitly fill a parameter in the first segment of the pipeline, but is accessible by `__`. 
+It is also accessible as `__in` within any segment in that pipeline -- a fixed value, unlike `__`, which updates after each segment.
+Note that `__` is the only pipeline variable that updates inside a pipeline. 
+All other `_` vars are single-assignment (they actually get compiled down to wiring).
+This example takes the input value, adds 1, adds the input value again, and then adds that value to itself, yielding `(6 10 14)`.
+
+
+
+TODO: move this to a command semantics section
+
+```
+{math subtract value 5 from 8}
+{math subtract from 8 value 5}
+```
+
+Note that **parameter ordering** is unimportant. 
+The command `math subtract` has the form `math subtract value _x from _y`, but those parameters can be specified in either order. The ordering in the command's definition is only relevant for the implicit value carried through the pipe.
+
+
 
 ### Variables and scope
 
 ```
-__         — the implicit pipe value (previous segment's output)
-__in       — the input to the current pipeline/block (fixed)
-_foo       — pipeline variable (read); set with >foo
-$foo       — space variable (read); set with >$foo
+__         — the implicit pipe value (injected by runtime)
+__in       — the input to the current pipeline/block (injected by runtime)
+_foo       — pipeline variable (set with >foo)
+$foo       — space variable (set with >$foo)
 ```
 
 **Scope hierarchy:**
-  - `__` — previous pipe segment (resets each segment)
-  - `_foo` — pipeline variable (set with `>foo`; inherited by inner
-    blocks, but bindings inside a block don't propagate back out)
-  - `$foo` — space variable (persists across pipelines within a space)
+  - `__`   — previous segment value: resets each segment
+  - `_foo` — pipeline variable: local to the pipeline; inherited by child blocks, but pvars set inside a block don't propagate back out
+  - `$foo` — space variable: available within all pipelines in the same space
 
 ### The `||` barrier
+
+TODO: sort out the pipeline vs block verbage...
+
+TODO: merge this with the previous || treatment, move out of concrete syntax section
 
 `||` (double pipe) blocks the implicit pipe value from flowing to the
 next segment. After `||`, the next command receives the empty value as
@@ -142,19 +175,35 @@ side-effectful operations shouldn't produce visible output:
 
 ### Named blocks
 
-DAML originated as a templating language. A named block interleaves
-literal text with commands to produce an output string:
+TODO: move this to later
+
+DAML is a templating language. Named blocks interleave literal text with commands, producing an output string. 
 
 ```
-{begin greeting}
-  Hello, {$user.name}! You have {$count} messages.
-  {$msgs | list each block "{_value | string uppercase}" with $items}
-{end greeting}
+{{* (:name :bro :msgs ({* (:head "yo" :body "msg")} {* (:head "hey" :body "msg 2 ok")} {* (:head "note" :body "msg 33333 ok")}))} | >$user ||}
+
+{begin msgblock | >$msgblock ||}
+  <h4>{__.head | string uppercase }<h4>
+  <p>{__.body }</p>
+{end msgblock}
+
+{begin notifications | run value $user}
+  Hello, {$user.name}! You have {__.msgs | count} messages.
+  {__.msgs | each block $msgblock}
+{end notifications}
 ```
 
-Names are nice to read. They're also good for scoping and reuse. The block's content is DAML: literal text is preserved, commands are evaluated then smushed into the text sandwich. Note that this is the same evaluation model as any other DAML string — there is no special mechanism for named blocks.
+TODO: show the output here (what format?); also make the data more interesting
+
+Names are nice to read. Named blocks are also useful for scoping and reuse. The block's content is DAML: literal text is preserved, commands are evaluated then smushed into the text sandwich. Note that this is the same evaluation model as any other DAML string — there is no special mechanism for named blocks.
+
+TODO: oof, blocks are kind of a mess. Figure out how they should work:
+Q: should they automatically create a variable? 
+Q: should they automatically squelch their output? (if they don't create a variable, then they're a no-op if unpiped)
 
 ### Concrete examples
+
+TODO: do we need this? examples are scattered throughout... and we'll have a cookbook.
 
 ```
 {3 | math add value 2}                           — pure command: 5
@@ -167,6 +216,7 @@ Names are nice to read. They're also good for scoping and reuse. The block's con
 ```
 
 
+
 ## 1. Domains
 
 ### Values
@@ -174,14 +224,16 @@ Names are nice to read. They're also good for scoping and reuse. The block's con
 v ∈ Val       — numbers, strings, lists (the single universal collection)
 ```
 
-Values are the single data type. A collection is a universal data
-structure that supports ordered access (by position), keyed access
-(by string key), and nesting (values can contain other values to
-arbitrary depth).
+Values are the single data type. A collection is a universal data structure that supports ordered access (by position), keyed access (by string key), and nesting (values can contain other values to arbitrary depth).
 
-A collection's entries may be keyed, unkeyed, or a mix. `(1 2 3)` is
-unkeyed (positional only). `{* (:a 1 :b 2)}` is keyed. This
-distinction matters for poke: Name can create new entries on keyed
+A collection's entries may be keyed, unkeyed, or a mix. `(1 2 3)` is unkeyed (positional only). 
+`{* (:a 1 :b 2)}` is keyed -- it's `{a: 1, b: 2}` in JS. (`*` is an alias for `list pair`.)
+
+Ideally, the distinction would be invisible to the end user: anything you want to do with a collection, you should be able to do. 
+Achieving this idyll is non-trivial. There are sharp edges on interop and serialization, complexity and performance concerns, and a host of other dimensions that make up a fairly rich tradeoff space. Daimio makes decisions that have been generously labelled "quirky", but for all their edges they do have a genuine aesthetic at work. Keep things simple: the user's mental model, the formal model, the code itself. Roughly in that order. And if you can't make it simple, at least make it interesting. If you're going to be surprised anyway, let's aim for a whimsical surprise. That's the Daimio way.
+
+This distinction matters
+primarily for poke: Key can create new entries on keyed
 collections but not on unkeyed ones (see Path expressions).
 
 **The empty value** is the zero/identity element. It coerces based on
@@ -207,13 +259,13 @@ and in the four path operations: peek, poke, map, delete.
 #### Selectors
 
 ```
-Selector = Name(string)     — keyed access: .foo
+Selector = Key(string)      — keyed access: .foo
          | Pos(integer)     — positional access: .#1, .#-1 (1-based, negative from end)
          | Star             — all children: .*
          | Par(path list)   — multiple paths in parallel
 ```
 
-Name and Pos are **affine** — they focus on at most one location.
+Key and Pos are **affine** — they focus on at most one location.
 
 Star is a **traversal** — it focuses on all existing children.
 
@@ -224,7 +276,7 @@ Each sub-path carries its own semantics.
 on both keyed and unkeyed collections (keyed collections are accessed
 by insertion order).
 
-**Key access is 0-indexed.** Name with a numeric string on an unkeyed
+**Key access is 0-indexed.** Key with a numeric string on an unkeyed
 list uses 0-based indexing (see Key coercion below).
 
 #### Key coercion
@@ -261,7 +313,7 @@ All four share the same path language.
 | Operation | Creates structure? | Changes shape? | Optics analog |
 |---|---|---|---|
 | **peek** | No | No | get / view |
-| **poke** | Yes (Name only) | No | set / put |
+| **poke** | Yes (Key only) | No | set / put |
 | **map** | No | No | over |
 | **delete** | No | Yes | — |
 
@@ -270,7 +322,7 @@ All four share the same path language.
 ```
 peek(v, []) = v
 
-peek(Collection, Name(s) :: rest) = peek(v[s], rest)     — or Empty
+peek(Collection, Key(s) :: rest)  = peek(v[s], rest)     — or Empty
 peek(Collection, Pos(n)  :: rest) = peek(v at n, rest)    — or Empty
 peek(Collection, Star :: rest)    = [peek(child, rest) for child in children(v)]
 peek(Collection, Par(ps) :: rest) = [peek(v, p ++ rest) for p in ps]
@@ -284,13 +336,13 @@ always yields Empty.
 
 **Return type is path-dependent:** if any selector in the path is
 Star or Par, the result is always a list (even if empty: `[]`).
-If all selectors are affine (Name or Pos), the result is a single
+If all selectors are affine (Key or Pos), the result is a single
 value or Empty. The caller can predict the return shape from the
 path alone, regardless of data.
 
 #### Poke (write)
 
-Poke writes a constant value at a path. **Only Name creates new
+Poke writes a constant value at a path. **Only Key creates new
 structure.** Everything else modifies in place, soft errors, or
 is a no-op.
 
@@ -298,22 +350,22 @@ is a no-op.
 poke(v, [], new) = new                    — replace entirely
 ```
 
-**Name** — creates on keyed collections, Empty, and scalars:
+**Key** — creates on keyed collections, Empty, and scalars:
 
 ```
-poke(KeyedCollection, Name(s) :: rest, new) =
+poke(KeyedCollection, Key(s) :: rest, new) =
   if key s exists: update val with poke(val, rest, new)
   else:            add entry (key=s, val=poke(Empty, rest, new))
 
-poke(UnkeyedCollection, Name(s) :: rest, new) =
+poke(UnkeyedCollection, Key(s) :: rest, new) =
   apply key coercion; if s coerces to nat, update that element
   otherwise: soft error, return unchanged (no promotion)
 
-poke(Empty, Name(s) :: rest, new) =
+poke(Empty, Key(s) :: rest, new) =
   create KeyedCollection with (key=s, val=poke(Empty, rest, new))
 
-poke(scalar, Name(s) :: rest, new) =
-  if affine path (no Star): poke(Empty, Name(s) :: rest, new)
+poke(scalar, Key(s) :: rest, new) =
+  if affine path (no Star): poke(Empty, Key(s) :: rest, new)
                               — scalar is replaced
   if traversal (through Star): unchanged — scalar is skipped
 ```
@@ -353,7 +405,7 @@ poke(v, Par(ps) :: rest, new) =
 a scalar mid-path, behavior depends on whether the overall path is
 affine (no Star) or a traversal (passes through Star):
 
-  - **Affine:** Name replaces the scalar and continues.
+  - **Affine:** Key replaces the scalar and continues.
     `poke({x: 42}, [:x, :a], 99)` → `{x: {a: 99}}`
   - **Traversal:** scalar children are skipped.
     `poke([1, 2, 3], ["*", :a], 99)` → `[1, 2, 3]`
@@ -369,7 +421,7 @@ structure is returned unchanged.
 ```
 map(v, [], block) = block(v)
 
-map(Collection, Name(s) :: rest, block) =
+map(Collection, Key(s) :: rest, block) =
   if key s exists: update val with map(val, rest, block)
   else:            unchanged
 
@@ -408,10 +460,10 @@ path doesn't reach any focus, the structure is returned unchanged.
 ```
 delete(v, []) = Empty
 
-delete(KeyedCollection, Name(s) :: []) =
+delete(KeyedCollection, Key(s) :: []) =
   remove entry with key s (no-op if missing)
 
-delete(UnkeyedCollection, Name(s) :: []) =
+delete(UnkeyedCollection, Key(s) :: []) =
   apply key coercion; if s coerces to nat, splice (shift)
   otherwise: soft error, return unchanged
 
@@ -479,15 +531,15 @@ PokeAsMap: poke(v, p, x) = map(v, p, "{x}")
 PutPut holds universally. DeleteDel (idempotent) holds universally.
 MapId (identity block preserves structure) holds universally.
 
-GetPut holds except when Name creates a new entry.
+GetPut holds except when Key creates a new entry.
 
 PutGet holds when poke actually writes. Fails on no-ops (out-of-bounds
-Pos, Name soft error on unkeyed) and on traversal scalar skips.
+Pos, Key soft error on unkeyed) and on traversal scalar skips.
 
 DeleteGet holds when delete actually removed something.
 
 PokeAsMap holds when both would write. Diverges when focus doesn't
-exist: poke creates (via Name), map skips. Also diverges on traversal
+exist: poke creates (via Key), map skips. Also diverges on traversal
 scalar mid-path: poke skips scalars through Star, but map through
 Star would also skip (both unchanged), so they actually agree there.
 
@@ -741,9 +793,9 @@ value (consistent with totality — no errors, just defaults).
 ```
 
 If path is empty, this sets s directly. See §1 Path expressions for
-full poke semantics: Name creates on keyed/Empty/scalar (affine only),
+full poke semantics: Key creates on keyed/Empty/scalar (affine only),
 Pos only modifies existing, Star only modifies existing children,
-Name on unkeyed lists coerces or soft errors.
+Key on unkeyed lists coerces or soft errors.
 
 **Read pipeline variable:**
 ```
@@ -990,7 +1042,7 @@ error conditions:
   - unbound space variable read (returns empty, may also emit error)
   - type mismatch in command params (command returns default value)
   - key coercion failure (non-numeric string key on unkeyed list)
-  - Name poke on unkeyed list (no promotion, returns unchanged)
+  - Key poke on unkeyed list (no promotion, returns unchanged)
 ```
 
 A soft error:
@@ -1464,7 +1516,7 @@ future references exist (linear types style).
 
 ### D15: Paths follow optics semantics with four operations
 Four path operations: peek (get), poke (set), map (over), delete.
-All share the same selector language. Name is the only selector
+All share the same selector language. Key is the only selector
 that creates in poke — on keyed collections, Empty, and scalars
 (affine only; traversal through Star skips scalars). Pos never
 creates. Star never creates. Delete changes shape (splice

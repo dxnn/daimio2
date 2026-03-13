@@ -188,3 +188,14 @@ One test is marked KNOWN PROBLEMATIC: `poke([1,2,3], ["*", :a], 99)` — star ex
 to scalar children, then keyfinder can't create/set on primitives because D.poke doesn't
 track parent references. Fixing requires refactoring D.poke to carry `{parent, key}`
 context for each todo item.
+
+## REPL
+
+A tiny interactive REPL lives at `tests/repl.mjs`:
+```bash
+node tests/repl.mjs
+```
+- Type Daimio expressions at the `>` prompt, hit Enter on a blank line to execute
+- Supports multiline paste (buffered until blank line)
+- Named blocks use pipe on `{begin}`, not `{end}`:
+  `{begin foo | >$foo ||}{body}{end foo}`
