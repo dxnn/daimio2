@@ -1,16 +1,22 @@
 # Daimio2: Formal Execution Model
 
-
-## 0. Concrete Syntax
+## 0. Prelude
 
 DAML (Daimio Ain't Markup Language, aka Drat Another Markup Language, aka Dragon Ate My Lambdas) is a templating language. A DAML source string is a mix of literal text and command invocations delimited by curly braces. Literal text passes through unchanged; commands are evaluated and their results are interpolated into the output. And then we eat lunch.
+
+TODO: put more text here
+
+TODO: renumber everything below!
+
+## 0. Concrete Syntax
 
 ### Grammar
 
 ```
 daml       ::= (text | command | namedblock)*
 
-text       ::= any characters not containing paired curlies -- or an unpaired front curly
+text       ::= any characters not containing paired curlies
+TODO: also, anything containing an unpaired opening curly...
 
 command    ::= '{' pipeline '}'
 
@@ -61,16 +67,18 @@ svar_read  ::= '$' name path?           — e.g. $count, $user.name
 
 port_send  ::= '>@' name                — send to a named space-level port
 
-path       ::= ('.' selector)*
+path       ::= ('.' selector)*          - NB paths can also be expressed as lists
 selector   ::= name                     — Key: a key: .foo, 12
              | '#' integer              — Pos: a positional (1-based) index: .#1, .#-1
              | '*'                      — star: all children
-             | '(' path+ ')'            — par: multiple paths gathered -- NOTE! inside a dot-path this only works in curlies
+             | '(' path+ ')'            — par: multiple paths gathered
 ```
+
+TODO: right now, inside a dot-path Par only works in curlies. 
 
 ### The implicit pipe value
 
-TODO: move this and the other notes down below the concrete syntax introduction and grammar 
+TODO: move this and the remaining subsections out of Grammar, they don't really belong here
 
 The `|` operator sequences segments. It also automatically **fills a parameter** of the next command. The first unfilled parameter takes the previous segment's output. 
 This is the core pipe mechanic:
@@ -135,9 +143,9 @@ $foo       — space variable (set with >$foo)
 ```
 
 **Scope hierarchy:**
-  - `__`   — previous segment value: resets each segment
-  - `_foo` — pipeline variable: local to the pipeline; inherited by child blocks, but pvars set inside a block don't propagate back out
-  - `$foo` — space variable: available within all pipelines in the same space
+- `__`   — previous segment value: resets each segment
+- `_foo` — pipeline variable: local to the pipeline; inherited by child blocks, but pvars set inside a block don't propagate back out
+- `$foo` — space variable: available within all pipelines in the same space
 
 ### The `||` barrier
 
@@ -193,17 +201,18 @@ DAML is a templating language. Named blocks interleave literal text with command
 {end notifications}
 ```
 
-TODO: show the output here (what format?); also make the data more interesting
+TODO: show the output here (what format?); also make the data more interesting (rice ball types)
+TODO: the above example is too long; make a shorter one and save that for elsewhere
 
-Names are nice to read. Named blocks are also useful for scoping and reuse. The block's content is DAML: literal text is preserved, commands are evaluated then smushed into the text sandwich. Note that this is the same evaluation model as any other DAML string — there is no special mechanism for named blocks.
+Names are nice to read. Named blocks are also useful for scoping and reuse. The block's content is DAML: literal text is preserved, commands are evaluated then smushed into the text sandwich. Note that this is the same evaluation model as any other DAML string — there is no special evaluation mechanism for named blocks.
 
-TODO: oof, blocks are kind of a mess. Figure out how they should work:
-Q: should they automatically create a variable? 
-Q: should they automatically squelch their output? (if they don't create a variable, then they're a no-op if unpiped)
+TODO: is that true that there's no special eval mechanism for named blocks? it's kind of a strange thing to say.
+
+TODO: should blocks automatically create a variable? if they don't, we shouldn't squelch their output without pipes, that just makes them a no-op.
 
 ### Concrete examples
 
-TODO: do we need this? examples are scattered throughout... and we'll have a cookbook.
+TODO: it's nice to have some concert examples of the grammar -- but then put these closer to the grammar!
 
 ```
 {3 | math add value 2}                           — pure command: 5
@@ -229,25 +238,27 @@ Values are the single data type. A collection is a universal data structure that
 A collection's entries may be keyed, unkeyed, or a mix. `(1 2 3)` is unkeyed (positional only). 
 `{* (:a 1 :b 2)}` is keyed -- it's `{a: 1, b: 2}` in JS. (`*` is an alias for `list pair`.)
 
-Ideally, the distinction would be invisible to the end user: anything you want to do with a collection, you should be able to do. 
+Ideally, the distinction between keyed and unkeyed would be invisible to the end user: anything you want to do with a collection, you should be able to do. 
 Achieving this idyll is non-trivial. There are sharp edges on interop and serialization, complexity and performance concerns, and a host of other dimensions that make up a fairly rich tradeoff space. Daimio makes decisions that have been generously labelled "quirky", but for all their edges they do have a genuine aesthetic at work. Keep things simple: the user's mental model, the formal model, the code itself. Roughly in that order. And if you can't make it simple, at least make it interesting. If you're going to be surprised anyway, let's aim for a whimsical surprise. That's the Daimio way.
 
 This distinction matters
 primarily for poke: Key can create new entries on keyed
 collections but not on unkeyed ones (see Path expressions).
 
-**The empty value** is the zero/identity element. It coerces based on
+**The empty value** is the identity element. It coerces based on
 context: `""` when used as a string, `0` when used as a number, `[]`
 when used as a list. This is why totality works without error values —
 a missing path, an unbound variable, or a timed-out effect all produce
 the empty value, which becomes whatever zero the consuming command
 expects.
 
+TODO: this is the first mention of totality, seems weird. We should introduce it better. 
+
 **Value semantics:** values flowing through pipelines have copy semantics
 at command boundaries. A command receives its own copy of any collection
 it intends to mutate. The original value in the pipeline is not affected.
 From the programmer's perspective, pipeline flow is functionally pure.
-Implementations may use mutation internally for efficiency (linear types
+Implementations may use mutation internally for efficiency (e.g. linear types
 style optimization when no future references exist).
 
 ### Path expressions and accessors
@@ -257,13 +268,6 @@ structure. Paths appear in variable access (`$user.name`, `_x.#1.items`)
 and in the four path operations: peek, poke, map, delete.
 
 #### Selectors
-
-```
-Selector = Key(string)      — keyed access: .foo
-         | Pos(integer)     — positional access: .#1, .#-1 (1-based, negative from end)
-         | Star             — all children: .*
-         | Par(path list)   — multiple paths in parallel
-```
 
 Key and Pos are **affine** — they focus on at most one location.
 
@@ -289,7 +293,7 @@ String key on unkeyed list:  coerce to nat using (x|0) === +x
                               if success: 0-indexed array access
                               if failure: soft error
 
-Number key on keyed list:    treat as string (JS: obj[2] is obj["2"])
+Number key on keyed list:    treat as string
 
 Number key on unkeyed list:  0-indexed array access
 
@@ -299,9 +303,9 @@ String key on keyed list:    normal key lookup
 Examples:
 ```
 peek([10,20,30], ["#2"])      →  20    (Pos, 1-indexed)
-peek([10,20,30], [2])          →  30    (number key, 0-indexed)
-peek([10,20,30], ["2"])        →  30    (string coerced to nat, 0-indexed)
-peek([10,20,30], ["a"])        →  soft error (can't coerce)
+peek([10,20,30], [2])         →  30    (number key, 0-indexed)
+peek([10,20,30], ["2"])       →  30    (string coerced to nat, 0-indexed)
+peek([10,20,30], ["a"])       →  ""    (soft error: can't coerce)
 peek({a:1, "2":99}, [2])      →  99    (number key on object, as string "2")
 peek({a:1, b:2, c:3}, ["#2"]) →  2     (Pos on keyed list, by insertion order)
 ```
@@ -317,13 +321,15 @@ All four share the same path language.
 | **map** | No | No | over |
 | **delete** | No | Yes | — |
 
+TODO: the above table says map does not create structure, and does not change shape. are those things really true? what exactly do they mean in this context?
+
 #### Peek (read)
 
 ```
 peek(v, []) = v
 
-peek(Collection, Key(s) :: rest)  = peek(v[s], rest)     — or Empty
-peek(Collection, Pos(n)  :: rest) = peek(v at n, rest)    — or Empty
+peek(Collection, Key(s) :: rest)  =  peek(v[s], rest)      — or Empty
+peek(Collection, Pos(n)  :: rest) =  peek(v at n, rest)    — or Empty
 peek(Collection, Star :: rest)    = [peek(child, rest) for child in children(v)]
 peek(Collection, Par(ps) :: rest) = [peek(v, p ++ rest) for p in ps]
 
@@ -339,16 +345,19 @@ Star or Par, the result is always a list (even if empty: `[]`).
 If all selectors are affine (Key or Pos), the result is a single
 value or Empty. The caller can predict the return shape from the
 path alone, regardless of data.
+TODO: note that a value can be a list -- this is about the wrapping
 
 #### Poke (write)
 
 Poke writes a constant value at a path. **Only Key creates new
-structure.** Everything else modifies in place, soft errors, or
+structure.** Everything else modifies in place or soft errors and
 is a no-op.
+TODO: aka sploots
 
 ```
 poke(v, [], new) = new                    — replace entirely
 ```
+TODO: should poke really replace it entirely? it currently appends. I'm still not sure which is right.
 
 **Key** — creates on keyed collections, Empty, and scalars:
 
@@ -404,6 +413,7 @@ poke(v, Par(ps) :: rest, new) =
 **Scalar mid-path rule (affine vs traversal):** when poke encounters
 a scalar mid-path, behavior depends on whether the overall path is
 affine (no Star) or a traversal (passes through Star):
+TODO: does this really happen based on overall path, or just based on current segment? which of those should it be?
 
   - **Affine:** Key replaces the scalar and continues.
     `poke({x: 42}, [:x, :a], 99)` → `{x: {a: 99}}`
@@ -417,6 +427,10 @@ creates structure** (it doesn't add keys or extend collections).
 However, map **will overwrite scalars with structure** if the block
 returns a complex value. If the path doesn't reach any focus, the
 structure is returned unchanged.
+
+TODO: it seems a little wrong to say Map never creates structure. It will have happily add a deeper structure, e.g. : `{(1 2) | list map block (3 4)}` 
+TODO: In other places it says poke doesn't create structure, but poke definitely creates new keys
+
 
 ```
 map(v, [], block) = block(v)
@@ -442,10 +456,10 @@ map(Empty, _ :: _, block) = Empty
 `list map` behavior (map over all children).
 
 **Block receives:**
-  - `__` — the value at the focus
-  - `_key` — the key of the focus in its parent
-  - `_index` — the index of the focus in its parent
-  - `_path` — the full path from root to focus, as a list (new)
+- `__` — the value at the focus
+- `_key` — the key of the focus in its parent
+- `_index` — the index of the focus in its parent
+- `_path` — the full path from root to focus, as a list (new)
 
 `_path` uses **keys, not positions**, so it is **0-indexed** for
 array elements. Even when the selector was Pos (e.g. `"#2"`),
@@ -480,23 +494,25 @@ delete(Collection, selector :: rest) =
 
 **Par-delete uses collect-then-remove semantics.** It identifies
 all targets from the original structure, then removes them all at
-once (in reverse index order for positional deletes to preserve
+once (in reverse index order, for positional deletes to preserve
 correctness as indices shift).
 
-This differs from Par-poke and Par-map, which are sequential. The
-justification: poke and map preserve collection shape, so sequential
+This differs from Par-poke and Par-map, which are sequential. Both poke and map preserve collection shape, so sequential
 application over non-overlapping paths is equivalent to parallel.
 Delete changes shape — sequential positional deletes shift indices
 between steps, causing later sub-paths to target wrong positions.
 We accept the asymmetry because it is justified by the operations'
 different relationship to shape.
 
+TODO: shape the above statement a bit better. 
+TODO: whta about overlapping paths? what if the first par path pokes a shape in that the second par path follows? how is that handled currently?
+
 #### Conversion commands
 
 Switching between keyed and unkeyed is explicit:
 
 ```
-{* (:a 1 :b 2) | list values}   →  [1, 2]          (keyed → unkeyed)
+{* (:a 1 :b 2) | list values}    →  [1, 2]           (keyed → unkeyed)
 {(1 2) | list rekey}             →  {"0":1, "1":2}   (unkeyed → keyed)
 ```
 
@@ -512,6 +528,10 @@ list values — params: data                    (keyed → unkeyed)
 list rekey  — params: data                    (unkeyed → keyed)
 ```
 
+TODO: add other `list` methods? why just these?
+TODO: these are mostly other places do we need this table?
+
+TODO: I think the paragraph below is repeated elsewhere:
 `list map` with path omitted defaults to `("*")` (current behavior:
 map over all children). `list append` replaces the old empty-path
 poke behavior; empty path in poke means "replace entirely."
@@ -642,37 +662,6 @@ Inter-actor communication happens entirely outside of Daimio, mediated
 by the outer application through whatever external systems it chooses
 (databases, CRDTs, message queues, etc.).
 
-### Pipeline Segments
-```
-seg ::= PureCmd(c, args)           — invoke a pure command
-      | EffCmd(c, args)            — invoke an effectful command (async boundary)
-      | ReadSVar(s, path)          — read a space variable (with optional path)
-      | WriteSVar(s, path)         — write pipeline value to space variable
-      | ReadPVar(x, path)          — read a pipeline variable (with optional path)
-      | WritePVar(x)               — bind pipeline value to pipeline variable
-      | Literal(v)                 — a literal value
-      | Block(daml)                — a quoted DAML string as a value
-
-pipeline ::= seg₁ pipe seg₂ pipe ...  — sequential composition
-pipe     ::= '|' or '||'             — normal pipe or barrier pipe
-```
-
-**Eval is not a special operation.** Whenever a Block (a DAML string)
-is evaluated — whether by `list map`, `list fold`, `if then`, or any
-other command that takes a block parameter — that block's pipeline
-executes in the current space under the current dialect. This is just
-normal pipeline execution. There is no separate "eval" mechanism;
-evaluating a block IS running a pipeline.
-
-This means `{(1 2 3) | list map block "{__ | add 1}"}` involves block
-evaluation: the block `"{__ | add 1}"` is a DAML string that gets
-evaluated once per list element. Each evaluation is a pipeline execution, subject to
-the same rules as any other pipeline (segment atomicity, fresh space
-var reads, effectful commands creating async boundaries, etc.).
-
-A program received as data (e.g. a ship carrying a DAML string) is
-evaluated the same way — it's a Block that gets run as a pipeline.
-No special case needed.
 
 ### Stations
 ```
@@ -847,6 +836,8 @@ A trailing `||` with no following segment returns empty:
 
 ### Block invocation by commands
 
+TODO: merge everything down to "Atomicity guarantee"
+
 A Block(daml) segment produces a suspended pipeline as a value — a
 DAML string that can be passed to commands. Certain pure commands
 accept block parameters and invoke them iteratively:
@@ -888,11 +879,72 @@ each invocation may create async boundaries. The command's iteration
 suspends at each boundary and resumes when the response arrives,
 maintaining ordering.
 
+#### Block Evaluation and Programs-as-Data
+
+There is no special "eval" mechanism. Evaluating a DAML string is
+just running a pipeline. It happens constantly during normal execution:
+
+  - `{(1 2 3) | list map block "{__ | add 1}"}` — the block is
+    evaluated once per element
+  - `{if $cond | then block "{do_something}" else block "{other}"}` —
+    one of the blocks is evaluated
+  - A ship arrives carrying a DAML string as its payload, and a
+    station's pipeline runs that string as a block
+
+In all cases, the block's pipeline executes in the current outer space,
+under the outer space's dialect, with access to the outer space's
+space variables. Blocks inherit the parent pipeline's env (see §2,
+Block invocation). A program received as data and run as a block
+inherits the env of whatever pipeline evaluates it — if there are no
+pipeline vars in scope, the received program simply sees an empty env.
+The execution model — segment atomicity, fresh space var reads,
+effectful commands creating async boundaries — applies uniformly.
+
+This is why dialect-per-outer-space works cleanly: there's no
+question of what dialect a received program runs under. Everything
+in this outer space runs under this outer space's dialect, period.
+There is no mechanism for escalating or changing the dialect
+mid-execution.
+
+
+#### Eval is not a special operation.
+Whenever a Block (a DAML string)
+is evaluated — whether by `list map`, `list fold`, `if then`, or any
+other command that takes a block parameter — that block's pipeline
+executes in the current space under the current dialect. This is just
+normal pipeline execution. There is no separate "eval" mechanism;
+evaluating a block IS running a pipeline.
+
+This means `{(1 2 3) | list map block "{__ | add 1}"}` involves block
+evaluation: the block `"{__ | add 1}"` is a DAML string that gets
+evaluated once per list element. Each evaluation is a pipeline execution, subject to
+the same rules as any other pipeline (segment atomicity, fresh space
+var reads, effectful commands creating async boundaries, etc.).
+
+A program received as data (e.g. a ship carrying a DAML string) is
+evaluated the same way — it's a Block that gets run as a pipeline.
+No special case needed.
+
 ### Atomicity guarantee
 
 All synchronous steps within a segment execute without interleaving.
 No other ship may read or write σ during a synchronous segment's
 execution. This is enforced by the scheduler (§8).
+
+#### Pipeline Segments
+```
+seg ::= PureCmd(c, args)           — invoke a pure command
+      | EffCmd(c, args)            — invoke an effectful command (async boundary)
+      | ReadSVar(s, path)          — read a space variable (with optional path)
+      | WriteSVar(s, path)         — write pipeline value to space variable
+      | ReadPVar(x, path)          — read a pipeline variable (with optional path)
+      | WritePVar(x)               — bind pipeline value to pipeline variable
+      | Literal(v)                 — a literal value
+      | Block(daml)                — a quoted DAML string as a value
+
+pipeline ::= seg₁ pipe seg₂ pipe ...  — sequential composition
+pipe     ::= '|' or '||'             — normal pipe or barrier pipe
+```
 
 
 ## 3. Execution: Asynchronous Boundaries
@@ -1230,34 +1282,6 @@ spaces are fully isolated — all cross-boundary communication goes
 through ports.
 
 
-## 7. Block Evaluation and Programs-as-Data
-
-There is no special "eval" mechanism. Evaluating a DAML string is
-just running a pipeline. It happens constantly during normal execution:
-
-  - `{(1 2 3) | list map block "{__ | add 1}"}` — the block is
-    evaluated once per element
-  - `{if $cond | then block "{do_something}" else block "{other}"}` —
-    one of the blocks is evaluated
-  - A ship arrives carrying a DAML string as its payload, and a
-    station's pipeline runs that string as a block
-
-In all cases, the block's pipeline executes in the current outer space,
-under the outer space's dialect, with access to the outer space's
-space variables. Blocks inherit the parent pipeline's env (see §2,
-Block invocation). A program received as data and run as a block
-inherits the env of whatever pipeline evaluates it — if there are no
-pipeline vars in scope, the received program simply sees an empty env.
-The execution model — segment atomicity, fresh space var reads,
-effectful commands creating async boundaries — applies uniformly.
-
-This is why dialect-per-outer-space works cleanly: there's no
-question of what dialect a received program runs under. Everything
-in this outer space runs under this outer space's dialect, period.
-There is no mechanism for escalating or changing the dialect
-mid-execution.
-
-
 ## 8. Scheduling and Interleaving
 
 ### The scheduler
@@ -1367,6 +1391,10 @@ or diverges (assuming commands are total, which is a requirement on
 command definitions). The empty value coerces to "", 0, or [] as
 needed, so it always flows cleanly through subsequent commands.
 
+TODO: producing a soft error with the empty value is used all the time, we need a new term for it. I suggest "sploot". "Every port access either succeeds or sploots." "A command that outside the dialect just sploots."
+TODO: think about `[]` vs `()` for empty value
+TODO: the smart quote rendering makes "" look dumb, turn that off
+
 ### Actor isolation
 A Daimio instance is a single outer space. It has no knowledge of
 other instances. "Actor isolation" is not a property Daimio enforces —
@@ -1437,9 +1465,8 @@ communication is entirely outside Daimio's scope.
 ### D3: Space variable reads are always fresh
 Every reference to $foo reads the current value at that moment in
 execution. Values are not cached across async boundaries. Pipeline
-vars (_foo) are the mechanism for preserving values across async
-boundaries. Mental model: "pipeline vars are yours, space vars are
-the room's."
+vars (e.g. `_foo`) are the mechanism for preserving values across async
+boundaries. Mental model: "pvars are mine, svars are ours".
 
 ### D4: Down ports return exactly one value
 A down-port round trip always produces exactly one response. This
@@ -1453,6 +1480,10 @@ The runtime must correlate responses to their originating requests
 so that each suspended ship resumes with the correct value. Late
 or orphaned responses are dropped with a soft error. The correlation
 mechanism (e.g. request tagging) is an implementation detail.
+
+TODO: examine "request tagging" that seems weird
+TODO:  let's not call requests orphans that's just sad
+TODO:  I don't like the word "suspended" for ships, maybe just "docked"? Or... "dry docked"? We need something better. "anchored"? that's pretty good. "berthing"? That's okay too. maybe berthing. "When a ship docks into a space's downport from the outside, it passes its cargo to ship waiting at its berth. The berthing ship then disembarks for its station."
 
 ### D6: Cascading timeouts with outer-wins semantics
 Every down-port wire has a timeout (explicit, inherited from nearest
