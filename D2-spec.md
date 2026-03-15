@@ -6,9 +6,7 @@ DAML (Daimio Ain't Markup Language, aka Drat Another Markup Language, aka Dragon
 
 TODO: put more text here
 
-TODO: renumber everything below!
-
-## 0. Concrete Syntax
+## 1. Concrete Syntax
 
 ### Grammar
 
@@ -231,7 +229,7 @@ output. To save one for reuse, pipe it explicitly:
 
 ### Concrete examples
 
-TODO: it's nice to have some concert examples of the grammar -- but then put these closer to the grammar!
+TODO: it's nice to have some concrete examples of the grammar -- but then put these closer to the grammar!
 
 ```
 {3 | math add value 2}                           — pure command: 5
@@ -245,7 +243,7 @@ TODO: it's nice to have some concert examples of the grammar -- but then put the
 
 
 
-## 1. Domains
+## 2. Domains
 
 ### Values
 ```
@@ -315,6 +313,66 @@ intends to mutate. The original value in the pipeline is not affected.
 From the programmer's perspective, pipeline flow is functionally pure.
 Implementations may use mutation internally for efficiency (e.g.
 linear types style optimization when no future references exist).
+
+### The three sendable things
+
+The model supports three kinds of values that can be serialized and
+sent over ports, including over the network:
+
+**Data** — just a Val. No behavior, no effects, no requirements.
+Enters a space as a ship payload through any in-port. The simplest case.
+
+**Program** — a pipeline, serialized as DAML source text.
+Enters an outer space as a ship payload. A station's pipeline
+evaluates it as a block — this is ordinary block evaluation,
+not a special mechanism.
+
+The structure is analogous to a free monad over the effect
+signature, composed with a state monad for space variables:
+  - Pure commands and space variable access are synchronous
+    state transitions: `(ship, σ) → (ship', σ')`
+  - Effectful commands suspend the ship and produce port
+    requests — abstract operations interpreted by the wiring
+  - The outer space + wiring is the interpreter for effects
+
+Under the current serial scheduling model (§9), each ship has
+exclusive access to σ. This means the state transitions are
+deterministic — no other ship can modify σ between your segments.
+Space variable access within a pipeline (including through block
+evaluation) is consistent and predictable.
+
+Note: the free monad analogy is not exact. Space variables
+introduce shared mutable state, and block evaluation can invoke
+arbitrary effectful commands not known statically. The analogy
+captures the essential shape — pure computation interleaved with
+abstract effect operations — but the full model is richer.
+
+Requires: the outer space's dialect must include whatever commands
+the program invokes, and port wiring must exist (or be
+demand-creatable) for any effects used.
+
+The program is "parasitic" — it borrows everything from the host.
+
+**Space** — a serialized space, represented as DAML source text.
+Enters through a socket-in port on a socket space.
+
+It is a coalgebra — behavior with internal context:
+  - Carries its own topology, programs, and state
+  - Depends on the socket only for port wiring to the outside
+  - Self-contained internally, dependent externally
+
+Requires: a socket with wiring rules that cover its effect surface
+(with OTHER as a fallback for unknown effects).
+
+The space is "self-reliant" — it brings its own context. When loaded
+into a socket, it becomes a subspace of the receiving space within
+the current Daimio instance.
+
+The gradient of dependency:
+
+- **Data:** needs nothing
+- **Program:** needs dialect + state + ports (borrows everything)
+- **Space:** needs port wiring + dialect assignment (brings everything else)
 
 ### Path expressions and accessors
 
@@ -750,7 +808,7 @@ direction ::= In | Out | Down | Up
 flavour   — the port's type (e.g. "time-now", "socket-in")
 
 wiring    — how this port connects to the outside; determined by the
-            parent space's wiring declarations (see §5)
+            parent space's wiring declarations (see §6)
 ```
 
 ### Spaces
@@ -760,8 +818,8 @@ space = (stations, subspaces, ports, wiringRules, defaultTimeout?)
   stations      : name → station
   subspaces     : name → space
   ports         : set of port
-  wiringRules   : list of WiringRule     — pattern-based routing (see §5)
-  defaultTimeout: Duration?              — default timeout for wires (see §3.3)
+  wiringRules   : list of WiringRule     — pattern-based routing (see §6)
+  defaultTimeout: Duration?              — default timeout for wires (see §4.3)
 ```
 
 A space is a **definition** — a template for execution. It specifies
@@ -774,7 +832,7 @@ an outer space from the space definition, assigns a dialect, and
 initializes the space variable store.
 
 
-## 2. Execution: Synchronous Segments
+## 3. Execution: Synchronous Segments
 
 A **synchronous segment** is a maximal sequence of pipeline steps that
 contains no effectful command invocations (no async boundaries). It is
@@ -834,7 +892,7 @@ and no fallback defined), the command is not executed. A soft error
 is emitted and the pipeline continues with the empty value.
 
 **Dialect check:** if c ∉ δ.commands, the command is not executed.
-A soft error is emitted (see §4), and the pipeline value is unchanged.
+A soft error is emitted (see §5), and the pipeline value is unchanged.
 
 **Read space variable:**
 ```
@@ -853,7 +911,7 @@ value (consistent with totality — no errors, just defaults).
   (ship, σ) —[WriteSVar(s, path)]→ (ship, σ')
 ```
 
-If path is empty, this sets s directly. See §1 Path expressions for
+If path is empty, this sets s directly. See §2 Path expressions for
 full poke semantics: Key creates on keyed/Empty/scalar (affine only),
 Pos only modifies existing, Star only modifies existing children,
 Key on unkeyed lists coerces or soft errors.
@@ -951,9 +1009,10 @@ scope, it simply sees an empty env.
 
 ### Atomicity guarantee
 
-All synchronous steps within a segment execute without interleaving.
-No other ship may read or write σ during a synchronous segment's
-execution. This is enforced by the scheduler (§8).
+A space processes one ship at a time (§9). The active ship has
+exclusive access to σ for its entire lifetime — not just within a
+synchronous segment, but across async boundaries as well. No other
+ship may read or write σ while the active ship exists.
 
 #### Pipeline Segments
 ```
@@ -971,7 +1030,7 @@ pipe     ::= '|' or '||'             — normal pipe or barrier pipe
 ```
 
 
-## 3. Execution: Asynchronous Boundaries
+## 4. Execution: Asynchronous Boundaries
 
 An effectful command creates an **async boundary**. The ship's execution
 splits into two phases: before the effect (sync) and after the response
@@ -1000,7 +1059,7 @@ NOT expressible via down ports. These are exotic for Daimio's use cases
 ```
   c ∈ δ.commands       (command is in the outer space's dialect)
   c is Effectful(c, params, portType, _)
-  p = resolveOrCreatePort(space, portType)    — see §5 for port resolution
+  p = resolveOrCreatePort(space, portType)    — see §6 for port resolution
   ─────────────────────────────────────────────────
   (ship, σ) —[EffCmd(c, args)]→ SUSPEND(p, ship, continuation)
 ```
@@ -1029,7 +1088,7 @@ Critically: σ_current is the space variable store **at the time of
 resumption**, not at the time of suspension. Space variable reads after
 an async boundary see fresh values. This is the "fresh reads" rule.
 
-### 3.3 Timeouts
+### 4.3 Timeouts
 
 Every down-port wire has a **timeout**: the maximum duration the runtime
 will wait for a response before resuming the suspended ship with a
@@ -1104,7 +1163,7 @@ This is synchronous — no async boundary is created, no ship is
 suspended, no timeout. The pipeline continues immediately.
 
 
-## 4. Errors
+## 5. Errors
 
 Daimio is total. Commands do not throw exceptions. However, certain
 conditions produce **soft errors**:
@@ -1131,7 +1190,7 @@ This is analogous to IEEE 754 NaN propagation: errors flow through the
 pipeline as values, rather than interrupting control flow.
 
 
-## 5. Ports, Wiring, and Demand-Creation
+## 6. Ports, Wiring, and Demand-Creation
 
 ### Port resolution
 
@@ -1217,7 +1276,7 @@ This means: db effects are handled locally with a generous 30s timeout. (The 'db
 If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes orphaned.
 
 
-## 6. Sockets and Space Serialization
+## 7. Sockets and Space Serialization
 
 ### Serialized space format
 
@@ -1298,105 +1357,106 @@ spaces are fully isolated — all cross-boundary communication goes
 through ports.
 
 
-## 8. Scheduling and Interleaving
+## 9. Scheduling
 
-### The scheduler
+### Serial execution per space
 
-A Daimio instance has a single scheduler. The scheduler maintains a
-queue of **ready segments**: synchronous segments waiting to execute.
-A segment becomes ready when:
-  - A ship arrives at a station's in-port (new segment)
-  - A response arrives at a down-port for a suspended ship (resumption)
-  - A timeout fires for a suspended ship (timeout resumption)
+Each space processes **one ship at a time**. When a ship enters a
+space (via any in-port on any station), it either executes immediately
+or is placed in a FIFO queue. No two ships ever execute concurrently
+within the same space.
 
-### Scheduling rule
+This applies regardless of which station the ship targets. A space
+with stations A and B will never run a ship through A and a ship
+through B at the same time. The serialization is per-space, not
+per-station or per-port.
+
+### The queue
+
+Each space maintains a queue of pending ships. A ship is enqueued
+when it arrives at a space that is already processing another ship.
 
 ```
-TICK(queue, σ) where queue = seg :: rest
-  = case execute(seg, σ) of
-
-    (ship', σ', EffCmd) →
-      (rest, σ', suspended ∪ {SUSPEND(ship', continuation)})
-      — request sent out appropriate port; ship awaits response
-
-    (ship', σ', Complete) →
-      (rest ++ newSegs, σ')
-      where newSegs = segments enqueued by routing ship'.v via wiring
+ARRIVE(space, ship, station):
+  if space.active:
+    space.queue ← space.queue ++ [(ship, station)]    — FIFO append
+    return                                             — ship waits
+  else:
+    space.active ← true
+    RUN(space, ship, station)
 ```
 
-### Interleaving properties
+When the active ship completes (either synchronously or after all
+async round-trips), the space dequeues and runs the next ship:
 
-Because segments are atomic and the scheduler processes one per tick:
-
-Two ships in the same Daimio instance may interleave at segment
-boundaries, but never within a segment.
-
-Other Daimio instances are completely separate processes. Daimio has
-no knowledge of them and no interaction with them.
-
-**The "don't read-then-write $var across async" warning:** if a
-ship reads $foo, goes async, and writes $foo after resumption,
-another ship may have modified $foo in between. This is the one
-concurrency hazard in the model. It arises only from ship
-interleaving across async boundaries.
-
-This hazard is analogous to a TOCTOU (time-of-check-to-time-of-use)
-race. Potential mitigations (not in the base model, possibly layered):
-  - Per-ship snapshots of σ (MVCC-style, adds complexity)
-  - Compare-and-swap on space variables (adds a new primitive)
-  - Advisory locking (adds blocking, which we want to avoid)
-  - Documentation and convention (the Daimio2 way, for now)
-
-
-## 9. The Three Sendable Things
-
-The model supports three kinds of values that can be serialized and
-sent over ports, including over the network:
-
-### Data
 ```
-Just a Val. No behavior, no effects, no requirements.
-Enters a space as a ship payload through any in-port.
-The simplest case.
+COMPLETE(space):
+  space.active ← false
+  if space.queue is non-empty:
+    (ship, station) ← space.queue.shift()              — FIFO dequeue
+    space.active ← true
+    DEFER(RUN(space, ship, station))                   — deferred execution
 ```
 
-### Program
-```
-A pipeline, serialized as DAML source text.
-Enters an outer space as a ship payload. A station's pipeline
-evaluates it as a block — this is ordinary block evaluation,
-not a special mechanism.
-It is a free monad over the effect signature:
-  - Pure commands are interpreted directly
-  - Effectful commands become port requests
-  - The outer space + wiring is the interpreter
-Requires: the outer space's dialect must include whatever
-          commands the program invokes, and port wiring must
-          exist (or be demand-creatable) for any effects used.
-The program is "parasitic" — it borrows everything from the host.
-```
+The dequeue is **deferred** (not immediate), ensuring the completing
+ship's output routing finishes before the next ship begins.
 
-### Space
-```
-A serialized space, represented as DAML source text.
-Enters through a socket-in port on a socket space.
-It is a coalgebra — behavior with internal context:
-  - Carries its own topology, programs, and state
-  - Depends on the socket only for port wiring to the outside
-  - Self-contained internally, dependent externally
-Requires: a socket with wiring rules that cover its effect surface
-          (with OTHER as a fallback for unknown effects).
-The space is "self-reliant" — it brings its own context.
-When loaded into a socket, it becomes a subspace of the
-receiving space within the current Daimio instance.
-```
+### Ship lifecycle
 
-The gradient of dependency:
-```
-  Data:    needs nothing
-  Program: needs dialect + state + ports (borrows everything)
-  Space:   needs port wiring + dialect assignment (brings everything else)
-```
+A ship entering a station goes through these phases:
+
+  1. **Arrive**: ship enters via station's in-port
+  2. **Execute**: station's pipeline runs (synchronous segments)
+  3. **Suspend** (if effectful command): ship waits for response,
+     but remains the active ship — the space is still "busy"
+  4. **Resume** (when response arrives): pipeline continues from
+     where it suspended
+  5. **Complete**: pipeline finishes, output routes via station's
+     out-port, space becomes available for next queued ship
+
+A suspended ship **holds the space**. While a ship waits for an
+async response, no other ships can execute in that space. The ship
+has exclusive access to the space's state for its entire lifetime,
+from arrival through completion.
+
+### Block evaluation
+
+Commands that accept block parameters (`list map`, `process run`,
+`if then`, etc.) evaluate the block within the same ship's
+execution. This creates a nested process that:
+
+  - Runs in the same space, with access to the same σ
+  - Bypasses the queue (it is part of the active ship's work)
+  - Executes synchronously from the parent pipeline's perspective
+    (unless the block itself hits an effectful command)
+
+Block evaluation is nested execution, not concurrent execution.
+The block runs, returns a value, and the parent pipeline continues.
+
+### Port routing and deferred entry
+
+When a pipeline sends to a space-level port (`>@portname`), the
+port's output routing is **deferred**: the receiving station's
+in-port entry is scheduled asynchronously, not executed inline.
+The sending pipeline continues immediately.
+
+This means `>@portname` does not block the sender's pipeline.
+The routed ship arrives at the target station after the current
+ship completes, entering through the normal queue mechanism.
+
+### Other Daimio instances
+
+Other Daimio instances are completely separate. A Daimio instance
+has no knowledge of other instances and no interaction with them.
+Inter-instance communication is entirely the outer application's
+concern.
+
+### Future: concurrent scheduling
+
+The serial model could be relaxed to allow multiple ships to execute
+concurrently within a space, interleaving at segment boundaries.
+This is not currently enabled. See `extra/D2-concurrent-scheduling.md`
+for the aspirational concurrent model and its implications.
 
 
 ## 10. Properties of the Model
@@ -1429,20 +1489,27 @@ the dialect are not executed (soft error, pipeline continues with
 empty). This is the core security property: the instance owner
 controls what code can do by choosing the dialect.
 
-### Segment atomicity
-Within a synchronous segment, space variable access is consistent (no
-interleaving). No other ship may read or write space variables during
-a segment's execution. Across async boundaries, freshness is
-guaranteed but consistency is not (another ship may have written
-between suspension and resumption).
+### Serial execution
+Each space processes one ship at a time (see §9). A ship has
+exclusive access to the space's state from arrival through
+completion, including across async boundaries. No other ship can
+read or write space variables while a ship is active, even while
+it is suspended waiting for an effectful command's response.
+
+This means space variable access is always consistent: there are
+no concurrent modifications, no stale reads, no TOCTOU hazards.
+A ship that reads `$foo`, suspends at an async boundary, and reads
+`$foo` again after resumption is guaranteed to see the same value
+(unless its own pipeline modified it in between).
 
 ### Fresh reads
-Space variable reads always see the current value at the moment of
-execution, never a stale snapshot. If a ship suspends at an async
-boundary and another ship modifies a space variable, the first ship
-sees the updated value when it resumes. Pipeline variables are the
-mechanism for preserving values across async boundaries. Mental
-model: pipeline vars are mine, space vars are ours.
+Under the current serial model, fresh reads are trivially
+satisfied — no other ship can modify σ during your execution.
+Space variable reads see exactly what the active ship (or its
+block evaluations) last wrote. Pipeline variables remain the
+mechanism for stashing values within a pipeline, but the
+motivation is convenience, not protection from concurrent
+modification.
 
 ### Block scope isolation
 Pipeline variables flow into blocks (lexical inheritance from the

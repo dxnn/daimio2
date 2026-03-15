@@ -164,17 +164,18 @@ Effectful commands declare an `effect` property instead of (or alongside) `fun`.
 ## Spec reference
 
 The formal execution model is in `D2-spec.md`. Key sections:
-- §0: Concrete syntax (grammar)
-- §1: Domains (values, paths, ships, spaces, ports)
-- §2: Synchronous execution
-- §3: Async boundaries (effectful commands, timeouts)
-- §4: Errors (soft errors, totality)
-- §5: Ports and wiring (demand-creation, pattern matching, OTHER fallback)
-- §6: Sockets and serialization
-- §7: Block evaluation (programs-as-data)
-- §8: Scheduling and interleaving
-- §9: Three sendable things (data, program, space)
+- §0: Prelude
+- §1: Concrete syntax (grammar)
+- §2: Domains (values, paths, ships, spaces, ports, three sendable things)
+- §3: Synchronous execution
+- §4: Async boundaries (effectful commands, timeouts)
+- §5: Errors (soft errors, totality)
+- §6: Ports and wiring (demand-creation, pattern matching, OTHER fallback)
+- §7: Sockets and serialization
+- §8: Block evaluation (programs-as-data)
+- §9: Scheduling (serial per space, queue, ship lifecycle)
 - §10: Properties (totality, isolation, atomicity, liveness)
+- §11: Design decisions record
 
 ## Test status
 
