@@ -233,33 +233,69 @@ TODO: it's nice to have some concert examples of the grammar -- but then put the
 v ∈ Val       — numbers, strings, lists (the single universal collection)
 ```
 
-Values are the single data type. A collection is a universal data structure that supports ordered access (by position), keyed access (by string key), and nesting (values can contain other values to arbitrary depth).
+Values are the single data type. A collection is a universal data
+structure that supports ordered access (by position), keyed access
+(by string key), and nesting (values can contain other values to
+arbitrary depth).
 
-A collection's entries may be keyed, unkeyed, or a mix. `(1 2 3)` is unkeyed (positional only). 
-`{* (:a 1 :b 2)}` is keyed -- it's `{a: 1, b: 2}` in JS. (`*` is an alias for `list pair`.)
+### Collections: keyed and unkeyed
 
-Ideally, the distinction between keyed and unkeyed would be invisible to the end user: anything you want to do with a collection, you should be able to do. 
-Achieving this idyll is non-trivial. There are sharp edges on interop and serialization, complexity and performance concerns, and a host of other dimensions that make up a fairly rich tradeoff space. Daimio makes decisions that have been generously labelled "quirky", but for all their edges they do have a genuine aesthetic at work. Keep things simple: the user's mental model, the formal model, the code itself. Roughly in that order. And if you can't make it simple, at least make it interesting. If you're going to be surprised anyway, let's aim for a whimsical surprise. That's the Daimio way.
+A collection's entries may be keyed, unkeyed, or a mix.
 
-This distinction matters
-primarily for poke: Key can create new entries on keyed
-collections but not on unkeyed ones (see Path expressions).
+```
+(1 2 3)            — unkeyed (positional only)
+{* (:a 1 :b 2)}   — keyed (string keys; `*` is an alias for `list pair`)
+```
 
-**The empty value** is the identity element. It coerces based on
-context: `""` when used as a string, `0` when used as a number, `[]`
-when used as a list. This is why totality works without error values —
-a missing path, an unbound variable, or a timed-out effect all produce
-the empty value, which becomes whatever zero the consuming command
-expects.
+Ideally, the distinction would be invisible to the end user: anything
+you want to do with a collection, you should be able to do. Achieving
+this idyll is non-trivial. There are sharp edges on interop and
+serialization, complexity and performance concerns, and a host of
+other dimensions that make up a fairly rich tradeoff space. Daimio
+makes decisions that have been generously labelled "quirky", but for
+all their edges they do have a genuine aesthetic at work. Keep things
+simple: the user's mental model, the formal model, the code itself.
+Roughly in that order. And if you can't make it simple, at least make
+it interesting. If you're going to be surprised anyway, let's aim for
+a whimsical surprise. That's the Daimio way.
 
-TODO: this is the first mention of totality, seems weird. We should introduce it better. 
+The distinction matters in three places:
 
-**Value semantics:** values flowing through pipelines have copy semantics
-at command boundaries. A command receives its own copy of any collection
-it intends to mutate. The original value in the pipeline is not affected.
+- **Poke:** Key can create new entries on keyed collections but not
+  on unkeyed ones. Key poke on an unkeyed list either coerces the
+  key to a numeric index or soft errors (see Key coercion in Path
+  expressions).
+- **Key coercion:** when a Key selector hits an unkeyed list, string
+  keys are coerced to natural numbers for 0-indexed access. On keyed
+  lists, number keys are treated as strings. The full rules are in
+  Path expressions below.
+- **Conversion:** switching between keyed and unkeyed is explicit:
+  ```
+  {* (:a 1 :b 2) | list values}    — keyed → unkeyed: drops keys
+  {(1 2) | list rekey}              — unkeyed → keyed: index strings as keys
+  ```
+
+Most other operations (peek, map, delete, iteration) work uniformly
+on both keyed and unkeyed collections.
+
+### The empty value
+
+The empty value is the identity element. It coerces based on context:
+`""` when used as a string, `0` when used as a number, `[]` when used
+as a list. This is why totality works without error values — a missing
+path, an unbound variable, or a timed-out effect all produce the empty
+value, which becomes whatever zero the consuming command expects.
+
+TODO: this is the first mention of totality, seems weird. We should introduce it better.
+
+### Value semantics
+
+Values flowing through pipelines have copy semantics at command
+boundaries. A command receives its own copy of any collection it
+intends to mutate. The original value in the pipeline is not affected.
 From the programmer's perspective, pipeline flow is functionally pure.
-Implementations may use mutation internally for efficiency (e.g. linear types
-style optimization when no future references exist).
+Implementations may use mutation internally for efficiency (e.g.
+linear types style optimization when no future references exist).
 
 ### Path expressions and accessors
 
@@ -506,15 +542,6 @@ different relationship to shape.
 
 TODO: shape the above statement a bit better. 
 TODO: whta about overlapping paths? what if the first par path pokes a shape in that the second par path follows? how is that handled currently?
-
-#### Conversion commands
-
-Switching between keyed and unkeyed is explicit:
-
-```
-{* (:a 1 :b 2) | list values}    →  [1, 2]           (keyed → unkeyed)
-{(1 2) | list rekey}             →  {"0":1, "1":2}   (unkeyed → keyed)
-```
 
 #### Path command signatures
 
@@ -1114,14 +1141,14 @@ pipeline as values, rather than interrupting control flow.
 When an effectful command executes, the runtime resolves its port:
 
 ```
-resolveOrCreatePort(space, portType):
-  if space has an existing port of type portType:
-    return that port
-  else:
-    create a new port p of type portType, direction Down
-    apply wiringRules(space) to p    — pattern match to determine handler
-    add p to space.ports
-    return p
+resolveOrCreatePort(space, portType)
+  where portType ∈ space.ports = existing port of that type
+
+resolveOrCreatePort(space, portType)
+  where portType ∉ space.ports = (p, space')
+  where p      = new port(portType, Down)
+        wiring = matchRules(space.wiringRules, p)
+        space' = space with ports ∪ {p}, p wired by wiring
 ```
 
 Ports are created on demand because:
@@ -1227,16 +1254,12 @@ socketSpace = space with at least one port where flavour = "socket-in"
 When a serialized space arrives as a ship at a socket-in port:
 
 ```
-LOAD(socketSpace, serializedSpace):
-  1. Parse the DAML source into a space definition
-  2. Construct a new live space from the definition
-     - Build stations and internal wiring
-     - Initialize space variables from values in the DAML
-     - Leave ports unresolved (they will be demand-created)
-  3. Install the new space as a subspace of socketSpace
-  4. Apply socketSpace's wiringRules to any ports the new
-     subspace creates on demand
-  5. The new subspace is now live and can accept ships
+LOAD(socketSpace, damlSource) = socketSpace'
+  where spaceDef    = parse(damlSource)              — DAML source → space definition
+        subspace    = instantiate(spaceDef)           — build stations, init space vars
+        subspace'   = subspace with ports unresolved  — demand-created on first use
+        socketSpace' = socketSpace with subspaces ∪ {subspace'}
+                       wiringRules applied to subspace' ports on demand
 ```
 
 ### Socket transitions: overlap
@@ -1245,15 +1268,11 @@ If a previous subspace occupied this socket, the transition uses
 **overlap** semantics:
 
 ```
-TRANSITION(old, new):
-  1. Install new subspace immediately
-  2. New ships entering the socket go to the new subspace
-  3. Old subspace continues processing its in-flight ships
-  4. When the old subspace has no more in-flight ships and no
-     pending requests, it is garbage collected
-  5. Any state that needs to survive the transition must be
-     stored Outside (via ports to external storage), not in
-     space variables — the old subspace's variables are lost
+TRANSITION(socketSpace, old, new) = socketSpace'
+  where socketSpace' routes new ships to new         — new is immediately live
+        old continues processing in-flight ships     — old drains naturally
+        old is collected when inFlight(old) = ∅      — no ships, no pending requests
+        old.σ is lost                                — state does not survive transitions
 ```
 
 This is consistent with the outer space model: if you need
@@ -1296,15 +1315,16 @@ A segment becomes ready when:
 ### Scheduling rule
 
 ```
-At each tick, the scheduler:
-  1. Selects one ready segment from the queue
-  2. Executes it atomically (all synchronous steps, no interleaving)
-  3. If the segment ends with an effectful command:
-     - Sends the request out the appropriate port
-     - Places the ship in suspended state
-  4. If the segment completes normally:
-     - Routes the ship's output value to the next station via wiring
-     - This may enqueue new ready segments (at connected stations)
+TICK(queue, σ) where queue = seg :: rest
+  = case execute(seg, σ) of
+
+    (ship', σ', EffCmd) →
+      (rest, σ', suspended ∪ {SUSPEND(ship', continuation)})
+      — request sent out appropriate port; ship awaits response
+
+    (ship', σ', Complete) →
+      (rest ++ newSegs, σ')
+      where newSegs = segments enqueued by routing ship'.v via wiring
 ```
 
 ### Interleaving properties
@@ -1395,12 +1415,57 @@ TODO: producing a soft error with the empty value is used all the time, we need 
 TODO: think about `[]` vs `()` for empty value
 TODO: the smart quote rendering makes "" look dumb, turn that off
 
-### Actor isolation
-A Daimio instance is a single outer space. It has no knowledge of
-other instances. "Actor isolation" is not a property Daimio enforces —
-it's a consequence of the outer application creating separate Daimio
-instances. Inter-actor communication is entirely the outer application's
-concern, mediated by external systems (databases, CRDTs, etc.).
+### Copy semantics
+Values flowing through pipelines are functionally pure from the
+programmer's perspective. A command receives its own copy of any
+collection; mutations inside a command don't propagate back to the
+caller's pipeline. Implementations may optimize with mutation when
+no future references exist (linear types style), but the observable
+behavior is always as-if copied.
+
+### Dialect confinement
+All execution within a Daimio instance is constrained to one dialect.
+There is no mechanism for privilege escalation during execution — a
+received program, a block passed as data, or a space loaded into a
+socket all run under the host instance's dialect. Commands outside
+the dialect are not executed (soft error, pipeline continues with
+empty). This is the core security property: the instance owner
+controls what code can do by choosing the dialect.
+
+### Segment atomicity
+Within a synchronous segment, space variable access is consistent (no
+interleaving). No other ship may read or write space variables during
+a segment's execution. Across async boundaries, freshness is
+guaranteed but consistency is not (another ship may have written
+between suspension and resumption).
+
+### Fresh reads
+Space variable reads always see the current value at the moment of
+execution, never a stale snapshot. If a ship suspends at an async
+boundary and another ship modifies a space variable, the first ship
+sees the updated value when it resumes. Pipeline variables are the
+mechanism for preserving values across async boundaries. Mental
+model: pipeline vars are mine, space vars are ours.
+
+### Block scope isolation
+Pipeline variables flow into blocks (lexical inheritance from the
+parent pipeline) but never flow out. A block gets a copy of the
+parent's env; variables bound inside the block (via `>x`) do not
+propagate back. This is safe because pipeline vars are write-once
+(immutable bindings), so the inherited values are frozen. The
+one-way information flow makes blocks safe to pass around as
+values — evaluating a block cannot corrupt the caller's state.
+
+### Space isolation
+Spaces are fully isolated containers. A subspace cannot read or
+write its parent's space variables directly — all cross-boundary
+communication goes through ports. This applies at every level of
+nesting: inner spaces can only interact with outer spaces through
+explicit port wiring. The parent controls what the child can do
+(via wiring rules and dialect), and the child cannot reach beyond
+what the parent exposes. At the outermost level, separate Daimio
+instances have no knowledge of each other; inter-instance
+communication is entirely the outer application's concern.
 
 ### Effect locality
 Effects only occur at the outside of the outermost space. Every
@@ -1411,11 +1476,13 @@ occur. Any intermediate space can intercept and handle the request
 (via up-port wiring to a subspace or a local handler), which is how
 testing, mocking, and simulation work.
 
-### Segment atomicity
-Within a synchronous segment, space variable access is consistent (no
-interleaving). Across async boundaries, freshness is guaranteed but
-consistency is not (another ship may have written between suspension
-and resumption).
+### Single-response effects
+Every effectful command produces exactly one response. A down-port
+round trip is a single request/response pair — no streaming, no
+multi-shot continuations. This keeps pipelines linear: after an
+effectful command, the programmer gets one value and continues.
+If the outside wants to send multiple values, it uses an in-port
+(fire-and-forget), not a down-port response.
 
 ### Port demand-creation
 The effect surface of a Daimio instance is not fully fixed at
@@ -1446,134 +1513,78 @@ allows. Inner wires can only shorten it. This means the socket owner
 always controls the maximum wait time for anything loaded into their
 socket.
 
+### Uniform evaluation
+There is no special "eval" mechanism. Blocks, received programs,
+named blocks, and station pipelines all execute as pipelines under
+the same rules — same dialect, same segment atomicity, same fresh
+reads, same effect routing. A program received as data is evaluated
+the same way as a block passed to `list map`. This uniformity makes
+the system predictable and auditable: there is exactly one execution
+model, applied everywhere.
+
+### Deterministic pipe filling
+The implicit pipe value fills the first unfilled parameter of the
+next command, determined by the command's parameter definition order.
+This is fully deterministic from the command signature alone — the
+programmer can predict what gets filled without knowing implementation
+details. Named parameters override this by explicitly binding a value
+to a parameter name, removing it from the implicit filling order.
+
 
 ## 11. Design Decisions Record
 
-Decisions made during the formalization process, with rationale.
+Rationale for decisions that aren't obvious from the spec itself.
 
-### D1: Dialect is per Daimio instance
-A Daimio instance runs under one dialect. All execution within the
-instance is constrained to that dialect. Ships do not carry dialects —
-they carry payload and pipeline variables only.
+TODO: examine "request tagging" -- that seems weird
+TODO: let's not call requests orphans that's just sad
+TODO: I don't like the word "suspended" for ships, maybe just "docked"? Or... "dry docked"? We need something better. "anchored"? that's pretty good. "berthing"? That's okay too. maybe berthing. "When a ship docks into a space's downport from the outside, it passes its cargo to ship waiting at its berth. The berthing ship then disembarks for its station."
 
-### D2: Actor isolation via separate Daimio instances
-Each actor gets their own Daimio instance. Daimio has no concept of
-other instances — from its perspective, there is one outer space,
-period. The outer application creates and manages instances. Inter-actor
-communication is entirely outside Daimio's scope.
+### Why single-response effects?
+The alternative is multi-shot continuations (streaming responses via
+down ports). Single-response was chosen because it aligns with the
+free monad interpretation (single-shot continuations), keeps the
+pipeline model linear, and avoids stream termination logic. If the
+outside wants to send multiple values, it uses an in-port
+(fire-and-forget) — the down-port response can serve as the trigger
+("start streaming") while the in-port carries the data.
 
-### D3: Space variable reads are always fresh
-Every reference to $foo reads the current value at that moment in
-execution. Values are not cached across async boundaries. Pipeline
-vars (e.g. `_foo`) are the mechanism for preserving values across async
-boundaries. Mental model: "pvars are mine, svars are ours".
+### Why overlap for socket transitions?
+When a new space is loaded into an occupied socket, the alternative
+is to drain the old space before activating the new one (blocking).
+Overlap was chosen to avoid blocking on potentially long-running
+in-flight operations. The cost is that state doesn't survive
+transitions — but this is consistent with the space isolation
+model. Persistent state lives Outside (via ports to external
+storage), not in space variables.
 
-### D4: Down ports return exactly one value
-A down-port round trip always produces exactly one response. This
-aligns with free monad semantics (single-shot continuations), keeps
-the pipeline model simple, and avoids the need for stream termination
-logic in pipelines. Streams use in-ports instead.
+### Why is cross-boundary state access verbose?
+Crossing a space boundary to access state is a significant action
+that should be visible in the topology, not hidden behind sugar.
+The explicit `{var read name :foo}` through a down port makes it
+clear where isolation boundaries are being crossed. Syntactic sugar
+may be added later, but the underlying mechanism will always be a
+port round trip.
 
-### D5: Request correlation
-Multiple concurrent requests can flow through the same down port.
-The runtime must correlate responses to their originating requests
-so that each suspended ship resumes with the correct value. Late
-or orphaned responses are dropped with a soft error. The correlation
-mechanism (e.g. request tagging) is an implementation detail.
+### Why DAML source as the serialization format?
+The alternative is a separate binary format or manifest. DAML source
+was chosen because the existing syntax already supports station
+definitions, subspace definitions, and space variable declarations
+with values. No new format needed — a serialized space is just
+DAML that can be read, edited, and debugged with normal tools.
 
-TODO: examine "request tagging" that seems weird
-TODO:  let's not call requests orphans that's just sad
-TODO:  I don't like the word "suspended" for ships, maybe just "docked"? Or... "dry docked"? We need something better. "anchored"? that's pretty good. "berthing"? That's okay too. maybe berthing. "When a ship docks into a space's downport from the outside, it passes its cargo to ship waiting at its berth. The berthing ship then disembarks for its station."
+### Why resource limits per instance?
+Resource measurement (CPU, memory) is per Daimio instance, with
+enforcement delegated to the outer application. Suspended ships
+do not consume CPU while waiting (though they consume memory).
+This keeps resource tracking out of the language model and lets
+the outer application use whatever monitoring and enforcement
+strategy fits its needs.
 
-### D6: Cascading timeouts with outer-wins semantics
-Every down-port wire has a timeout (explicit, inherited from nearest
-outer wire, or system default 10s). The effective timeout for any
-request chain is the minimum along the chain. Outer timeouts are
-authoritative — inner wires cannot extend the wait time. This
-guarantees liveness and gives socket owners control over latency
-bounds for anything loaded into their socket.
-
-### D7: Soft errors for all failure modes
-Timeouts, orphaned responses, unwired ports, dialect violations,
-and type mismatches all produce soft errors: an event to the error
-port, a default value in the pipeline, and continued execution.
-No pipeline ever crashes. Consistent with Daimio's totality
-principle.
-
-### D8: Socket transitions use overlap
-When a new space is loaded into an occupied socket, the new space
-starts accepting ships immediately while the old space drains its
-in-flight work. State that must survive transitions lives Outside.
-This is consistent with the outer space model and avoids blocking
-on potentially long-running in-flight operations.
-
-### D9: Cross-boundary state access is explicit
-A subspace reads a parent's space variable via an effectful command
-like {var read name :foo}, which goes through a down port. The
-parent must wire that port to a handler. This is deliberately
-verbose — crossing a space boundary is a significant action.
-Sugar may be added later.
-
-### D10: Serialization format is DAML source
-A serialized space is DAML source text. The existing syntax already
-supports station definitions, subspace definitions (including
-socketed ones), and space variable declarations with values. No
-separate binary format or manifest is needed.
-
-### D11: Energy/resource limits are per Daimio instance
-Resource measurement (CPU, memory) is per Daimio instance.
-Enforcement is delegated to the outer application. Suspended
-ships do not consume CPU while waiting (though they consume
-memory). The outer app may monitor total resource usage per
-instance.
-
-### D12: No special eval mechanism
-Evaluating a DAML string is just running a pipeline. Block evaluation
-in map/fold/if, and running a program received as data, are the same
-operation. Everything in an outer space runs under that outer space's
-dialect. There is no privilege escalation during execution.
-
-### D13: Dialects include aliases
-A dialect is not just a command set — it also includes compile-time
-aliases (name → pipeline expansions). Restricting a dialect may
-remove aliases as well as commands. Aliases are purely syntactic
-and expand before execution.
-
-### D14: Values have copy semantics
-Values flowing through pipelines are functionally pure from the
-programmer's perspective. Commands receive copies; mutations don't
-propagate back. Implementations may optimize with mutation when no
-future references exist (linear types style).
-
-### D15: Paths follow optics semantics with four operations
-Four path operations: peek (get), poke (set), map (over), delete.
-All share the same selector language. Key is the only selector
-that creates in poke — on keyed collections, Empty, and scalars
-(affine only; traversal through Star skips scalars). Pos never
-creates. Star never creates. Delete changes shape (splice
-semantics); Par-delete uses collect-then-remove to handle index
-shifting, unlike Par-poke/Par-map which are sequential. Pos is
-1-indexed; key access is 0-indexed. Key coercion: string keys on
-unkeyed lists coerce to nat or soft error.
-
-### D16: The empty value coerces by context
-The empty value is not a distinct type — it becomes "", 0, or []
-depending on what the consuming command expects. This is what makes
-totality practical: a failed path access, unbound variable, or
-timed-out effect produces a value that flows through subsequent
-commands without special handling.
-
-### D17: `||` barrier blocks implicit parameter filling
-The double pipe clears the implicit pipe value so the next command's
-first parameter isn't auto-filled. Pipeline variables (`_foo`) still
-cross the barrier. A trailing `||` causes the pipeline to return empty.
-This enables running independent computations in sequence within one
-pipeline, stashing results in pipeline vars, and suppressing output
-in templating contexts.
-
-### D18: Blocks inherit parent pipeline vars
-Inner blocks get lexical closure over the parent pipeline's env.
-This is safe because pipeline vars are write-once (immutable
-bindings). Vars bound inside the block don't propagate back.
-This eliminates the need for explicit `with` params in the common
-case of accessing outer variables from inner blocks.
+### Why do blocks inherit parent pipeline vars?
+The alternative is requiring explicit parameter passing (e.g. a
+`with` param on every command that takes a block). Lexical
+inheritance was chosen because pipeline vars are write-once
+(immutable bindings), making it safe — the block gets a frozen
+snapshot, and vars bound inside the block don't propagate back.
+This eliminates boilerplate in the common case of accessing outer
+variables from inner blocks.
