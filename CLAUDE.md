@@ -195,8 +195,10 @@ The REPL is at `repl.mjs` in the project root (moved from `tests/repl.mjs`):
 ```bash
 node repl.mjs              # interactive mode
 node repl.mjs -e "{...}"   # evaluate expression, print result, exit
+node repl.mjs -f file.dm   # run a .dm file as DAML, print result, exit
 ```
 - Use `node repl.mjs -e "<expression>"` to quickly test DAML expressions
+- Use `node repl.mjs -f <file>` to run a .dm file
 - Type Daimio expressions at the `>` prompt, hit Enter on a blank line to execute
 - Supports multiline paste (buffered until blank line)
 - Named blocks use pipe on `{begin}`, not `{end}`:
