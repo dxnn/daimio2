@@ -1,4 +1,4 @@
-import D from '../daimio/daimio.js'
+import D from './daimio/daimio.js'
 
 const eIdx = process.argv.indexOf('-e')
 if (eIdx !== -1 && process.argv[eIdx + 1]) {

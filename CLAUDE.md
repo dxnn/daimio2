@@ -191,10 +191,12 @@ context for each todo item.
 
 ## REPL
 
-A tiny interactive REPL lives at `tests/repl.mjs`:
+The REPL is at `repl.mjs` in the project root (moved from `tests/repl.mjs`):
 ```bash
-node tests/repl.mjs
+node repl.mjs              # interactive mode
+node repl.mjs -e "{...}"   # evaluate expression, print result, exit
 ```
+- Use `node repl.mjs -e "<expression>"` to quickly test DAML expressions
 - Type Daimio expressions at the `>` prompt, hit Enter on a blank line to execute
 - Supports multiline paste (buffered until blank line)
 - Named blocks use pipe on `{begin}`, not `{end}`:
