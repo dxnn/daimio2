@@ -7,8 +7,8 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 96 spec alignment tests
-node tests/daimio_test.mjs       # ~843 legacy tests (6 known failures)
+node tests/d2_spec_test.mjs     # 149 spec alignment tests
+node tests/daimio_test.mjs       # ~843 legacy tests (4 known failures)
 node tests/node_code.mjs         # 68 internal tests
 ```
 
@@ -110,7 +110,7 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (105 tests)
+  d2_spec_test.mjs     — spec alignment tests (149 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
   node_code.mjs        — internal JS-level tests (69 tests)
   daimio.dm            — test definitions (text format)
@@ -178,7 +178,7 @@ The formal execution model is in `D2-spec.md`. Key sections:
 
 ## Test status
 
-- **d2_spec_test**: 105/105 pass
+- **d2_spec_test**: 149/149 pass
 - **daimio_test**: 839/843 (4 known failures in `known_failures` set)
 - **node_code**: 68/68 pass
 

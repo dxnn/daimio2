@@ -547,7 +547,7 @@ D.filter_ports = function(ports, station, name) {
 
 D.run = function(daimio, space, scope, ultimate_callback, actor) {
   // This is *always* async, so provide a callback.
-  if(!daimio) return ""
+  if(daimio == null) return ""
 
   daimio = "" + daimio // TODO: ensure this is a string in a nicer fashion...
 
@@ -1308,8 +1308,10 @@ D.Parser.get_next_thing = function(string, ignore_begin) {
 
   // TODO: add a different mode that returns the unfulfilled model / method etc (for autocomplete)
   if(!next_closed) {
-    D.on_error("No closing brace for '" + string + "'")
-    return string
+    // THINK: should we emit a soft error here? An unmatched '{' is valid literal text,
+    // but it might indicate a typo the user would want to know about.
+    // D.on_error("No closing brace for '" + string + "'")
+    return string.slice(0, 1)  // unmatched '{' is literal text; continue scanning after it
   }
 
   if(ignore_begin || string.slice(0,7) != D.Constants.command_open + 'begin ')
@@ -1324,13 +1326,12 @@ D.Parser.get_next_thing = function(string, ignore_begin) {
   block_name = block_name[1];
 
   var end_tag = D.Constants.command_open + 'end ' + block_name + D.Constants.command_closed
-    , end_begin = string.indexOf(end_tag)
+    , end_begin = string.indexOf(end_tag, next_closed)
     , end_end = end_begin + end_tag.length;
 
-  if(!end_begin) {
-    // FIXME: handle this situation better
-    D.on_error(string, "No end tag for block '" + block_name + "'");
-    return string;
+  if(end_begin === -1) {
+    D.on_error("No end tag for block '" + block_name + "'");
+    return string.slice(0, next_closed)  // no {end NAME} found; treat as regular command
   }
 
   // THINK: we're going to go ahead and deal with the block right here... is this the right place for this?

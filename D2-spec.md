@@ -15,12 +15,32 @@ TODO: renumber everything below!
 ```
 daml       ::= (text | command | namedblock)*
 
-text       ::= any characters not containing paired curlies
-TODO: also, anything containing an unpaired opening curly...
+text       ::= any characters not consumed by a command or namedblock
+                (including unmatched '}')
 
 command    ::= '{' pipeline '}'
 
-namedblock ::= '{begin' name '}' daml '{end' name '}'
+namedblock ::= '{begin' name (pipe pipeline)? '}' daml '{end' name '}'
+
+— Parsing algorithm —
+
+Parsing is left-to-right.
+
+Scan: when the parser encounters '{', it scans forward counting
+'{' (+1) and '}' (-1) to find the balanced closing '}'. Matching
+is purely structural: quotes and other content are not considered.
+If no balanced '}' is found, the '{' is literal text and scanning
+continues from the next character.
+
+Classify: when a balanced span '{...}' is found:
+
+  1. If the span begins with '{begin NAME' (where NAME is one or
+     more word characters), scan forward from end of span for the literal string
+     '{end NAME}'. If found, the entire stretch from '{begin'
+     through '{end NAME}' is a namedblock.
+
+  2. Otherwise the span is a command. (This includes '{begin
+     NAME...}' when no matching '{end NAME}' is found.)
 
 pipeline   ::= segment (pipe segment)*
 
@@ -181,34 +201,33 @@ side-effectful operations shouldn't produce visible output:
 {$count | >@notify ||}                           — side effects, no output
 ```
 
-### Named blocks
+### Blocks
 
-TODO: move this to later
-
-DAML is a templating language. Named blocks interleave literal text with commands, producing an output string. 
+A block is a quoted DAML string — a program as a value. There are
+two syntactic forms, but they produce the same thing:
 
 ```
-{{* (:name :bro :msgs ({* (:head "yo" :body "msg")} {* (:head "hey" :body "msg 2 ok")} {* (:head "note" :body "msg 33333 ok")}))} | >$user ||}
-
-{begin msgblock | >$msgblock ||}
-  <h4>{__.head | string uppercase }<h4>
-  <p>{__.body }</p>
-{end msgblock}
-
-{begin notifications | run value $user}
-  Hello, {$user.name}! You have {__.msgs | count} messages.
-  {__.msgs | each block $msgblock}
-{end notifications}
+"{__ | add 1}"                       — quoted block (inline)
+{begin foo}Hello, {name}!{end foo}   — named block (multi-line friendly)
 ```
 
-TODO: show the output here (what format?); also make the data more interesting (rice ball types)
-TODO: the above example is too long; make a shorter one and save that for elsewhere
+Both are parsed into the same Block segment via the same code path.
+A quoted block is DAML wrapped in quotes. A named block is syntactic
+sugar: the parser transforms `{begin foo | cmd}body{end foo}` into
+a pipeline where the body becomes a quoted block passed as the first
+value to `cmd`. The name exists only for matching the end tag and
+readability.
 
-Names are nice to read. Named blocks are also useful for scoping and reuse. The block's content is DAML: literal text is preserved, commands are evaluated then smushed into the text sandwich. Note that this is the same evaluation model as any other DAML string — there is no special evaluation mechanism for named blocks.
+Named blocks do not automatically create a variable or squelch
+output. To save one for reuse, pipe it explicitly:
 
-TODO: is that true that there's no special eval mechanism for named blocks? it's kind of a strange thing to say.
+```
+{begin greeting | >$greeting ||}
+  Hello, {__.name}! You have {__.count} rice balls.
+{end greeting}
 
-TODO: should blocks automatically create a variable? if they don't, we shouldn't squelch their output without pipes, that just makes them a no-op.
+{$user | run block $greeting}
+```
 
 ### Concrete examples
 
@@ -783,13 +802,39 @@ store `σ` (from the current outer space) produces new ship state
   (ship, σ) —[PureCmd(c, args)]→ (ship{v := v'}, σ)
 ```
 
-The implicit pipe value (ship.v) fills the first parameter of the
-command that wasn't explicitly provided. This is the `|` mechanic:
-`{2 | math add value 5}` means math.add receives 2 as its implicit
-first param and 5 as value.
+**Parameter filling** (`fillImplicit`) works in two passes:
 
-If c ∉ δ.commands, the command is not executed. A soft error is emitted
-(see §4), and the pipeline value is unchanged.
+  1. **Explicit params** are matched by name. `{math add value 5 to 3}`
+     binds `value=5` and `to=3` regardless of definition order.
+  2. **The implicit pipe value** (ship.v) fills the first parameter
+     (by definition order) that was not explicitly provided. This
+     happens at most once — only the first unfilled param receives it.
+     `{2 | math add value 5}` means math.add receives 2 as its
+     implicit first param and 5 as value.
+
+**Type coercion** is applied to each parameter value based on the
+param's declared type. Each type has a coercion function:
+
+```
+list     — scalars wrap to single-element list; empty → []
+string   — numbers stringify; empty → ""
+number   — strings coerce numerically; empty → 0
+integer  — like number, then rounded
+block    — DAML string becomes an evaluable pipeline
+anything — passed through (with empty normalization)
+```
+
+This means passing `"hi"` to a param of type `list` produces
+`("hi")`, not a type error. Coercion is total — it always
+produces a value of the expected type.
+
+**Required params:** if a param is marked `required` and receives
+no value (not from explicit naming, not from implicit pipe filling,
+and no fallback defined), the command is not executed. A soft error
+is emitted and the pipeline continues with the empty value.
+
+**Dialect check:** if c ∉ δ.commands, the command is not executed.
+A soft error is emitted (see §4), and the pipeline value is unchanged.
 
 **Read space variable:**
 ```
@@ -861,96 +906,48 @@ A trailing `||` with no following segment returns empty:
   (ship, σ) —[Literal(v)]→ (ship{v := v}, σ)
 ```
 
-### Block invocation by commands
+### Block invocation
 
-TODO: merge everything down to "Atomicity guarantee"
-
-A Block(daml) segment produces a suspended pipeline as a value — a
-DAML string that can be passed to commands. Certain pure commands
-accept block parameters and invoke them iteratively:
+A Block segment produces a DAML string as a value. Commands that
+accept block parameters (`list map`, `list reduce`, `if then`, etc.)
+evaluate the block by running it as a pipeline. There is no special
+"eval" mechanism — evaluating a block IS running a pipeline, subject
+to the same rules as any other (segment atomicity, fresh space var
+reads, effectful commands creating async boundaries).
 
 ```
-{(1 2 3) | list map block "{_value | math add value 1}"}
+{(1 2 3) | list map block "{__ | math add value 1}"}
 {$items | list reduce block "{_total | math add value _value}" with 0}
-{* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}"}
 ```
 
-When a command invokes a block:
+A program received as data (a ship carrying a DAML string) is
+evaluated the same way — it's a block that gets run as a pipeline.
+
+**Scope** when a command invokes a block:
 
   1. The block **inherits the parent pipeline's env**. All pipeline
-     variables bound before the block was invoked are available inside
-     the block. This is safe because pipeline vars are write-once
-     (immutable bindings) — the block gets lexical closure over
-     frozen values.
+     variables bound before the block was invoked are readable inside.
+     This is safe because pipeline vars are write-once — the block
+     gets lexical closure over frozen values.
   2. The command **injects scope variables** on top of the inherited
      env. Standard injected names:
        `_value`       — the current item being processed
        `_key`         — the current item's key (for keyed collections)
        `_index`       — the current item's index
        `_total`       — accumulator value (for reduce/fold)
-       `_path`        — full path from root to focus, as a list
-                        (for path-aware map; uses 0-indexed keys)
      Injected vars shadow parent vars of the same name.
-  3. Within the block, `__in` is the block's input (typically `_value`).
-     `__` is the previous pipe segment's output — at the start of the
-     block, `__` equals `__in`.
-  4. The block executes as a pipeline in the current outer space,
-     under the current dialect, with access to space variables.
-  5. The block's result is collected by the command.
-  6. Pipeline vars bound inside the block (via `>x`) do NOT propagate
+  3. `__in` is the block's input (typically `_value`). `__` is the
+     previous pipe segment's output — at the start, `__ = __in`.
+  4. The block executes in the current outer space, under the current
+     dialect, with access to space variables.
+  5. Pipeline vars bound inside the block (via `>x`) do NOT propagate
      back to the parent pipeline. The block's env is its own scope.
 
-Commands that invoke blocks are still Pure if the block itself
-contains only pure commands. If a block contains effectful commands,
-each invocation may create async boundaries. The command's iteration
-suspends at each boundary and resumes when the response arrives,
-maintaining ordering.
-
-#### Block Evaluation and Programs-as-Data
-
-There is no special "eval" mechanism. Evaluating a DAML string is
-just running a pipeline. It happens constantly during normal execution:
-
-  - `{(1 2 3) | list map block "{__ | add 1}"}` — the block is
-    evaluated once per element
-  - `{if $cond | then block "{do_something}" else block "{other}"}` —
-    one of the blocks is evaluated
-  - A ship arrives carrying a DAML string as its payload, and a
-    station's pipeline runs that string as a block
-
-In all cases, the block's pipeline executes in the current outer space,
-under the outer space's dialect, with access to the outer space's
-space variables. Blocks inherit the parent pipeline's env (see §2,
-Block invocation). A program received as data and run as a block
-inherits the env of whatever pipeline evaluates it — if there are no
-pipeline vars in scope, the received program simply sees an empty env.
-The execution model — segment atomicity, fresh space var reads,
-effectful commands creating async boundaries — applies uniformly.
-
-This is why dialect-per-outer-space works cleanly: there's no
-question of what dialect a received program runs under. Everything
-in this outer space runs under this outer space's dialect, period.
-There is no mechanism for escalating or changing the dialect
-mid-execution.
-
-
-#### Eval is not a special operation.
-Whenever a Block (a DAML string)
-is evaluated — whether by `list map`, `list fold`, `if then`, or any
-other command that takes a block parameter — that block's pipeline
-executes in the current space under the current dialect. This is just
-normal pipeline execution. There is no separate "eval" mechanism;
-evaluating a block IS running a pipeline.
-
-This means `{(1 2 3) | list map block "{__ | add 1}"}` involves block
-evaluation: the block `"{__ | add 1}"` is a DAML string that gets
-evaluated once per list element. Each evaluation is a pipeline execution, subject to
-the same rules as any other pipeline (segment atomicity, fresh space
-var reads, effectful commands creating async boundaries, etc.).
-
-A program received as data (e.g. a ship carrying a DAML string) is
-evaluated the same way — it's a Block that gets run as a pipeline.
-No special case needed.
+Everything in an outer space runs under that outer space's dialect,
+period. There is no mechanism for escalating or changing the dialect
+mid-execution. A program received as data inherits the env of
+whatever pipeline evaluates it — if there are no pipeline vars in
+scope, it simply sees an empty env.
 
 ### Atomicity guarantee
 

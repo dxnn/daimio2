@@ -1512,20 +1512,319 @@ test(
 )
 
 // =====================================================
-// §4 Totality: unmatched braces are literal text
+// §0 Parsing: brace matching algorithm
 // =====================================================
+//
+// Parsing is left-to-right. At each position:
+// 1. If '{', attempt structural brace matching (count { and }, no quote awareness).
+//    a. If balanced '}' found:
+//       - If span is '{begin NAME}', scan for '{end NAME}' → namedblock (or command if not found)
+//       - Otherwise → command
+//    b. If no balanced '}', the '{' is literal text. Scanning continues from next char.
+// 2. A lone '}' (not closing a matched '{') is literal text.
+// 3. All other characters are literal text.
 
-// An unmatched { with no closing } should be treated as literal text
+// --- Unmatched '{' is literal text ---
+
 test(
-  'parser: unmatched open brace is literal text',
+  'parse: trailing unmatched { is literal text',
   'hello { world',
   'hello { world'
 )
 
 test(
-  'parser: unmatched brace among valid commands',
+  'parse: unmatched { among valid commands',
   '{:ok} then { oops',
   'ok then { oops'
+)
+
+// --- Unmatched '{' does NOT eat subsequent valid commands ---
+
+test(
+  'parse: unmatched { followed by valid command',
+  'hey { wow {3 | math add value 2} bye',
+  'hey { wow 5 bye'
+)
+
+test(
+  'parse: unmatched { between two valid commands',
+  '{:a} { {3 | add 4}',
+  'a { 7'
+)
+
+test(
+  'parse: multiple unmatched { each become literal text',
+  'a { b { c',
+  'a { b { c'
+)
+
+test(
+  'parse: unmatched { then valid command then unmatched {',
+  '{ {3 | add 1} {',
+  '{ 4 {'
+)
+
+// --- Lone '}' is literal text ---
+
+test(
+  'parse: lone } is literal text',
+  'hello } world',
+  'hello } world'
+)
+
+test(
+  'parse: } before valid command',
+  '} {3 | add 1}',
+  '} 4'
+)
+
+test(
+  'parse: } after valid command',
+  '{3 | add 1} }',
+  '4 }'
+)
+
+// --- Structural brace matching vs quotes ---
+// Brace matching is purely structural (no quote awareness).
+// These tests document the current behavior, which can be
+// surprising when braces appear inside string literals.
+
+test(
+  'parse: basic string in command',
+  '{"hello"}',
+  'hello'
+)
+
+test(
+  'parse: { inside string breaks structural match',
+  '{"he{lo"}',
+  '{"he'
+)
+
+test(
+  'parse: } inside string closes structural match early',
+  '{"he}lo"}',
+  'lo"}'
+)
+
+test(
+  'parse: matched {} inside string balances structurally',
+  '{"{}"}',
+  ''
+)
+
+test(
+  'parse: lone quote in braces',
+  '{"}"}',
+  '"}'
+)
+
+test(
+  'parse: nested braces inside string balance structurally',
+  '{"a{b}c"}',
+  'ac'
+)
+
+test(
+  'parse: block-like string evaluates',
+  '{"{3 | add 1}"}',
+  '4'
+)
+
+test(
+  'parse: lone } among text and commands',
+  'x}y{3 | add 1}z',
+  'x}y4z'
+)
+
+// Braces inside strings can break the enclosing pipeline by
+// misaligning the structural brace match.
+
+test(
+  'parse: } in string eats rest of pipeline',
+  '{"x}y" | (1 2)}',
+  'y" | (1 2)}'
+)
+
+test(
+  'parse: { in string eats rest of pipeline',
+  '{"x{y" | (1 2)}',
+  '{"x'
+)
+
+test(
+  'parse: matched {} in string preserves pipeline',
+  '{"x{}y" | (1 2)}',
+  '[1,2]'
+)
+
+// --- Trivial inputs ---
+
+test(
+  'parse: empty input returns empty',
+  '',
+  ''
+)
+
+test(
+  'parse: plain text no braces',
+  'hello world',
+  'hello world'
+)
+
+test(
+  'parse: just whitespace',
+  '   ',
+  '   '
+)
+
+test(
+  'parse: empty command',
+  '{}',
+  ''
+)
+
+test(
+  'parse: double open brace',
+  '{{',
+  '{{'
+)
+
+test(
+  'parse: double close brace',
+  '}}',
+  '}}'
+)
+
+test(
+  'parse: close then open brace',
+  '}{',
+  '}{'
+)
+
+// --- Nested braces ---
+
+test(
+  'parse: double-wrapped command',
+  '{{3 | add 1}}',
+  '4'
+)
+
+test(
+  'parse: adjacent commands',
+  '{3 | add 1}{5 | add 2}',
+  '47'
+)
+
+test(
+  'parse: three adjacent commands',
+  '{1}{2}{3}',
+  '123'
+)
+
+// --- Namedblock priority over regular command ---
+
+test(
+  'parse: namedblock takes priority',
+  '{begin foo}hello{end foo}',
+  'hello'
+)
+
+test(
+  'parse: namedblock with commands inside',
+  '{begin foo}x {3 | add 1} y{end foo}',
+  'x 4 y'
+)
+
+test(
+  'parse: namedblock empty body',
+  '{begin foo}{end foo}',
+  ''
+)
+
+test(
+  'parse: namedblock with numeric name',
+  '{begin 123}body{end 123}',
+  'body'
+)
+
+test(
+  'parse: nested different-name namedblocks',
+  '{begin a}x{begin b}y{end b}z{end a}',
+  'xyz'
+)
+
+test(
+  'parse: nested same-name takes first end tag',
+  '{begin a}x{end a}y{end a}',
+  'xy'
+)
+
+test(
+  'parse: end tag without begin is a command',
+  '{end foo}',
+  ''
+)
+
+test(
+  'parse: begin with no space is regular command',
+  '{beginfoo}',
+  ''
+)
+
+test(
+  'parse: namedblock end tag inside opening pipeline is not matched',
+  '{begin name | "{end name}" | 123}yo{end name}',
+  '123'
+)
+
+// When {begin NAME} has no matching {end NAME}, the balanced span
+// is treated as a regular command. 'begin' is not a handler, so it
+// soft-errors and produces empty. The rest is literal text.
+test(
+  'parse: namedblock missing end tag falls back to command',
+  '{begin foo} oops no end tag',
+  ' oops no end tag'
+)
+
+test(
+  'parse: begin no end with valid command after',
+  '{begin foo}body {3 | add 1} trail',
+  'body 4 trail'
+)
+
+test(
+  'parse: mismatched begin/end names falls back to command',
+  '{begin foo}{end bar}',
+  ''
+)
+
+test(
+  'parse: mismatched names with stuff after',
+  '{begin foo}{end bar} and {3 | add 1}',
+  ' and 4'
+)
+
+// --- Nested braces ---
+
+test(
+  'parse: nested braces match correctly',
+  '{(1 2 3) | map block "{__ | add 1}"}',
+  '[2,3,4]'
+)
+
+test(
+  'parse: adjacent commands both parse',
+  '{3 | add 1}{:x}',
+  '4x'
+)
+
+// --- Mixed unmatched and valid braces ---
+
+test(
+  'parse: text, command, unmatched, command, text',
+  'a {3 | add 1} { {5 | add 2} z',
+  'a 4 { 7 z'
 )
 
 
