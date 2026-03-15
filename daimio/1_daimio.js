@@ -1468,7 +1468,7 @@ D.Parser.string_to_tokens = function(string) {
     , block_inputs = []
     , chunk = D.Parser.get_next_thing(string)
 
-  if(chunk.length == string.length && chunk[0] == D.Constants.command_open) {
+  if(chunk.length == string.length && chunk[0] == D.Constants.command_open && chunk.slice(-1) == D.Constants.command_closed) {
     // only one chunk, so make regular pipeline
     return D.Parser.pipeline_string_to_tokens(chunk)
   }
@@ -1478,7 +1478,7 @@ D.Parser.string_to_tokens = function(string) {
       string = string.slice(chunk.length)
       result = []
 
-      if(chunk[0] == D.Constants.command_open) {
+      if(chunk[0] == D.Constants.command_open && chunk.slice(-1) == D.Constants.command_closed) {
         result = D.Parser.pipeline_string_to_tokens(chunk, true)
       } else {
         result = [new D.Token('String', chunk)]

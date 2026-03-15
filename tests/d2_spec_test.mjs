@@ -1501,6 +1501,35 @@ test(
 
 
 // =====================================================
+// §4 Totality: parser handles invalid block names
+// =====================================================
+
+// {begin $foo} has a non-\w+ name — parser should not crash
+test(
+  'parser: invalid block name does not crash',
+  '{begin $foo}body{end $foo}',
+  ''
+)
+
+// =====================================================
+// §4 Totality: unmatched braces are literal text
+// =====================================================
+
+// An unmatched { with no closing } should be treated as literal text
+test(
+  'parser: unmatched open brace is literal text',
+  'hello { world',
+  'hello { world'
+)
+
+test(
+  'parser: unmatched brace among valid commands',
+  '{:ok} then { oops',
+  'ok then { oops'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 
