@@ -47,21 +47,21 @@ Key syntax elements:
 
 - **Values**: numbers, strings, lists (universal collection with ordered + keyed access).
   The empty value coerces by context: `""`, `0`, or `[]`.
-- **Pipelines**: segments connected by pipes. The atomic unit of computation.
-- **Ships**: the unit of execution flowing through a space, carrying payload + pipeline vars.
-- **Spaces**: topology containers with stations, subspaces, ports, and wiring rules.
+- **Ships**: values in transit between ports. Just data.
+- **Blocks**: compiled DAML templates (segments + wiring). Stations have blocks; blocks can be passed as values.
+- **Processes**: the unit of execution. Created when a ship docks at a station; sub-processes created for block evaluation (synchronous, depth-first).
+- **Spaces**: topology containers with stations, subspaces, ports, and wiring rules. One ship at a time per space.
 - **Ports**: typed connection points (In, Out, Down/request, Up/response).
 - **Dialect**: determines available commands and aliases per Daimio instance.
-- **Blocks**: quoted DAML that can be passed as values and evaluated later.
 
 ### Execution model
 
 - Pure commands are synchronous and total (always return a value).
 - Effectful commands create async boundaries via down ports (request/response).
 - `NaN` return from a command signals async (took callback route).
-- Segments execute atomically — no interleaving within a synchronous segment.
-- Space variable reads are always fresh (re-read after async boundaries).
-- Pipeline vars survive async boundaries within the same pipeline.
+- Serial execution per space — one ship at a time, process holds space exclusively.
+- Space variable reads are always fresh (trivially, under serial execution).
+- Pipeline vars survive async boundaries within the same process.
 - Soft errors route to space error port; pipeline continues with empty value.
 - Every down-port request has a timeout (default 10s). Liveness guaranteed.
 

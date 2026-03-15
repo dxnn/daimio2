@@ -71,7 +71,7 @@ value      ::= string_literal
              | name_literal
 
 string_literal ::= '"' (char | command | namedblock)* '"'
-number_literal ::= '-'? digit+ ('.' digit+)?    - actually any JS numeric string... so like 0x3e3 is cool :shrug: 
+number_literal ::= '-'? digit+ ('.' digit+)?    - actually any JS numeric string... so like 0x3e3 is cool :shrug:
 name_literal   ::= ':' name             — e.g. :foo produces the string "foo"
 list_literal   ::= '(' value* ')'       — e.g. (1 2 3), (:a :b :c)
 
@@ -92,13 +92,13 @@ selector   ::= name                     — Key: a key: .foo, 12
              | '(' path+ ')'            — par: multiple paths gathered
 ```
 
-TODO: right now, inside a dot-path Par only works in curlies. 
+TODO: right now, inside a dot-path Par only works in curlies.
 
 ### The implicit pipe value
 
 TODO: move this and the remaining subsections out of Grammar, they don't really belong here
 
-The `|` operator sequences segments. It also automatically **fills a parameter** of the next command. The first unfilled parameter takes the previous segment's output. 
+The `|` operator sequences segments. It also automatically **fills a parameter** of the next command. The first unfilled parameter takes the previous segment's output.
 This is the core pipe mechanic:
 
 ```
@@ -113,7 +113,7 @@ Here the value `3` flows in to the `value` parameter of `math add`, producing `8
 {2 | list range length 3 start 4}
 ```
 
-Note that **parameter ordering** is important. 
+Note that **parameter ordering** is important.
 The command `list range` is defined with parameters `length`, `start`, and `step`, in that order. In the first example, the `length` parameter is filled by `2`, yielding `(1 2)`. In the second the `start` parameter is the first unfilled parameter by definition order, so it takes the `2`, yielding `(2 3 4)`. Only after the first two parameters are explicitly filled is the `2` finally allowed to infest `step`, producing `(4 6 8)`.
 
 ```
@@ -123,17 +123,17 @@ The command `list range` is defined with parameters `length`, `start`, and `step
 
 What if you want to fill the `step` parameter? The implicit value is also available explicitly as `__`. In the first example `step` is explicitly taking the previous pipe's value -- but `start` is also taking the implicit piped value, yielding `(2 4 6)`.
 
-Astute readers will have noticed the subtle difference in the second example. The `||` construction blocks the implicit value from flowing through, while still allowing the previous segment's value to be referenced explicitly. Here `step` receives `2` but `start` is unfilled, yielding `(1 3 5)`. This is useful when you want to set a specific parameter explicitly without filling any others implicitly. 
+Astute readers will have noticed the subtle difference in the second example. The `||` construction blocks the implicit value from flowing through, while still allowing the previous segment's value to be referenced explicitly. Here `step` receives `2` but `start` is unfilled, yielding `(1 3 5)`. This is useful when you want to set a specific parameter explicitly without filling any others implicitly.
 
 
 ```
 {( 1 2 3 ) | map block "{__ | add 1 | add __in | add __}"}
 ```
 
-Pipelines can also take an initial input value, for instance when used as part of a block applied to data, as in this example. 
-This does not implicitly fill a parameter in the first segment of the pipeline, but is accessible by `__`. 
+Pipelines can also take an initial input value, for instance when used as part of a block applied to data, as in this example.
+This does not implicitly fill a parameter in the first segment of the pipeline, but is accessible by `__`.
 It is also accessible as `__in` within any segment in that pipeline -- a fixed value, unlike `__`, which updates after each segment.
-Note that `__` is the only pipeline variable that updates inside a pipeline. 
+Note that `__` is the only pipeline variable that updates inside a pipeline.
 All other `_` vars are single-assignment (they actually get compiled down to wiring).
 This example takes the input value, adds 1, adds the input value again, and then adds that value to itself, yielding `(6 10 14)`.
 
@@ -146,7 +146,7 @@ TODO: move this to a command semantics section
 {math subtract from 8 value 5}
 ```
 
-Note that **parameter ordering** is unimportant. 
+Note that **parameter ordering** is unimportant.
 The command `math subtract` has the form `math subtract value _x from _y`, but those parameters can be specified in either order. The ordering in the command's definition is only relevant for the implicit value carried through the pipe.
 
 
@@ -496,7 +496,7 @@ However, map **will overwrite scalars with structure** if the block
 returns a complex value. If the path doesn't reach any focus, the
 structure is returned unchanged.
 
-TODO: it seems a little wrong to say Map never creates structure. It will have happily add a deeper structure, e.g. : `{(1 2) | list map block (3 4)}` 
+TODO: it seems a little wrong to say Map never creates structure. It will have happily add a deeper structure, e.g. : `{(1 2) | list map block (3 4)}`
 TODO: In other places it says poke doesn't create structure, but poke definitely creates new keys
 
 
@@ -572,7 +572,7 @@ between steps, causing later sub-paths to target wrong positions.
 We accept the asymmetry because it is justified by the operations'
 different relationship to shape.
 
-TODO: shape the above statement a bit better. 
+TODO: shape the above statement a bit better.
 TODO: whta about overlapping paths? what if the first par path pokes a shape in that the second par path follows? how is that handled currently?
 
 #### Path command signatures
@@ -666,30 +666,30 @@ The default handler is an implementation that the environment may override.
 ### Programs
 
 A program is a pipeline, serialized as DAML source text. It enters
-an outer space as a ship payload. A station's pipeline evaluates it
-as a block — this is ordinary block evaluation, not a special
-mechanism.
+an outer space as a ship payload. A station's process may evaluate it
+as a block, through the ordinary block evaluation mechanisms like
+`process run`, thereby creating a sub-process.
 
 Formally, a program is a **free monad over the effect signature,
 composed with a state monad** for space variables:
 
   - **State monad**: pure commands and space variable access are
-    synchronous state transitions: `(ship, σ) → (ship', σ')`.
+    synchronous state transitions: `(process, σ) → (process', σ')`.
     This includes block evaluation — commands like `list map` and
-    `process run` evaluate blocks as nested state transitions
-    within the same ship, sharing σ.
-  - **Free monad**: effectful commands suspend the ship and produce
-    port requests. Each request is an abstract operation with a
-    single-shot continuation. The outer space + wiring interprets
-    these operations by routing requests to handlers.
+    `process run` create sub-processes that execute as nested state
+    transitions, sharing σ with the parent process.
+  - **Free monad**: effectful commands cause the process to wait,
+    producing port requests. Each request is an abstract operation
+    with a single-shot continuation. The outer space + wiring
+    interprets these operations by routing requests to handlers.
 
-Under the current serial scheduling model (§9), each ship has
+Under the current serial scheduling model (§9), each process has
 exclusive access to σ for its entire lifetime. This is what makes
 the composed model clean: the state transitions are deterministic,
-because no other ship can modify σ between your segments. Without
-serial execution, σ could change nondeterministically between
-async boundaries, and the state monad composition would break down
-(see `D2-concurrent-scheduling.md`).
+because no other process can modify σ between your segments.
+Without serial execution, σ could change nondeterministically
+between async boundaries, and the state monad composition would
+break down (see `D2-concurrent-scheduling.md`).
 
 One caveat: the effect surface is not statically fixed. Block
 evaluation can invoke arbitrary effectful commands determined at
@@ -704,31 +704,64 @@ demand-creatable) for any effects used.
 
 ### Ships
 ```
-ship = (v, env)
-  where v   : Val         — the ship's current payload (pipeline value)
-        env : PVar → Val  — the ship's pipeline variable bindings
+ship ∈ Val                — a value in transit between ports
 ```
 
-A ship is the unit of execution flowing through a space. It carries its
-payload and its local state (pipeline vars). Pipeline vars are immutable
-within a segment but can be bound via >x.
+A ship is a value being ferried between ports. It is just data — it
+carries no execution state, no pipeline variables, no dialect. When a
+ship arrives at a station's in-port, a process is created to handle
+it (see Processes below). When a process completes, it sends its
+result as a ship through the station's out-port. A single process
+may send multiple ships to different ports during its execution
+(via `>@portname`), and soft errors send ships to the error port.
 
-**Env scope:** pipeline variables are write-once and scoped to one
-pipeline/block execution. When a block is invoked by a command (like
-`list map`), it inherits a copy of the parent pipeline's env — all
-the parent's pipeline vars are readable inside the block. But vars
-bound inside the block (via `>x`) do not propagate back to the parent.
-The inheritance is one-way: parent → child, never child → parent.
+### Blocks
+```
+block = (segments, wiring)
+  where segments : [Segment]         — the compiled pipeline steps
+        wiring   : key → [key]       — data flow between segments
+```
 
-When a ship exits a station's _out port, its env is cleared. The ship
-arrives at the next station with only its payload (v).
+A block is a compiled DAML template. It holds an array of segments
+(literal text, commands, variable reads/writes, etc.) and a wiring
+map that describes data flow between them. A station has one block.
+Blocks can also be passed as values to commands (`list map`,
+`process run`, `if then`, etc.) and evaluated later.
 
-Pipeline vars DO survive across async boundaries *within* the same
-pipeline. If a ship suspends at a down port and resumes, its env is
-intact. But they don't escape the pipeline that created them.
+### Processes
+```
+process = (space, block, state, pipeline_vars, current, asynced)
+  where space         : Space          — the enclosing space
+        block         : Block          — the block being executed
+        state         : key → Val      — segment outputs and scope vars
+        pipeline_vars : PVar → Val     — pipeline variable bindings
+        current       : int            — current segment index
+        asynced       : bool           — waiting for async response?
+```
 
-Ships do NOT carry dialects. The dialect is a property of the
-outer space the ship is flowing through (see Spaces below).
+A process is the unit of execution. It is created when a ship docks
+at a station, and destroyed when the block completes. A process
+executes its block's segments sequentially, maintaining pipeline
+variable bindings and tracking its position.
+
+**Pipeline variable scope:** pipeline variables are write-once and
+scoped to a single process. When a block is evaluated by a command
+(like `list map`), a **sub-process** is created that inherits a
+copy of the parent's pipeline vars — all the parent's vars are
+readable inside the block. But vars bound inside the block (via
+`>x`) do not propagate back to the parent. The inheritance is
+one-way: parent → child, never child → parent.
+
+**Sub-processes** are synchronous and depth-first. When a command
+evaluates a block, the sub-process runs to completion (or suspends)
+before the parent process continues. Sub-processes can nest to
+arbitrary depth. Each sub-process runs in the same space and has
+access to the same σ (space variables).
+
+**Async boundaries:** pipeline variables survive across async
+boundaries within the same process. If a process waits at an
+effectful command and later resumes, its pipeline vars are intact.
+But they don't escape the process that created them.
 
 ### Outer Spaces
 ```
@@ -834,10 +867,17 @@ interface is visible. This external view is coalgebraic:
 
 However, the transition function is not a pure function — it may
 invoke effectful commands, which produce down-port requests that
-suspend execution until a response arrives. Internally, each
-station's pipeline is a program (free monad over effects + state
-monad, as described in Programs above). The full picture is: a
-reactive automaton whose transitions are effectful programs.
+cause the process to wait until a response arrives. Internally,
+each station's block is a program (free monad over effects + state
+monad, as described in Programs above). When a ship docks at a
+station, a process is created to execute the station's block.
+The full picture is: a reactive automaton whose transitions are
+effectful programs, executed one at a time (§9).
+
+A space processes **one ship at a time**. When a ship arrives at
+a busy space, it is queued. Processes (including sub-processes
+from block evaluation) have exclusive access to σ for their
+entire lifetime. See §9 for the full scheduling model.
 
 A space carries its own topology, stations, and state. It depends
 on the parent for two things:
@@ -866,28 +906,29 @@ the atomic unit of execution.
 We write:
 
 ```
-(ship, σ) —[seg]→ (ship', σ')
+(process, σ) —[seg]→ (process', σ')
 ```
 
-to mean: executing segment seg with ship state `ship` and space variable
-store `σ` (from the current outer space) produces new ship state
-`ship'` and new store `σ'`.
+to mean: executing segment seg with process state `process` and
+space variable store `σ` produces new process state `process'` and
+new store `σ'`. Here `process.v` is the current pipeline value and
+`process.env` is the pipeline variable bindings.
 
 **Pure command:**
 ```
   c ∈ δ.commands      (command is in the outer space's dialect)
   c is Pure(c, params, fun)
-  args' = fillImplicit(args, ship.v)     — ship.v fills first unfilled param
+  args' = fillImplicit(args, process.v)     — process.v fills first unfilled param
   v' = fun(args')
   ─────────────────────────────────────────────────
-  (ship, σ) —[PureCmd(c, args)]→ (ship{v := v'}, σ)
+  (process, σ) —[PureCmd(c, args)]→ (process{v := v'}, σ)
 ```
 
 **Parameter filling** (`fillImplicit`) works in two passes:
 
   1. **Explicit params** are matched by name. `{math add value 5 to 3}`
      binds `value=5` and `to=3` regardless of definition order.
-  2. **The implicit pipe value** (ship.v) fills the first parameter
+  2. **The implicit pipe value** (process.v) fills the first parameter
      (by definition order) that was not explicitly provided. This
      happens at most once — only the first unfilled param receives it.
      `{2 | math add value 5}` means math.add receives 2 as its
@@ -901,7 +942,7 @@ list     — scalars wrap to single-element list; empty → []
 string   — numbers stringify; empty → ""
 number   — strings coerce numerically; empty → 0
 integer  — like number, then rounded
-block    — DAML string becomes an evaluable pipeline
+block    — DAML string becomes an evaluable block
 anything — passed through (with empty normalization)
 ```
 
@@ -921,7 +962,7 @@ A soft error is emitted (see §5), and the pipeline value is unchanged.
 ```
   v' = peek(σ(s), path)    (read current value at path — always fresh)
   ─────────────────────────────────────────────────
-  (ship, σ) —[ReadSVar(s, path)]→ (ship{v := v'}, σ)
+  (process, σ) —[ReadSVar(s, path)]→ (process{v := v'}, σ)
 ```
 
 If s is unbound in σ, or path doesn't match, the result is the empty
@@ -929,9 +970,9 @@ value (consistent with totality — no errors, just defaults).
 
 **Write space variable:**
 ```
-  σ' = σ[s ↦ poke(σ(s), path, ship.v)]
+  σ' = σ[s ↦ poke(σ(s), path, process.v)]
   ─────────────────────────────────────────────────
-  (ship, σ) —[WriteSVar(s, path)]→ (ship, σ')
+  (process, σ) —[WriteSVar(s, path)]→ (process, σ')
 ```
 
 If path is empty, this sets s directly. See §2 Path expressions for
@@ -941,18 +982,18 @@ Key on unkeyed lists coerces or soft errors.
 
 **Read pipeline variable:**
 ```
-  v' = peek(ship.env(x), path)
+  v' = peek(process.env(x), path)
   ─────────────────────────────────────────────────
-  (ship, σ) —[ReadPVar(x, path)]→ (ship{v := v'}, σ)
+  (process, σ) —[ReadPVar(x, path)]→ (process{v := v'}, σ)
 ```
 
 If x is unbound or path doesn't match, the result is empty (totality).
 
 **Write pipeline variable:**
 ```
-  env' = ship.env[x ↦ ship.v]
+  env' = process.env[x ↦ process.v]
   ─────────────────────────────────────────────────
-  (ship, σ) —[WritePVar(x)]→ (ship{env := env'}, σ)
+  (process, σ) —[WritePVar(x)]→ (process{env := env'}, σ)
 ```
 
 Pipeline variable bindings are write-once within a synchronous segment
@@ -960,41 +1001,42 @@ Pipeline variable bindings are write-once within a synchronous segment
 
 **Pipe composition:**
 ```
-  (ship, σ) —[seg₁]→ (ship₁, σ₁)
-  (ship₁, σ₁) —[seg₂]→ (ship₂, σ₂)
+  (process, σ) —[seg₁]→ (process₁, σ₁)
+  (process₁, σ₁) —[seg₂]→ (process₂, σ₂)
   ─────────────────────────────────────────────────
-  (ship, σ) —[seg₁ | seg₂]→ (ship₂, σ₂)
+  (process, σ) —[seg₁ | seg₂]→ (process₂, σ₂)
 ```
 
 **Barrier pipe composition (||):**
 ```
-  (ship, σ) —[seg₁]→ (ship₁, σ₁)
-  ship₁' = ship₁{v := empty}           — next command gets empty as implicit param
-  (ship₁', σ₁) —[seg₂]→ (ship₂, σ₂)    — but env (pipeline vars) is preserved
+  (process, σ) —[seg₁]→ (process₁, σ₁)
+  process₁' = process₁{v := empty}      — next command gets empty as implicit param
+  (process₁', σ₁) —[seg₂]→ (process₂, σ₂)  — but env (pipeline vars) is preserved
   ─────────────────────────────────────────────────
-  (ship, σ) —[seg₁ || seg₂]→ (ship₂, σ₂)
+  (process, σ) —[seg₁ || seg₂]→ (process₂, σ₂)
 ```
 
 A trailing `||` with no following segment returns empty:
 ```
-  (ship, σ) —[seg₁]→ (ship₁, σ₁)
+  (process, σ) —[seg₁]→ (process₁, σ₁)
   ─────────────────────────────────────────────────
-  (ship, σ) —[seg₁ ||]→ (ship₁{v := empty}, σ₁)
+  (process, σ) —[seg₁ ||]→ (process₁{v := empty}, σ₁)
 ```
 
 **Literal:**
 ```
-  (ship, σ) —[Literal(v)]→ (ship{v := v}, σ)
+  (process, σ) —[Literal(v)]→ (process{v := v}, σ)
 ```
 
 ### Block invocation
 
 A Block segment produces a DAML string as a value. Commands that
 accept block parameters (`list map`, `list reduce`, `if then`, etc.)
-evaluate the block by running it as a pipeline. There is no special
-"eval" mechanism — evaluating a block IS running a pipeline, subject
-to the same rules as any other (segment atomicity, fresh space var
-reads, effectful commands creating async boundaries).
+evaluate the block by creating a **sub-process**. There is no special
+"eval" mechanism — evaluating a block IS creating a sub-process that
+runs the block, subject to the same rules as any other process.
+Sub-processes are synchronous and depth-first: the parent process
+waits for the sub-process to complete before continuing.
 
 ```
 {(1 2 3) | list map block "{__ | math add value 1}"}
@@ -1002,40 +1044,40 @@ reads, effectful commands creating async boundaries).
 ```
 
 A program received as data (a ship carrying a DAML string) is
-evaluated the same way — it's a block that gets run as a pipeline.
+evaluated the same way — it's a block that gets run by a sub-process.
 
-**Scope** when a command invokes a block:
+**Scope** when a command creates a sub-process for a block:
 
-  1. The block **inherits the parent pipeline's env**. All pipeline
-     variables bound before the block was invoked are readable inside.
-     This is safe because pipeline vars are write-once — the block
-     gets lexical closure over frozen values.
+  1. The sub-process **inherits the parent's pipeline vars**. All
+     pipeline variables bound before the block was invoked are
+     readable inside. This is safe because pipeline vars are
+     write-once — the sub-process gets a copy of frozen values.
   2. The command **injects scope variables** on top of the inherited
-     env. Standard injected names:
+     vars. Standard injected names:
        `_value`       — the current item being processed
        `_key`         — the current item's key (for keyed collections)
        `_index`       — the current item's index
        `_total`       — accumulator value (for reduce/fold)
      Injected vars shadow parent vars of the same name.
-  3. `__in` is the block's input (typically `_value`). `__` is the
-     previous pipe segment's output — at the start, `__ = __in`.
-  4. The block executes in the current outer space, under the current
-     dialect, with access to space variables.
-  5. Pipeline vars bound inside the block (via `>x`) do NOT propagate
-     back to the parent pipeline. The block's env is its own scope.
+  3. `__in` is the sub-process's input (typically `_value`). `__` is
+     the previous pipe segment's output — at the start, `__ = __in`.
+  4. The sub-process executes in the same space as the parent, under
+     the same dialect, with access to the same space variables (σ).
+  5. Pipeline vars bound inside the sub-process (via `>x`) do NOT
+     propagate back to the parent. The sub-process's env is its own.
 
 Everything in an outer space runs under that outer space's dialect,
 period. There is no mechanism for escalating or changing the dialect
-mid-execution. A program received as data inherits the env of
-whatever pipeline evaluates it — if there are no pipeline vars in
+mid-execution. A program received as data inherits the pipeline vars
+of whatever process evaluates it — if there are no pipeline vars in
 scope, it simply sees an empty env.
 
 ### Atomicity guarantee
 
-A space processes one ship at a time (§9). The active ship has
+A space processes one ship at a time (§9). The active process has
 exclusive access to σ for its entire lifetime — not just within a
 synchronous segment, but across async boundaries as well. No other
-ship may read or write σ while the active ship exists.
+process may read or write σ while the active process exists.
 
 #### Pipeline Segments
 ```
@@ -1055,9 +1097,10 @@ pipe     ::= '|' or '||'             — normal pipe or barrier pipe
 
 ## 4. Execution: Asynchronous Boundaries
 
-An effectful command creates an **async boundary**. The ship's execution
-splits into two phases: before the effect (sync) and after the response
-(sync). Between these phases, other ships may execute.
+An effectful command creates an **async boundary**. The process's
+execution splits into two phases: before the effect (sync) and after
+the response (sync). The process waits for the response; under the
+current serial model (§9), the space remains busy during the wait.
 
 ### Down ports return exactly one value
 
@@ -1065,7 +1108,7 @@ A down-port round trip always produces exactly one response. This is a
 design decision with several consequences:
 
   1. It aligns with the free monad interpretation: each effect operation
-     suspends, receives one value, and continues. Single-shot continuations.
+     waits, receives one value, and continues. Single-shot continuations.
   2. It keeps the pipeline model simple: the programmer knows that after
      an effectful command, they get one value and continue. No need to
      reason about iteration or stream termination.
@@ -1084,37 +1127,33 @@ NOT expressible via down ports. These are exotic for Daimio's use cases
   c is Effectful(c, params, portType, _)
   p = resolveOrCreatePort(space, portType)    — see §6 for port resolution
   ─────────────────────────────────────────────────
-  (ship, σ) —[EffCmd(c, args)]→ SUSPEND(p, ship, continuation)
+  (process, σ) —[EffCmd(c, args)]→ WAIT(p, process, continuation)
 ```
 
-The ship is suspended. Its pipeline variables are preserved. The
-request (payload + args) is sent out through port p. The continuation
-is the remainder of the pipeline after this segment.
-
-Multiple ships may be concurrently suspended on the same port. The
-runtime must correlate each incoming response to the correct suspended
-ship (e.g. via request tagging). This is implementation bookkeeping,
-not a semantic concern.
+The process waits. Its pipeline variables are preserved. The request
+(payload + args) is sent out through port p. The continuation is the
+remainder of the block after this segment.
 
 ### Resumption
 
-When a response arrives and the suspended ship is still waiting:
+When a response arrives for a waiting process:
 
 ```
   resp ∈ Val
-  ship' = suspended.ship{v := resp}
+  process' = waiting.process{v := resp}
   ─────────────────────────────────────────────────
-  RESUME(suspended, resp) → (ship', σ_current)
+  RESUME(waiting, resp) → (process', σ_current)
 ```
 
-Critically: σ_current is the space variable store **at the time of
-resumption**, not at the time of suspension. Space variable reads after
-an async boundary see fresh values. This is the "fresh reads" rule.
+Under the current serial model, σ_current is guaranteed to be
+unchanged from the time of waiting — no other process can modify σ
+while this process holds the space. The "fresh reads" property is
+trivially satisfied (see §10).
 
 ### 4.3 Timeouts
 
 Every down-port wire has a **timeout**: the maximum duration the runtime
-will wait for a response before resuming the suspended ship with a
+will wait for a response before resuming the waiting process with a
 default value.
 
 #### Timeout values
@@ -1143,13 +1182,13 @@ stays at 20s.
 
 The **effective timeout** for any down-port round trip is the
 minimum of all nominal timeouts along the chain from the requesting
-ship to the handler. This arises naturally from the mechanics:
+process to the handler. This arises naturally from the mechanics:
 
 If D sends a request through C through B to an external handler:
   - D-C nominal timeout: 20s
   - C-B nominal timeout: 30s (inherited from B-A)
 
-At 20s, D-C times out. D's ship resumes with the default value.
+At 20s, D-C times out. D's process resumes with the default value.
 The request is still in flight from C's perspective. If the response
 arrives at 25s, C receives it but D has already moved on. C fires
 a soft error and drops the response.
@@ -1160,7 +1199,7 @@ An inner wire CAN shorten the wait by having a tighter timeout.
 
 #### Timeout and orphaned response behavior
 
-When a timeout fires, the suspended ship resumes with the effectful
+When a timeout fires, the waiting process resumes with the effectful
 command's default value, and a soft error is emitted. The request is
 marked completed.
 
@@ -1178,12 +1217,12 @@ request time — no need to wait for a timeout:
   p has no wiring
   defaultVal = the effectful command's default value
   ─────────────────────────────────────────────────
-  (ship, σ) —[EffCmd(c, args)]→ (ship{v := defaultVal}, σ)
+  (process, σ) —[EffCmd(c, args)]→ (process{v := defaultVal}, σ)
   emit soft error: {type: "unwired_port", port: p}
 ```
 
-This is synchronous — no async boundary is created, no ship is
-suspended, no timeout. The pipeline continues immediately.
+This is synchronous — no async boundary is created, the process does
+not wait, no timeout. The pipeline continues immediately.
 
 
 ## 5. Errors
@@ -1262,7 +1301,7 @@ Multiple properties in a single Match are conjunctive (all must hold).
 
 Concrete syntax example:
 ```
-S.@[handler:math]                 → match all math commands 
+S.@[handler:math]                 → match all math commands
 S.@[handler:!user type:read]      → match reads that are NOT user commands
 S.@[handler:math method:fizzbuzz] → you can only fizzbuzz nothing else
 ```
@@ -1384,20 +1423,20 @@ through ports.
 
 ### Serial execution per space
 
-Each space processes **one ship at a time**. When a ship enters a
-space (via any in-port on any station), it either executes immediately
-or is placed in a FIFO queue. No two ships ever execute concurrently
-within the same space.
+Each space processes **one ship at a time**. When a ship arrives at
+a space (via any in-port on any station), it either docks immediately
+(creating a process) or is placed in a FIFO queue. No two processes
+ever execute concurrently within the same space.
 
 This applies regardless of which station the ship targets. A space
-with stations A and B will never run a ship through A and a ship
-through B at the same time. The serialization is per-space, not
-per-station or per-port.
+with stations A and B will never process a ship at A and a ship at
+B at the same time. The serialization is per-space, not per-station
+or per-port.
 
 ### The queue
 
 Each space maintains a queue of pending ships. A ship is enqueued
-when it arrives at a space that is already processing another ship.
+when it arrives at a space that already has an active process.
 
 ```
 ARRIVE(space, ship, station):
@@ -1406,11 +1445,11 @@ ARRIVE(space, ship, station):
     return                                             — ship waits
   else:
     space.active ← true
-    RUN(space, ship, station)
+    DOCK(space, ship, station)                         — create process, run block
 ```
 
-When the active ship completes (either synchronously or after all
-async round-trips), the space dequeues and runs the next ship:
+When the active process completes (either synchronously or after
+all async round-trips), the space dequeues the next ship:
 
 ```
 COMPLETE(space):
@@ -1418,54 +1457,65 @@ COMPLETE(space):
   if space.queue is non-empty:
     (ship, station) ← space.queue.shift()              — FIFO dequeue
     space.active ← true
-    DEFER(RUN(space, ship, station))                   — deferred execution
+    DEFER(DOCK(space, ship, station))                  — deferred execution
 ```
 
 The dequeue is **deferred** (not immediate), ensuring the completing
-ship's output routing finishes before the next ship begins.
+process's output routing finishes before the next ship docks.
 
-### Ship lifecycle
+### Process lifecycle
 
-A ship entering a station goes through these phases:
+When a ship docks at a station, a process is created to run the
+station's block. The process goes through these phases:
 
-  1. **Arrive**: ship enters via station's in-port
-  2. **Execute**: station's pipeline runs (synchronous segments)
-  3. **Suspend** (if effectful command): ship waits for response,
-     but remains the active ship — the space is still "busy"
-  4. **Resume** (when response arrives): pipeline continues from
-     where it suspended
-  5. **Complete**: pipeline finishes, output routes via station's
-     out-port, space becomes available for next queued ship
+  1. **Dock**: ship arrives at station's in-port, process is created
+  2. **Execute**: process runs the block's segments sequentially
+  3. **Wait** (if effectful command): process waits for a response
+     via a down-port — the space remains busy
+  4. **Resume** (when response arrives): process continues from
+     where it was waiting
+  5. **Complete**: block finishes, final value exits as a ship
+     through the station's `_out` port, process is destroyed,
+     space becomes available for the next queued ship
 
-A suspended ship **holds the space**. While a ship waits for an
-async response, no other ships can execute in that space. The ship
-has exclusive access to the space's state for its entire lifetime,
-from arrival through completion.
+A process may also send ships to named ports during execution
+(via `>@portname`), and soft errors send ships to the space's
+error port (if wired). All port routing is deferred — the ships
+arrive at their destinations after the current process completes.
 
-### Block evaluation
+A waiting process **holds the space**. While a process waits for
+an async response, no other ships can dock. The process has
+exclusive access to the space's state for its entire lifetime,
+from dock through completion.
+
+### Sub-processes
 
 Commands that accept block parameters (`list map`, `process run`,
-`if then`, etc.) evaluate the block within the same ship's
-execution. This creates a nested process that:
+`if then`, etc.) evaluate the block by creating a **sub-process**.
+A sub-process:
 
   - Runs in the same space, with access to the same σ
-  - Bypasses the queue (it is part of the active ship's work)
-  - Executes synchronously from the parent pipeline's perspective
-    (unless the block itself hits an effectful command)
+  - Bypasses the queue (it is part of the active process's work)
+  - Executes synchronously and depth-first: the parent process
+    waits for the sub-process to complete before continuing
+  - Can nest to arbitrary depth (sub-sub-processes, etc.)
 
-Block evaluation is nested execution, not concurrent execution.
-The block runs, returns a value, and the parent pipeline continues.
+Sub-processes are nested execution, not concurrent execution.
 
 ### Port routing and deferred entry
 
-When a pipeline sends to a space-level port (`>@portname`), the
+When a process sends to a space-level port (`>@portname`), the
 port's output routing is **deferred**: the receiving station's
 in-port entry is scheduled asynchronously, not executed inline.
-The sending pipeline continues immediately.
+The sending process continues immediately.
 
-This means `>@portname` does not block the sender's pipeline.
+This means `>@portname` does not block the sender's process.
 The routed ship arrives at the target station after the current
-ship completes, entering through the normal queue mechanism.
+process completes, entering through the normal queue mechanism.
+
+This also applies to the implicit `_out` routing. If station A's
+`_out` is wired to station B's `_in`, the ship docks at B only
+after A's process is fully complete and cleaned up.
 
 ### Other Daimio instances
 
@@ -1476,8 +1526,8 @@ concern.
 
 ### Future: concurrent scheduling
 
-The serial model could be relaxed to allow multiple ships to execute
-concurrently within a space, interleaving at segment boundaries.
+The serial model could be relaxed to allow multiple processes to
+execute concurrently within a space, interleaving at segment boundaries.
 This is not currently enabled. See `D2-concurrent-scheduling.md`
 for the aspirational concurrent model and its implications.
 
@@ -1513,35 +1563,36 @@ empty). This is the core security property: the instance owner
 controls what code can do by choosing the dialect.
 
 ### Serial execution
-Each space processes one ship at a time (see §9). A ship has
-exclusive access to the space's state from arrival through
-completion, including across async boundaries. No other ship can
-read or write space variables while a ship is active, even while
-it is suspended waiting for an effectful command's response.
+Each space processes one ship at a time (see §9). The active
+process has exclusive access to the space's state from dock
+through completion, including across async boundaries. No other
+process can read or write space variables while a process is
+active, even while it is waiting for an effectful command's
+response.
 
 This means space variable access is always consistent: there are
 no concurrent modifications, no stale reads, no TOCTOU hazards.
-A ship that reads `$foo`, suspends at an async boundary, and reads
+A process that reads `$foo`, waits at an async boundary, and reads
 `$foo` again after resumption is guaranteed to see the same value
-(unless its own pipeline modified it in between).
+(unless its own execution modified it in between).
 
 ### Fresh reads
 Under the current serial model, fresh reads are trivially
-satisfied — no other ship can modify σ during your execution.
-Space variable reads see exactly what the active ship (or its
-block evaluations) last wrote. Pipeline variables remain the
-mechanism for stashing values within a pipeline, but the
-motivation is convenience, not protection from concurrent
-modification.
+satisfied — no other process can modify σ during your execution.
+Space variable reads see exactly what the active process (or its
+sub-processes) last wrote. Pipeline variables remain the mechanism
+for stashing values within a pipeline, but the motivation is
+convenience, not protection from concurrent modification.
 
 ### Block scope isolation
-Pipeline variables flow into blocks (lexical inheritance from the
-parent pipeline) but never flow out. A block gets a copy of the
-parent's env; variables bound inside the block (via `>x`) do not
-propagate back. This is safe because pipeline vars are write-once
-(immutable bindings), so the inherited values are frozen. The
-one-way information flow makes blocks safe to pass around as
-values — evaluating a block cannot corrupt the caller's state.
+Pipeline variables flow into sub-processes (lexical inheritance
+from the parent process) but never flow out. A sub-process gets a
+copy of the parent's env; variables bound inside the sub-process
+(via `>x`) do not propagate back. This is safe because pipeline
+vars are write-once (immutable bindings), so the inherited values
+are frozen. The one-way information flow makes blocks safe to pass
+around as values — evaluating a block cannot corrupt the caller's
+state.
 
 ### Space isolation
 Spaces are fully isolated containers. A subspace cannot read or
@@ -1585,12 +1636,12 @@ them to its own boundary, or swallows them. This composes recursively
 to arbitrary depth.
 
 ### Liveness
-No ship is suspended forever. Every down-port request has a finite
+No process waits forever. Every down-port request has a finite
 timeout (explicit, inherited, or the 10s system default). When the
-timeout fires, the ship resumes with a default value. Unwired ports
-return the default immediately with no async boundary at all. This
-guarantees that every ship eventually completes its pipeline, modulo
-the totality of the pipeline's pure computation.
+timeout fires, the process resumes with a default value. Unwired
+ports return the default immediately with no async boundary at all.
+This guarantees that every process eventually completes its block,
+modulo the totality of the block's pure computation.
 
 ### Timeout compositionality
 The effective timeout for a request chain is the minimum of all
@@ -1602,12 +1653,12 @@ socket.
 
 ### Uniform evaluation
 There is no special "eval" mechanism. Blocks, received programs,
-named blocks, and station pipelines all execute as pipelines under
-the same rules — same dialect, same segment atomicity, same fresh
-reads, same effect routing. A program received as data is evaluated
-the same way as a block passed to `list map`. This uniformity makes
-the system predictable and auditable: there is exactly one execution
-model, applied everywhere.
+named blocks, and station blocks all execute as processes under the
+same rules — same dialect, same serial execution, same fresh reads,
+same effect routing. A program received as data is evaluated the
+same way as a block passed to `list map` — both create a
+sub-process. This uniformity makes the system predictable and
+auditable: there is exactly one execution model, applied everywhere.
 
 ### Deterministic pipe filling
 The implicit pipe value fills the first unfilled parameter of the
@@ -1624,7 +1675,6 @@ Rationale for decisions that aren't obvious from the spec itself.
 
 TODO: examine "request tagging" -- that seems weird
 TODO: let's not call requests orphans that's just sad
-TODO: I don't like the word "suspended" for ships, maybe just "docked"? Or... "dry docked"? We need something better. "anchored"? that's pretty good. "berthing"? That's okay too. maybe berthing. "When a ship docks into a space's downport from the outside, it passes its cargo to ship waiting at its berth. The berthing ship then disembarks for its station."
 
 ### Why single-response effects?
 The alternative is multi-shot continuations (streaming responses via
