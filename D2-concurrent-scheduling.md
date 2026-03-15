@@ -111,6 +111,11 @@ granularity. Each segment is a transaction that reads and writes σ
 atomically. Between transactions (at async boundaries), other
 transactions can interleave.
 
+The free monad part (effect abstraction and interpretation via
+wiring) is unaffected by concurrency. Only the state component
+changes character — from a deterministic state monad to
+nondeterministic shared state.
+
 ### What stays the same
 
 These properties hold in both the serial and concurrent models:

@@ -3,3 +3,4 @@ deck
 ninspector
 node_modules/*
 !node_modules/daimio
+extra

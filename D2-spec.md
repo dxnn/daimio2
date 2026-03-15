@@ -314,65 +314,20 @@ From the programmer's perspective, pipeline flow is functionally pure.
 Implementations may use mutation internally for efficiency (e.g.
 linear types style optimization when no future references exist).
 
-### The three sendable things
+### Sendability and the gradient of dependency
 
-The model supports three kinds of values that can be serialized and
-sent over ports, including over the network:
+Three kinds of values can be serialized and sent over ports,
+including over the network. They differ in what they need from
+the receiving environment:
 
-**Data** — just a Val. No behavior, no effects, no requirements.
-Enters a space as a ship payload through any in-port. The simplest case.
-
-**Program** — a pipeline, serialized as DAML source text.
-Enters an outer space as a ship payload. A station's pipeline
-evaluates it as a block — this is ordinary block evaluation,
-not a special mechanism.
-
-The structure is analogous to a free monad over the effect
-signature, composed with a state monad for space variables:
-  - Pure commands and space variable access are synchronous
-    state transitions: `(ship, σ) → (ship', σ')`
-  - Effectful commands suspend the ship and produce port
-    requests — abstract operations interpreted by the wiring
-  - The outer space + wiring is the interpreter for effects
-
-Under the current serial scheduling model (§9), each ship has
-exclusive access to σ. This means the state transitions are
-deterministic — no other ship can modify σ between your segments.
-Space variable access within a pipeline (including through block
-evaluation) is consistent and predictable.
-
-Note: the free monad analogy is not exact. Space variables
-introduce shared mutable state, and block evaluation can invoke
-arbitrary effectful commands not known statically. The analogy
-captures the essential shape — pure computation interleaved with
-abstract effect operations — but the full model is richer.
-
-Requires: the outer space's dialect must include whatever commands
-the program invokes, and port wiring must exist (or be
-demand-creatable) for any effects used.
-
-The program is "parasitic" — it borrows everything from the host.
-
-**Space** — a serialized space, represented as DAML source text.
-Enters through a socket-in port on a socket space.
-
-It is a coalgebra — behavior with internal context:
-  - Carries its own topology, programs, and state
-  - Depends on the socket only for port wiring to the outside
-  - Self-contained internally, dependent externally
-
-Requires: a socket with wiring rules that cover its effect surface
-(with OTHER as a fallback for unknown effects).
-
-The space is "self-reliant" — it brings its own context. When loaded
-into a socket, it becomes a subspace of the receiving space within
-the current Daimio instance.
-
-The gradient of dependency:
-
-- **Data:** needs nothing
-- **Program:** needs dialect + state + ports (borrows everything)
-- **Space:** needs port wiring + dialect assignment (brings everything else)
+- **Data** — just a Val. No behavior, no effects, no requirements.
+  Enters a space as a ship payload through any in-port.
+- **Program** — a pipeline as DAML source text. Needs dialect +
+  state + ports from the host (see Programs below). The program
+  is "parasitic" — it borrows everything.
+- **Space** — a serialized space as DAML source text. Needs port
+  wiring + dialect from the parent (see Spaces below). The space
+  is "self-reliant" — it brings its own programs and state.
 
 ### Path expressions and accessors
 
@@ -708,6 +663,45 @@ Effectful commands have no fun; they have a port type and a default handler.
 The port type names the kind of port that will be created on demand.
 The default handler is an implementation that the environment may override.
 
+### Programs
+
+A program is a pipeline, serialized as DAML source text. It enters
+an outer space as a ship payload. A station's pipeline evaluates it
+as a block — this is ordinary block evaluation, not a special
+mechanism.
+
+Formally, a program is a **free monad over the effect signature,
+composed with a state monad** for space variables:
+
+  - **State monad**: pure commands and space variable access are
+    synchronous state transitions: `(ship, σ) → (ship', σ')`.
+    This includes block evaluation — commands like `list map` and
+    `process run` evaluate blocks as nested state transitions
+    within the same ship, sharing σ.
+  - **Free monad**: effectful commands suspend the ship and produce
+    port requests. Each request is an abstract operation with a
+    single-shot continuation. The outer space + wiring interprets
+    these operations by routing requests to handlers.
+
+Under the current serial scheduling model (§9), each ship has
+exclusive access to σ for its entire lifetime. This is what makes
+the composed model clean: the state transitions are deterministic,
+because no other ship can modify σ between your segments. Without
+serial execution, σ could change nondeterministically between
+async boundaries, and the state monad composition would break down
+(see `D2-concurrent-scheduling.md`).
+
+One caveat: the effect surface is not statically fixed. Block
+evaluation can invoke arbitrary effectful commands determined at
+runtime. This means the free monad is over an open effect
+signature — the set of possible effects isn't known until the
+block runs. Daimio handles this through demand-created ports and
+wiring rules with OTHER fallbacks (§6).
+
+Requires: the outer space's dialect must include whatever commands
+the program invokes, and port wiring must exist (or be
+demand-creatable) for any effects used.
+
 ### Ships
 ```
 ship = (v, env)
@@ -830,6 +824,35 @@ Those belong to the outer space (see Outer Spaces above).
 When the outer application wants an actor to use a space, it creates
 an outer space from the space definition, assigns a dialect, and
 initializes the space variable store.
+
+Externally, a space is a **reactive automaton** (Mealy machine):
+it accepts ships at in-ports, produces ships at out-ports, and
+maintains internal state (σ) between interactions. The parent
+cannot observe or modify the internal state — only the port
+interface is visible. This external view is coalgebraic:
+`S → (Input → Output × S)`.
+
+However, the transition function is not a pure function — it may
+invoke effectful commands, which produce down-port requests that
+suspend execution until a response arrives. Internally, each
+station's pipeline is a program (free monad over effects + state
+monad, as described in Programs above). The full picture is: a
+reactive automaton whose transitions are effectful programs.
+
+A space carries its own topology, stations, and state. It depends
+on the parent for two things:
+  - **Port wiring**: the parent's wiring rules determine how
+    the space's down-port requests are handled (§6)
+  - **Dialect**: the parent assigns the dialect that governs
+    which commands are available inside the space
+
+The space is "self-reliant" — it brings its own programs and
+state. But it is not self-sufficient: without wiring, its effects
+go nowhere, and without a dialect, its commands don't execute.
+
+Spaces can also be serialized as DAML source text and loaded into
+sockets at runtime. Socketed spaces have additional properties
+around loading, transitions, and state ephemerality — see §7.
 
 
 ## 3. Execution: Synchronous Segments
@@ -1455,7 +1478,7 @@ concern.
 
 The serial model could be relaxed to allow multiple ships to execute
 concurrently within a space, interleaving at segment boundaries.
-This is not currently enabled. See `extra/D2-concurrent-scheduling.md`
+This is not currently enabled. See `D2-concurrent-scheduling.md`
 for the aspirational concurrent model and its implications.
 
 
