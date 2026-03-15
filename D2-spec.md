@@ -2,9 +2,72 @@
 
 ## 0. Prelude
 
-DAML (Daimio Ain't Markup Language, aka Drat Another Markup Language, aka Dragon Ate My Lambdas) is a templating language. A DAML source string is a mix of literal text and command invocations delimited by curly braces. Literal text passes through unchanged; commands are evaluated and their results are interpolated into the output. And then we eat lunch.
+DAML (Daimio Ain't Markup Language, aka Drat Another Markup Language,
+aka Dragon Ate My Lambdas) is a templating language. A DAML source
+string is a mix of literal text and command invocations delimited by
+curly braces. Literal text passes through unchanged; commands are
+evaluated and their results are interpolated into the output. And
+then we eat lunch.
 
-TODO: put more text here
+### Why Daimio exists
+
+Daimio is designed for a world where applications are programmable,
+multiactor, and composable. The execution model is shaped by six
+core ideas:
+
+**1. Programmable applications.** You shouldn't need to use an
+application's UI to use the application. You should be able to
+send a program that expresses your intent, and have it executed.
+Then you can make and use any interface you want. The application
+behaves the same regardless of interface. This is why Daimio has
+uniform evaluation (§10): a program received as data executes
+under exactly the same rules as built-in code.
+
+**2. Multiactor by default.** Multiple actors share a single
+application. Each actor has their own dialect — a restricted set
+of commands that determines what they can do. The application
+owner controls permissions by choosing each actor's dialect. An
+invited actor can do exactly what the owner allows, nothing more.
+This is why dialects exist (§2) and why dialect confinement is a
+core property (§10): there is no mechanism for privilege escalation.
+
+**3. Command/port duality.** From inside a space, everything looks
+like a command call: `{time now}`, `{db query sql "..."}`,
+`{math add value 1 to 2}` — same syntax, same pipeline flow.
+From outside, the effectful commands are visible as ports —
+obligations that the environment must satisfy. Pure commands are
+invisible from outside; they're self-contained. A space that uses
+`{time now}` has a port sticking out of it that says "I need
+someone to satisfy time requests." The command is the inside view;
+the port is the outside view. These are the same thing seen from
+two sides of the space boundary. This is why effect locality is a
+core property (§10): effects propagate outward through ports until
+someone handles them.
+
+**4. Effect locality and testability.** Effects only happen at
+the outside of the outermost space. Every effectful command
+produces a port request that propagates outward. Any intermediate
+space can intercept and handle the request, or forward it to its
+own boundary. This means any space can be tested by composing it
+into a parent that provides mock handlers — the space cannot tell
+from the inside whether it's wired to production or to a test
+harness.
+
+**5. Programs as messages.** A program can be shipped to where
+the effects are. Bob sends Alice a signed DAML program. Alice
+runs it under Bob's dialect on her backend. The result flows back.
+The channel doesn't matter — letter, WebSocket, carrier pigeon —
+only the message and its authentication. This is why Daimio has
+three sendable things (§2): data (just values), programs (borrow
+everything from the host), and spaces (bring their own context).
+
+**6. Composition.** Spaces nest. A subspace's effect surface
+becomes obligations on the parent. The parent either handles them,
+forwards them to its own boundary, or swallows them. Dialects
+restrict downward: an invited actor or loaded subspace can never
+do more than the host allows. This composes to arbitrary depth,
+which is how applications compose — not by merging code, but by
+wiring spaces together through ports.
 
 ## 1. Concrete Syntax
 
@@ -94,140 +157,7 @@ selector   ::= name                     — Key: a key: .foo, 12
 
 TODO: right now, inside a dot-path Par only works in curlies.
 
-### The implicit pipe value
-
-TODO: move this and the remaining subsections out of Grammar, they don't really belong here
-
-The `|` operator sequences segments. It also automatically **fills a parameter** of the next command. The first unfilled parameter takes the previous segment's output.
-This is the core pipe mechanic:
-
-```
-{3 | math add to 5}
-```
-
-Here the value `3` flows in to the `value` parameter of `math add`, producing `8`. The flowing value is never named, it's injected automatically into the first unnamed parameter.
-
-```
-{2 | list range}
-{2 | list range length 3}
-{2 | list range length 3 start 4}
-```
-
-Note that **parameter ordering** is important.
-The command `list range` is defined with parameters `length`, `start`, and `step`, in that order. In the first example, the `length` parameter is filled by `2`, yielding `(1 2)`. In the second the `start` parameter is the first unfilled parameter by definition order, so it takes the `2`, yielding `(2 3 4)`. Only after the first two parameters are explicitly filled is the `2` finally allowed to infest `step`, producing `(4 6 8)`.
-
-```
-{2 |  list range length 3 step __}
-{2 || list range length 3 step __}
-```
-
-What if you want to fill the `step` parameter? The implicit value is also available explicitly as `__`. In the first example `step` is explicitly taking the previous pipe's value -- but `start` is also taking the implicit piped value, yielding `(2 4 6)`.
-
-Astute readers will have noticed the subtle difference in the second example. The `||` construction blocks the implicit value from flowing through, while still allowing the previous segment's value to be referenced explicitly. Here `step` receives `2` but `start` is unfilled, yielding `(1 3 5)`. This is useful when you want to set a specific parameter explicitly without filling any others implicitly.
-
-
-```
-{( 1 2 3 ) | map block "{__ | add 1 | add __in | add __}"}
-```
-
-Pipelines can also take an initial input value, for instance when used as part of a block applied to data, as in this example.
-This does not implicitly fill a parameter in the first segment of the pipeline, but is accessible by `__`.
-It is also accessible as `__in` within any segment in that pipeline -- a fixed value, unlike `__`, which updates after each segment.
-Note that `__` is the only pipeline variable that updates inside a pipeline.
-All other `_` vars are single-assignment (they actually get compiled down to wiring).
-This example takes the input value, adds 1, adds the input value again, and then adds that value to itself, yielding `(6 10 14)`.
-
-
-
-TODO: move this to a command semantics section
-
-```
-{math subtract value 5 from 8}
-{math subtract from 8 value 5}
-```
-
-Note that **parameter ordering** is unimportant.
-The command `math subtract` has the form `math subtract value _x from _y`, but those parameters can be specified in either order. The ordering in the command's definition is only relevant for the implicit value carried through the pipe.
-
-
-
-### Variables and scope
-
-```
-__         — the implicit pipe value (injected by runtime)
-__in       — the input to the current pipeline/block (injected by runtime)
-_foo       — pipeline variable (set with >foo)
-$foo       — space variable (set with >$foo)
-```
-
-**Scope hierarchy:**
-- `__`   — previous segment value: resets each segment
-- `_foo` — pipeline variable: local to the pipeline; inherited by child blocks, but pvars set inside a block don't propagate back out
-- `$foo` — space variable: available within all pipelines in the same space
-
-### The `||` barrier
-
-TODO: merge this with the previous || treatment, move out of concrete syntax section
-
-`||` (double pipe) blocks the implicit pipe value from flowing to the
-next segment. After `||`, the next command receives the empty value as
-its implicit input. Pipeline variables (`_foo`) still cross the barrier
-— only the implicit value is blocked.
-
-This is how you run independent computations in sequence within one
-pipeline, using pipeline vars to stash results:
-
-```
-{some_query | >a || other_query | >b || command foo _a bar _b}
-```
-
-Without `||`, `other_query` would receive `some_query`'s result as
-its implicit input, which is probably wrong:
-
-```
-{some_query | >a | other_query | ...}
-                    ↑ oops, other_query gets some_query's result piped in
-```
-
-A trailing `||` causes the pipeline to return the empty value instead
-of its last segment's result. Useful in templating contexts where
-side-effectful operations shouldn't produce visible output:
-
-```
-{$count | >@notify ||}                           — side effects, no output
-```
-
-### Blocks
-
-A block is a quoted DAML string — a program as a value. There are
-two syntactic forms, but they produce the same thing:
-
-```
-"{__ | add 1}"                       — quoted block (inline)
-{begin foo}Hello, {name}!{end foo}   — named block (multi-line friendly)
-```
-
-Both are parsed into the same Block segment via the same code path.
-A quoted block is DAML wrapped in quotes. A named block is syntactic
-sugar: the parser transforms `{begin foo | cmd}body{end foo}` into
-a pipeline where the body becomes a quoted block passed as the first
-value to `cmd`. The name exists only for matching the end tag and
-readability.
-
-Named blocks do not automatically create a variable or squelch
-output. To save one for reuse, pipe it explicitly:
-
-```
-{begin greeting | >$greeting ||}
-  Hello, {__.name}! You have {__.count} rice balls.
-{end greeting}
-
-{$user | run block $greeting}
-```
-
 ### Concrete examples
-
-TODO: it's nice to have some concrete examples of the grammar -- but then put these closer to the grammar!
 
 ```
 {3 | math add value 2}                           — pure command: 5
@@ -1417,6 +1347,164 @@ spaces are fully isolated — all cross-boundary communication goes
 through ports.
 
 
+## 8. Informal Guide
+
+This section collects informal explanations and examples of DAML
+semantics. The formal treatment is in §3 (synchronous execution)
+and §4 (async boundaries). This section is tutorial-style and
+may be reorganized in a future pass.
+
+### The implicit pipe value
+
+The `|` operator sequences segments. It also automatically **fills
+a parameter** of the next command. The first unfilled parameter
+takes the previous segment's output. This is the core pipe mechanic:
+
+```
+{3 | math add to 5}
+```
+
+Here the value `3` flows in to the `value` parameter of `math add`,
+producing `8`. The flowing value is never named, it's injected
+automatically into the first unnamed parameter.
+
+```
+{2 | list range}
+{2 | list range length 3}
+{2 | list range length 3 start 4}
+```
+
+Note that **parameter ordering** is important.
+The command `list range` is defined with parameters `length`, `start`,
+and `step`, in that order. In the first example, the `length`
+parameter is filled by `2`, yielding `(1 2)`. In the second the
+`start` parameter is the first unfilled parameter by definition
+order, so it takes the `2`, yielding `(2 3 4)`. Only after the
+first two parameters are explicitly filled is the `2` finally
+allowed to infest `step`, producing `(4 6 8)`.
+
+```
+{2 |  list range length 3 step __}
+{2 || list range length 3 step __}
+```
+
+What if you want to fill the `step` parameter? The implicit value
+is also available explicitly as `__`. In the first example `step`
+is explicitly taking the previous pipe's value -- but `start` is
+also taking the implicit piped value, yielding `(2 4 6)`.
+
+Astute readers will have noticed the subtle difference in the
+second example. The `||` construction blocks the implicit value
+from flowing through, while still allowing the previous segment's
+value to be referenced explicitly. Here `step` receives `2` but
+`start` is unfilled, yielding `(1 3 5)`. This is useful when you
+want to set a specific parameter explicitly without filling any
+others implicitly.
+
+```
+{( 1 2 3 ) | map block "{__ | add 1 | add __in | add __}"}
+```
+
+Pipelines can also take an initial input value, for instance when
+used as part of a block applied to data, as in this example. This
+does not implicitly fill a parameter in the first segment of the
+pipeline, but is accessible by `__`. It is also accessible as
+`__in` within any segment in that pipeline -- a fixed value, unlike
+`__`, which updates after each segment. Note that `__` is the only
+pipeline variable that updates inside a pipeline. All other `_`
+vars are single-assignment (they actually get compiled down to
+wiring). This example takes the input value, adds 1, adds the
+input value again, and then adds that value to itself, yielding
+`(6 10 14)`.
+
+### Parameter ordering
+
+```
+{math subtract value 5 from 8}
+{math subtract from 8 value 5}
+```
+
+Note that **explicit parameter ordering** is unimportant. The
+command `math subtract` has the form
+`math subtract value _x from _y`, but those parameters can be
+specified in either order. The ordering in the command's definition
+is only relevant for the implicit value carried through the pipe.
+
+### Variables and scope
+
+```
+__         — the implicit pipe value (injected by runtime)
+__in       — the input to the current pipeline/block (injected by runtime)
+_foo       — pipeline variable (set with >foo)
+$foo       — space variable (set with >$foo)
+```
+
+**Scope hierarchy:**
+- `__`   — previous segment value: resets each segment
+- `_foo` — pipeline variable: local to the pipeline; inherited by
+  child blocks, but pvars set inside a block don't propagate back out
+- `$foo` — space variable: available within all pipelines in the
+  same space
+
+### The `||` barrier
+
+`||` (double pipe) blocks the implicit pipe value from flowing to the
+next segment. After `||`, the next command receives the empty value as
+its implicit input. Pipeline variables (`_foo`) still cross the barrier
+— only the implicit value is blocked.
+
+This is how you run independent computations in sequence within one
+pipeline, using pipeline vars to stash results:
+
+```
+{some_query | >a || other_query | >b || command foo _a bar _b}
+```
+
+Without `||`, `other_query` would receive `some_query`'s result as
+its implicit input, which is probably wrong:
+
+```
+{some_query | >a | other_query | ...}
+                    ↑ oops, other_query gets some_query's result piped in
+```
+
+A trailing `||` causes the pipeline to return the empty value instead
+of its last segment's result. Useful in templating contexts where
+side-effectful operations shouldn't produce visible output:
+
+```
+{$count | >@notify ||}                           — side effects, no output
+```
+
+### Blocks
+
+A block is a quoted DAML string — a program as a value. There are
+two syntactic forms, but they produce the same thing:
+
+```
+"{__ | add 1}"                       — quoted block (inline)
+{begin foo}Hello, {name}!{end foo}   — named block (multi-line friendly)
+```
+
+Both are parsed into the same Block segment via the same code path.
+A quoted block is DAML wrapped in quotes. A named block is syntactic
+sugar: the parser transforms `{begin foo | cmd}body{end foo}` into
+a pipeline where the body becomes a quoted block passed as the first
+value to `cmd`. The name exists only for matching the end tag and
+readability.
+
+Named blocks do not automatically create a variable or squelch
+output. To save one for reuse, pipe it explicitly:
+
+```
+{begin greeting | >$greeting ||}
+  Hello, {__.name}! You have {__.count} rice balls.
+{end greeting}
+
+{$user | run block $greeting}
+```
+
+
 ## 9. Scheduling
 
 ### Serial execution per space
@@ -1560,8 +1648,9 @@ There is no mechanism for privilege escalation during execution — a
 received program, a block passed as data, or a space loaded into a
 socket all run under the host instance's dialect. Commands outside
 the dialect are not executed (soft error, pipeline continues with
-empty). This is the core security property: the instance owner
-controls what code can do by choosing the dialect.
+empty). This is the core security property: the space owner controls
+what each actor can do by choosing their dialect. This is what makes
+multiactor applications safe (§0.2).
 
 ### Serial execution
 Each space processes one ship at a time (see §9). The active
@@ -1602,18 +1691,37 @@ communication goes through ports. This applies at every level of
 nesting: inner spaces can only interact with outer spaces through
 explicit port wiring. The parent controls what the child can do
 (via wiring rules and dialect), and the child cannot reach beyond
-what the parent exposes. At the outermost level, separate Daimio
-instances have no knowledge of each other; inter-instance
-communication is entirely the outer application's concern.
+what the parent exposes. This is what makes composition safe
+(§0.6): wiring spaces together cannot break their internal
+invariants. At the outermost level, separate Daimio instances have
+no knowledge of each other; inter-instance communication is
+entirely the outer application's concern.
 
 ### Effect locality
 Effects only occur at the outside of the outermost space. Every
 effectful command invocation within a space produces a port request.
 Port requests propagate outward (via down-port forwarding through
-parent spaces) until they reach the outermost space, where real effects
-occur. Any intermediate space can intercept and handle the request
-(via up-port wiring to a subspace or a local handler), which is how
-testing, mocking, and simulation work.
+parent spaces) until they reach the outermost space, where real
+effects occur. Any intermediate space can intercept and handle the
+request (via up-port wiring to a subspace or a local handler).
+This is the mechanism behind testability (§0.4): any space can be
+tested by composing it into a parent that provides mock handlers,
+and the space cannot tell the difference from the inside.
+
+### Command/port duality
+From inside a space, every command looks the same — pure and
+effectful use the same syntax and return values into the pipeline.
+From outside, the effectful commands are visible as ports: the
+space's "effect surface" is the set of ports created by its
+effectful commands. Pure commands are invisible from outside.
+The command is the inside view; the port is the outside view.
+These are the same thing seen from two sides of the space boundary.
+
+This duality is what makes spaces testable and composable. A space
+that uses `{time now}` and `{db query}` has ports for time and db
+requests. Wire those ports to production handlers, mock handlers,
+or forward them to the parent's boundary — the space cannot tell
+the difference from the inside.
 
 ### Single-response effects
 Every effectful command produces exactly one response. A down-port
@@ -1633,8 +1741,10 @@ effects.
 ### Composition
 Spaces compose by nesting. A subspace's effect surface becomes
 obligations on the parent. The parent either handles them, forwards
-them to its own boundary, or swallows them. This composes recursively
-to arbitrary depth.
+them to its own boundary, or swallows them. Dialects restrict
+downward: an invited actor or loaded subspace can never exceed the
+host's permissions. This composes recursively to arbitrary depth
+(§0.6).
 
 ### Liveness
 No process waits forever. Every down-port request has a finite
@@ -1658,8 +1768,9 @@ named blocks, and station blocks all execute as processes under the
 same rules — same dialect, same serial execution, same fresh reads,
 same effect routing. A program received as data is evaluated the
 same way as a block passed to `list map` — both create a
-sub-process. This uniformity makes the system predictable and
-auditable: there is exactly one execution model, applied everywhere.
+sub-process. This is what makes programmable applications work
+(§0.1): a program sent by an actor executes under exactly the same
+rules as built-in code, constrained by the actor's dialect.
 
 ### Deterministic pipe filling
 The implicit pipe value fills the first unfilled parameter of the
@@ -1726,3 +1837,48 @@ inheritance was chosen because pipeline vars are write-once
 snapshot, and vars bound inside the block don't propagate back.
 This eliminates boilerplate in the common case of accessing outer
 variables from inner blocks.
+
+### Why programmable applications?
+The alternative is traditional APIs: the application exposes
+endpoints, and clients call them. But an API is the application
+author's model of what you want to do. A program is YOUR model of
+what you want to do. Sending a program lets you compose operations,
+express conditional logic, and avoid round-trips — all without the
+application author anticipating your exact use case. The dialect
+makes this safe: the program runs under the sender's restricted
+permissions, so it can only do what the sender is allowed to do.
+The application doesn't need to trust the program; it trusts the
+dialect.
+
+### Why dialects instead of ACLs?
+The alternative is per-command or per-resource access control lists.
+Dialects were chosen because they compose naturally with spaces:
+a dialect is a property of the execution context, not of individual
+resources. When you nest spaces, dialects restrict downward — a
+child space's dialect is always a subset of its parent's. This
+means permission delegation is structural, not administrative. The
+space owner gives an actor a dialect; the actor can invoke commands
+and those commands can delegate to subspaces, but nothing in the
+chain can escalate beyond the original grant.
+
+### Why are effectful commands modelled as ports?
+The alternative is having effectful commands execute directly in
+the runtime (like a syscall). Modelling them as ports means the
+effect surface of a space is explicit and external: you can see
+exactly what effects a space needs by examining its ports. This
+enables testability (wire ports to mocks), portability (wire ports
+to different backends), and composition (a parent space can
+intercept, forward, or suppress any child's effects). The command
+is the ergonomic inside interface; the port is the composable
+outside interface. Same thing, two views.
+
+### Why channel-independent messages?
+The alternative is binding authentication to the transport (session
+cookies, connection-based auth). Channel independence means a
+message carries its own authentication — it doesn't matter whether
+it arrives via WebSocket, HTTP, letter, or carrier pigeon. This
+aligns with the actor model: the message identifies the sender,
+the space looks up the sender's dialect, and the program executes
+under those permissions. Separating identity from channel makes
+the system robust to transport changes and enables use cases like
+offline program shipping.

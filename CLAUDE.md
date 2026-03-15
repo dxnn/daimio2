@@ -11,9 +11,10 @@ node tests/d2_spec_test.mjs     # 149 spec alignment tests
 node tests/daimio_test.mjs       # ~843 legacy tests (4 known failures)
 node tests/node_code.mjs         # 68 internal tests
 node tests/security_test.mjs    # 97 security tests (dialect, pollution, regex, actors)
+node tests/space_test.mjs       # 44 space/topology tests (ports, subspaces, wiring)
 ```
 
-All four test suites must pass before any change is considered complete.
+All five test suites must pass before any change is considered complete.
 
 ## Language overview
 
@@ -173,7 +174,7 @@ The formal execution model is in `D2-spec.md`. Key sections:
 - §5: Errors (soft errors, totality)
 - §6: Ports and wiring (demand-creation, pattern matching, OTHER fallback)
 - §7: Sockets and serialization
-- §8: Block evaluation (programs-as-data)
+- §8: Informal guide (pipe semantics, scope, barriers, blocks)
 - §9: Scheduling (serial per space, queue, ship lifecycle)
 - §10: Properties (totality, isolation, atomicity, liveness)
 - §11: Design decisions record
@@ -184,6 +185,7 @@ The formal execution model is in `D2-spec.md`. Key sections:
 - **daimio_test**: 839/843 (4 known failures in `known_failures` set)
 - **node_code**: 68/68 pass
 - **security_test**: 97/97 pass
+- **space_test**: 53/53 pass (21 from spacetests.dm, 23 inline, 9 concurrent)
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
 
