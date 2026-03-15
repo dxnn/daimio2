@@ -1530,6 +1530,75 @@ test(
 
 
 // =====================================================
+// string from code: basic characters
+// =====================================================
+
+test(
+  'from code: ASCII letter',
+  '{string from code 65}',
+  'A'
+)
+
+test(
+  'from code: open curly brace',
+  '{string from code 123}',
+  '{'
+)
+
+test(
+  'from code: close curly brace',
+  '{string from code 125}',
+  '}'
+)
+
+test(
+  'from code: thumbs up emoji',
+  '{string from code 128077}',
+  '\u{1F44D}'
+)
+
+test(
+  'from code: poo emoji',
+  '{string from code 128169}',
+  '\u{1F4A9}'
+)
+
+
+// =====================================================
+// string from code: curlies in pipeline and space vars
+// =====================================================
+
+test(
+  'from code: open curly stored in pipeline var',
+  '{string from code 123 | >brace || _brace}',
+  '{'
+)
+
+test(
+  'from code: close curly stored in space var',
+  '{string from code 125 | >$cb || $cb}',
+  '}'
+)
+
+test(
+  'from code: both curlies round-trip through vars',
+  '{string from code 123 | >$ob || string from code 125 | >$cb || ($ob :hi $cb) | join}',
+  '{hi}'
+)
+
+
+// =====================================================
+// string from code: assemble DAML command and run it
+// =====================================================
+
+test(
+  'from code: assemble DAML from curly chars and execute',
+  '{string from code 123 | >$op || string from code 125 | >$cl || ($op :3 " | " :add " " :4 $cl) | join | process unquote | process run}',
+  '7'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

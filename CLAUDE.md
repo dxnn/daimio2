@@ -110,7 +110,7 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (96 tests)
+  d2_spec_test.mjs     — spec alignment tests (105 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
   node_code.mjs        — internal JS-level tests (69 tests)
   daimio.dm            — test definitions (text format)
@@ -178,7 +178,7 @@ The formal execution model is in `D2-spec.md`. Key sections:
 
 ## Test status
 
-- **d2_spec_test**: 96/96 pass
+- **d2_spec_test**: 105/105 pass
 - **daimio_test**: 839/843 (4 known failures in `known_failures` set)
 - **node_code**: 68/68 pass
 
@@ -193,8 +193,8 @@ context for each todo item.
 
 The REPL is at `repl.mjs` in the project root (moved from `tests/repl.mjs`):
 ```bash
-node repl.mjs              # interactive mode
-node repl.mjs -e "{...}"   # evaluate expression, print result, exit
+node repl.mjs              # interactive mode  (alias: depl)
+node repl.mjs -e "{...}"   # evaluate expression, print result, exit  (alias: daml)
 node repl.mjs -f file.dm   # run a .dm file as DAML, print result, exit
 ```
 - Use `node repl.mjs -e "<expression>"` to quickly test DAML expressions

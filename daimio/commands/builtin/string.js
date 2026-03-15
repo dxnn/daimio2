@@ -350,6 +350,21 @@ D.import_models({
         },
       },
 
+      from: {
+        desc: "Turn a code point into a character",
+        help: "BTW open curly is 123, pipe is 124, closing curly is 125, and poo is 128169",
+        params: [
+          {
+            key: 'code',
+            desc: 'A Unicode code point',
+            type: 'number',
+            required: true
+          }
+        ],
+        fun: function(code) {
+          return String.fromCodePoint(code)
+        },
+      },
 
     }
   }
