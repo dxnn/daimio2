@@ -167,8 +167,6 @@ $foo       — space variable (set with >$foo)
 
 ### The `||` barrier
 
-TODO: sort out the pipeline vs block verbage...
-
 TODO: merge this with the previous || treatment, move out of concrete syntax section
 
 `||` (double pipe) blocks the implicit pipe value from flowing to the
@@ -753,7 +751,7 @@ readable inside the block. But vars bound inside the block (via
 one-way: parent → child, never child → parent.
 
 **Sub-processes** are synchronous and depth-first. When a command
-evaluates a block, the sub-process runs to completion (or suspends)
+evaluates a block, the sub-process runs to completion (or waits)
 before the parent process continues. Sub-processes can nest to
 arbitrary depth. Each sub-process runs in the same space and has
 access to the same σ (space variables).
@@ -796,30 +794,30 @@ by the outer application through whatever external systems it chooses
 
 ### Stations
 ```
-station = (name, pipeline)
+station = (name, block)
   where name     : string
-        pipeline : pipeline        — the DAML code in this station
+        block    : Block           — the compiled DAML for this station
 ```
 
 A station has exactly three built-in ports:
   - **_in**:    receives ships (fire-and-forget inward)
-  - **_out**:   sends the pipeline's result (fire-and-forget outward)
+  - **_out**:   sends the process's result (fire-and-forget outward)
   - **_error**: receives soft errors from this station's execution
 
-A station's pipeline can also send ships to the enclosing **space's**
+A station's process can also send ships to the enclosing **space's**
 out-ports using `>@portname`. This is how a station pushes data to
 named space-level ports (not station ports).
 
 Down ports are NOT station-level constructs. They arise in two ways:
-  1. **From effectful commands:** when a pipeline invokes an effectful
+  1. **From effectful commands:** when a process invokes an effectful
      command, the runtime creates/uses a down port on the space.
   2. **From explicit space-level wiring:** the space definition can
      connect two stations (one's _out to another's _in) through a
      down/up port pair, creating a call-response link between them.
 
-This means the station itself is simple — it's a pipeline with in,
-out, and error. All the interesting port topology (down, up, wiring
-to subspaces, socket-in) lives at the space level.
+This means the station itself is simple — it's a block with in,
+out, and error ports. All the interesting port topology (down, up,
+wiring to subspaces, socket-in) lives at the space level.
 
 ### Ports
 ```
@@ -1460,8 +1458,11 @@ COMPLETE(space):
     DEFER(DOCK(space, ship, station))                  — deferred execution
 ```
 
-The dequeue is **deferred** (not immediate), ensuring the completing
-process's output routing finishes before the next ship docks.
+Both the dequeue and the completing process's output routing are
+**deferred**. The dequeue fires first: queued ships have priority
+over ships produced by the completing process's output routing.
+If station A's `_out` routes a ship back to A's `_in` while other
+ships are queued, those queued ships dock first.
 
 ### Process lifecycle
 
@@ -1513,9 +1514,9 @@ This means `>@portname` does not block the sender's process.
 The routed ship arrives at the target station after the current
 process completes, entering through the normal queue mechanism.
 
-This also applies to the implicit `_out` routing. If station A's
-`_out` is wired to station B's `_in`, the ship docks at B only
-after A's process is fully complete and cleaned up.
+This also applies to the implicit `_out` routing. Ships produced
+by output routing arrive after ships already in the queue — queued
+ships have priority over newly routed ships.
 
 ### Other Daimio instances
 
@@ -1711,7 +1712,7 @@ DAML that can be read, edited, and debugged with normal tools.
 
 ### Why resource limits per instance?
 Resource measurement (CPU, memory) is per Daimio instance, with
-enforcement delegated to the outer application. Suspended ships
+enforcement delegated to the outer application. Waiting processes
 do not consume CPU while waiting (though they consume memory).
 This keeps resource tracking out of the language model and lets
 the outer application use whatever monitoring and enforcement

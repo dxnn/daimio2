@@ -10,9 +10,10 @@ with a total (crash-free) execution model.
 node tests/d2_spec_test.mjs     # 149 spec alignment tests
 node tests/daimio_test.mjs       # ~843 legacy tests (4 known failures)
 node tests/node_code.mjs         # 68 internal tests
+node tests/security_test.mjs    # 97 security tests (dialect, pollution, regex, actors)
 ```
 
-All three test suites must pass before any change is considered complete.
+All four test suites must pass before any change is considered complete.
 
 ## Language overview
 
@@ -182,6 +183,7 @@ The formal execution model is in `D2-spec.md`. Key sections:
 - **d2_spec_test**: 149/149 pass
 - **daimio_test**: 839/843 (4 known failures in `known_failures` set)
 - **node_code**: 68/68 pass
+- **security_test**: 97/97 pass
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
 
