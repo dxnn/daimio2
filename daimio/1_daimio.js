@@ -1377,7 +1377,14 @@ D.Parser.pipeline_string_to_tokens = function(string, quoted) {
 
   if(string.slice(0,7) == D.Constants.command_open + 'begin ') { // in a block
     var pipeline = D.Parser.get_next_thing(string, true)
-      , block_name = pipeline.match(/^\{begin (\w+)/)[1] // TODO: this could fail
+      , block_match = pipeline.match(/^\{begin (\w+)/)
+
+    if(!block_match) {
+      D.set_error('Invalid block name in ' + pipeline)
+      return []
+    }
+
+    var block_name = block_match[1]
       , end_tag = D.Constants.command_open + 'end ' + block_name + D.Constants.command_closed
       , body = string.slice(pipeline.length, -end_tag.length)
       , segment = D.Parser.string_to_block_segment(body)
