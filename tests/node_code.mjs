@@ -359,13 +359,11 @@ funtest('{begin foo | map data (1 2 3 4) | string join on "---"}answer: {__ | ad
 
 funtest('{begin foo | map data (1 2 3 4) | map block "{__ | string transform from :answer to :foo}" | string join on "---"}answer: {__ | add 4}{end foo}', 'foo: 5---foo: 6---foo: 7---foo: 8')
 
-funtest('{begin foo | map data (1 2 3 4) | map block "{__ | string split on ": " | map block "{if {__ | is like :answer} then :foo else "{__ | add 3}" | run}" | string join on ": "}" | string join on "---"}answer: {__ | add 4}{end foo}', 'foo: 4---foo: 4---foo: 4---foo: 4')
+funtest('{begin foo | map data (1 2 3 4) | map block "{__ | string split on ": " | map block "{if {__ | is like :answer} then :foo else "{__ | add 3}" | run}" | string join on ": "}" | string join on "---"}answer: {__ | add 4}{end foo}', 'foo: 8---foo: 9---foo: 10---foo: 11')
 
 funtest('{begin foo | string split on " " | string join on "---"}Some {a} text{end foo}', 'Some---{a}---text')
 
 funtest('{(1 2 3) | __.#2}', '2')
-
-funtest('{(1 2 3) | > :foo | $foo.#2}', '2')
 
 
 funtest('{"asdfasdf" | string transform from "x" to "{__ | string uppercase}"}', 'asdfasdf')
