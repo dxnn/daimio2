@@ -90,7 +90,7 @@
     })
 
     document.addEventListener('DOMContentLoaded', function() {
-      OuterSpace = D.make_me_a_space_as_fast_as_you_can()
+      OuterSpace = window.OuterSpace = D.make_me_a_space_as_fast_as_you_can()
 
       document.getElementById('foo').addEventListener('click', supersend)
     })

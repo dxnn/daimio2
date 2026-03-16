@@ -26,15 +26,10 @@
 
     xhr_get('daimio.dm', function(data) {
       // these globals are kind of a hack...
-      lines = data.split(/\n/).reverse()
-      starttime = new Date().getTime()
-      win=0
-      lose=0
-      html=''
-      mode='text'
-      block_name=''
-      code_value=''
-      code_string=''
+      var lines = data.split(/\n/).reverse()
+      var starttime = new Date().getTime()
+      var win=0, lose=0, html='', mode='text'
+      var block_name='', code_value='', code_string=''
 
       D.data_trampoline(lines, eat_line, D.string_concat, function() {}, done)
     })
@@ -117,7 +112,7 @@
         }
 
         if(code_value.trim() === line.trim()) {
-          result = 'success'
+          var result = 'success'
           win++
         } else {
           result = 'danger'
@@ -142,7 +137,7 @@
     function done() {
       var endtime = new Date().getTime()
 
-      stats = "<p>Completed " + (win + lose) + " tests in " + ((endtime - starttime) / 1000) + " seconds.</p>"
+      var stats = "<p>Completed " + (win + lose) + " tests in " + ((endtime - starttime) / 1000) + " seconds.</p>"
       stats += '<div class="alert alert-success">Won ' + win + ' tests.</div>'
 
       if(lose) stats += '<div class="alert alert-danger">Lost ' + lose + ' tests. (43 expected)</div>'

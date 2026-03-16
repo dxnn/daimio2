@@ -62,11 +62,11 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script type="module">
-    var OuterSpace
+    var OuterSpace // published for debug
     document.addEventListener('DOMContentLoaded', function() {
       D.Etc.socket = io.connect('/')
 
-      OuterSpace = D.make_me_a_space_as_fast_as_you_can() // published for debug
+      OuterSpace = window.OuterSpace = D.make_me_a_space_as_fast_as_you_can()
 
       D.send_value_to_js_port(OuterSpace, 'init', 5)
     })
