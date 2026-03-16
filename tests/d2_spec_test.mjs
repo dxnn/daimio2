@@ -1957,6 +1957,41 @@ test('zip: alias',
 
 
 // =====================================================
+// No-mutation tests for mutable-list commands
+// =====================================================
+
+// map: source list unchanged after mapping
+test('map: no mutation',
+  '{(1 2 3) | >$x || $x | list map block "{__ | add 10}" || $x}',
+  '[1,2,3]'
+)
+
+// filter: source list unchanged after filtering
+test('filter: no mutation',
+  '{(1 2 3 4 5) | >$x || $x | list filter block "{__ | mod 2}" || $x}',
+  '[1,2,3,4,5]'
+)
+
+// sort: source list unchanged after sorting
+test('sort: no mutation',
+  '{(3 1 2) | >$x || $x | list sort || $x}',
+  '[3,1,2]'
+)
+
+// rekey: source list unchanged after rekeying
+test('rekey: no mutation',
+  '{list pair data (:a 1 :b 2) | >$x || $x | list rekey by "{__ | add 10}" || $x}',
+  '{"a":1,"b":2}'
+)
+
+// group: source list unchanged after grouping
+test('group: no mutation',
+  '{list pair data (:a 1 :b 2) | >$x || $x | list group by "{__ | mod 2}" || $x}',
+  '{"a":1,"b":2}'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

@@ -30,7 +30,7 @@ D.import_models({
           {
             key: 'data',
             desc: 'An array of data',
-            type: 'mutable-list',
+            type: 'list',
             required: true
           },
           {
@@ -533,7 +533,7 @@ D.import_models({
           {
             key: 'data',
             desc: 'The list to edit',
-            type: 'mutable-list',
+            type: 'mutable-list', // TODO: can we get rid of this? 
             required: true
           },
           {
@@ -656,7 +656,7 @@ D.import_models({
           {
             key: 'data',
             desc: 'A list to rekey',
-            type: 'mutable-list',
+            type: 'list',
             required: true,
           },
           {
@@ -710,7 +710,7 @@ D.import_models({
           {
             key: 'data',
             desc: 'The list to reverse',
-            type: 'mutable-list',
+            type: 'list',
             required: true,
           },
           {
@@ -775,7 +775,7 @@ D.import_models({
           {
             key: 'data',
             desc: 'The list to sort',
-            type: 'mutable-list',
+            type: 'list',
             required: true,
           },
           {
@@ -974,7 +974,7 @@ D.import_models({
           {
             key: 'data',
             desc: 'List to extract from',
-            type: 'mutable-list',
+            type: 'list',
             required: true,
           },
           {
