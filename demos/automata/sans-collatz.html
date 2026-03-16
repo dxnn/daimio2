@@ -252,9 +252,9 @@
 
   <script type="module">
     document.addEventListener('DOMContentLoaded', function() {
-      seedlikes = D.get_seedlikes()                   // published for editor
+      var seedlikes = D.get_seedlikes()                 // published for editor
       var outerseed = D.make_some_space(seedlikes)
-      OuterSpace = new D.Space(outerseed)             // published for debug
+      var OuterSpace = new D.Space(outerseed)          // published for debug
 
       D.send_value_to_js_port(OuterSpace, 'init', 1)  // activate init
     })
@@ -265,7 +265,7 @@
     // NOTE: we're mutating like crazy in the name of performance
     // TODO: make new Daimio commands that encompass these functions
 
-    onetick = function(grid) {
+    var onetick = function(grid) {
       var mods = []
         , size = grid.length
 
@@ -297,13 +297,13 @@
       return grid
     }
 
-    showticks = function(grid, times) {
+    var showticks = function(grid, times) {
       for(var i=0, l=times; i < l; i++) {
         console.log(JSON.stringify(onetick(grid)))
       }
     }
 
-    solveticks = function(grid, maxrounds, final) {
+    var solveticks = function(grid, maxrounds, final) {
       var tick = 0
         // , memo = {}
         // , memo = [JSON.stringify(grid)]
@@ -341,7 +341,7 @@
       return 'Failed after ' + maxrounds + ' turns: ' + JSON.stringify(grid)
     }
 
-    moreticks = function(grid, start, end) {
+    var moreticks = function(grid, start, end) {
       var oldgrid = D.clone(grid)
       for(var mmm=start; mmm<end; mmm++) {
         grid = D.clone(oldgrid)
@@ -359,7 +359,7 @@
       }
     }
 
-    a_grid = [[1,1,1,1],[1,1,1,1],[1,1,1,1],[1,1,3,1]]
+    var a_grid = [[1,1,1,1],[1,1,1,1],[1,1,1,1],[1,1,3,1]]
   </script>
 
 </body>

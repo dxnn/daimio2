@@ -77,9 +77,9 @@
 
   <script type="module">
     document.addEventListener('DOMContentLoaded', function() {
-      seedlikes = D.get_seedlikes()                   // published for editor
+      var seedlikes = D.get_seedlikes()                 // published for editor
       var outerseed = D.make_some_space(seedlikes)
-      OuterSpace = new D.Space(outerseed)             // published for debug
+      var OuterSpace = new D.Space(outerseed)          // published for debug
 
       D.send_value_to_js_port(OuterSpace, 'init', 1)  // activate init
     })
@@ -245,7 +245,7 @@
         }
       })
 
-      repl_display = function(code) {
+      var repl_display = function(code) {
         D.run(code, function(value) {
           // preprocess history: remove existing copies of this item
           while(history_list.indexOf(code) != -1)

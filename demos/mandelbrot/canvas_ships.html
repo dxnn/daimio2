@@ -59,6 +59,9 @@
   </script>
 
   <script type="module">
+    var debug_count = 0, debug_startdate = 0
+    var OuterSpace
+
     D.import_port_flavour('canvas-draw-rect', {
       dir: 'out',
       outside_add: function() {
@@ -99,8 +102,8 @@
 
     function supersend() {
       debug_count = 0
-      debug_startdate = new Date()
-      for(x=-2;x<1;x+=0.03) {for(y=-1;y<1;y+=0.05) {send([x,y])}}
+      debug_startdate = Date.now()
+      for(var x=-2;x<1;x+=0.03) {for(var y=-1;y<1;y+=0.05) {send([x,y])}}
     }
 
   </script>

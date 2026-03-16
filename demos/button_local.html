@@ -52,7 +52,7 @@
 
   <script type="module">
     document.addEventListener('DOMContentLoaded', function() {
-      OuterSpace = D.make_me_a_space_as_fast_as_you_can() // published for debug
+      var OuterSpace = D.make_me_a_space_as_fast_as_you_can() // published for debug
 
       // var code = document.getElementById('hello_daimio')
       // D.run(code.text, function() {})
@@ -141,13 +141,13 @@
         // console.log(x.reduce(function(string, row) {return string += "\n" + row.join('')}, ''))
       }
 
-      get_blank_box = function(w, h) {
+      var get_blank_box = function(w, h) {
         var blank = Array(w+1).join(' ').split('')
         return Array(h).join('*').split('*').map(function() {return blank})
       }
 
       // TODO: lib me!
-      draw_box = function(w, h) {
+      var draw_box = function(w, h) {
         // returns an array of strings representing rows
 
         // build blank box
@@ -165,7 +165,7 @@
         return box
       }
 
-      draw_station = function(block) {
+      var draw_station = function(block) {
         // block is some words
         var limit = 80
           , len = block.length
@@ -182,7 +182,7 @@
         return box
       }
 
-      add_ports = function(box, ports) {
+      var add_ports = function(box, ports) {
         // ports is an array of {dir: (in|out|up|down), pos: 0..100}
 
         var w = box[0].length - 1
@@ -207,7 +207,7 @@
         return box
       }
 
-      add_path = function(box, x1, y1, x2, y2) {
+      var add_path = function(box, x1, y1, x2, y2) {
         box = D.clone(box) // merp
 
         // coords are in box position values
@@ -236,7 +236,7 @@
         return box
       }
 
-      add_line = function(box, x1, y1, x2, y2) {
+      var add_line = function(box, x1, y1, x2, y2) {
         if(y1 == y2)
           return add_hor_line(box, x1, y1, x2, y2)
 
@@ -246,18 +246,18 @@
         return add_dia_line(box, x1, y1, x2, y2)
       }
 
-      add_hor_line = function(box, x1, y1, x2, y2) {
+      var add_hor_line = function(box, x1, y1, x2, y2) {
         box[y1] = box[y1].map(function(ch, i) {return i >= x1 && i <= x2 ? '-' : ch })
         return box
       }
 
-      add_ver_line = function(box, x1, y1, x2, y2) {
+      var add_ver_line = function(box, x1, y1, x2, y2) {
         return box.map(function(row, iy) {
           return row.map(function(ch, ix) {
             return ix == x1 && iy >= y1 && iy <= y2 ? '|' : ch })})
       }
 
-      add_dia_line = function(box, x1, y1, x2, y2) {
+      var add_dia_line = function(box, x1, y1, x2, y2) {
         var xdiff = Math.abs(x1 - x2)
           , ydiff = Math.abs(y1 - y2)
           , xmod = x1 < x2 ? 1 : -1
@@ -273,7 +273,7 @@
         return box
       }
 
-      composite = function(outer, inner, xoffset, yoffset) {
+      var composite = function(outer, inner, xoffset, yoffset) {
         // stick the inner box in the outer box
         outer = D.clone(outer)
 
@@ -285,7 +285,7 @@
         return outer
       }
 
-      box_to_string = function(box) {
+      var box_to_string = function(box) {
         var string = ''
         box.forEach(function(row) {
           row.forEach(function(ch) {string += ch ? ch : ' '})
@@ -298,18 +298,18 @@
 
       draw_seedlike(seedlikes.outer, get_seedlike_positions(seedlikes.outer))
 
-    ports = [{dir:'in', pos:20},{dir:'in', pos:70},{dir:'out', pos:50},{dir:'up', pos:30},{dir:'down', pos:60}]
-    x = draw_box(80,10)
-    q = add_ports(x, ports)
-    w = add_path(q, 1, 3, 79, 7)
-    e = add_path(w, 1, 7, 78, 1)
+    var ports = [{dir:'in', pos:20},{dir:'in', pos:70},{dir:'out', pos:50},{dir:'up', pos:30},{dir:'down', pos:60}]
+    var x = draw_box(80,10)
+    var q = add_ports(x, ports)
+    var w = add_path(q, 1, 3, 79, 7)
+    var e = add_path(w, 1, 7, 78, 1)
 
 
-    z = document.getElementsByTagName('code')[1]
-    r = draw_station('{__ | add $count | >$count}')
+    var z = document.getElementsByTagName('code')[1]
+    var r = draw_station('{__ | add $count | >$count}')
     x = function() {z.innerHTML = box_to_string(composite(e, r, Math.floor(Math.random() * 30), Math.floor(Math.random()*6)))}
-    c = function() {setTimeout(function() {x();i++;if(i<100) c()},0)}
-    i = -1000
+    var c = function() {setTimeout(function() {x();i++;if(i<100) c()},0)}
+    var i = -1000
 
     })
 

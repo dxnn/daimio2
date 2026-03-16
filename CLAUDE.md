@@ -198,12 +198,12 @@ Part IV — Space Execution:
 
 ## Test status
 
-- **d2_spec_test**: 158/158 pass
+- **d2_spec_test**: 163/163 pass
 - **daimio_test**: 839/843 (4 known failures in `known_failures` set)
 - **node_code**: 68/68 pass
 - **security_test**: 97/97 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
-- **example_test**: 102/102 pass
+- **example_test**: 104/104 pass
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
 
