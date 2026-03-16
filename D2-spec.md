@@ -1,5 +1,8 @@
 # Daimio2: Formal Execution Model
 
+
+# Part I: Orientation
+
 ## 0. Prelude
 
 DAML (Daimio Ain't Markup Language, aka Drat Another Markup Language,
@@ -20,7 +23,7 @@ application's UI to use the application. You should be able to
 send a program that expresses your intent, and have it executed.
 Then you can make and use any interface you want. The application
 behaves the same regardless of interface. This is why Daimio has
-uniform evaluation (§10): a program received as data executes
+uniform evaluation (§1): a program received as data executes
 under exactly the same rules as built-in code.
 
 **2. Multiactor by default.** Multiple actors share a single
@@ -28,8 +31,8 @@ application. Each actor has their own dialect — a restricted set
 of commands that determines what they can do. The application
 owner controls permissions by choosing each actor's dialect. An
 invited actor can do exactly what the owner allows, nothing more.
-This is why dialects exist (§2) and why dialect confinement is a
-core property (§10): there is no mechanism for privilege escalation.
+This is why dialects exist (§4) and why dialect confinement is a
+core property (§1): there is no mechanism for privilege escalation.
 
 **3. Command/port duality.** From inside a space, everything looks
 like a command call: `{time now}`, `{db query sql "..."}`,
@@ -41,7 +44,7 @@ invisible from outside; they're self-contained. A space that uses
 someone to satisfy time requests." The command is the inside view;
 the port is the outside view. These are the same thing seen from
 two sides of the space boundary. This is why effect locality is a
-core property (§10): effects propagate outward through ports until
+core property (§1): effects propagate outward through ports until
 someone handles them.
 
 **4. Effect locality and testability.** Effects only happen at
@@ -58,7 +61,7 @@ the effects are. Bob sends Alice a signed DAML program. Alice
 runs it under Bob's dialect on her backend. The result flows back.
 The channel doesn't matter — letter, WebSocket, carrier pigeon —
 only the message and its authentication. This is why Daimio has
-three sendable things (§2): data (just values), programs (borrow
+three sendable things (§4): data (just values), programs (borrow
 everything from the host), and spaces (bring their own context).
 
 **6. Composition.** Spaces nest. A subspace's effect surface
@@ -69,7 +72,272 @@ do more than the host allows. This composes to arbitrary depth,
 which is how applications compose — not by merging code, but by
 wiring spaces together through ports.
 
-## 1. Concrete Syntax
+## 1. Properties of the Model
+
+### Totality
+Every command returns a value. Every port access either succeeds or
+produces a soft error with the empty value. No pipeline ever crashes
+or diverges (assuming commands are total, which is a requirement on
+command definitions). The empty value coerces to "", 0, or [] as
+needed, so it always flows cleanly through subsequent commands.
+
+TODO: producing a soft error with the empty value is used all the time, we need a new term for it. I suggest "sploot". "Every port access either succeeds or sploots." "A command that outside the dialect just sploots."
+TODO: think about `[]` vs `()` for empty value
+TODO: the smart quote rendering makes "" look dumb, turn that off
+
+### Copy semantics
+Values flowing through pipelines are functionally pure from the
+programmer's perspective. A command receives its own copy of any
+collection; mutations inside a command don't propagate back to the
+caller's pipeline. Implementations may optimize with mutation when
+no future references exist (linear types style), but the observable
+behavior is always as-if copied.
+
+### Dialect confinement
+All execution within a Daimio instance is constrained to one dialect.
+There is no mechanism for privilege escalation during execution — a
+received program, a block passed as data, or a space loaded into a
+socket all run under the host instance's dialect. Commands outside
+the dialect are not executed (soft error, pipeline continues with
+empty). This is the core security property: the space owner controls
+what each actor can do by choosing their dialect. This is what makes
+multiactor applications safe (§0.2).
+
+### Serial execution
+Each space processes one ship at a time (see §7). The active
+process has exclusive access to the space's state from dock
+through completion, including across async boundaries. No other
+process can read or write space variables while a process is
+active, even while it is waiting for an effectful command's
+response.
+
+This means space variable access is always consistent: there are
+no concurrent modifications, no stale reads, no TOCTOU hazards.
+A process that reads `$foo`, waits at an async boundary, and reads
+`$foo` again after resumption is guaranteed to see the same value
+(unless its own execution modified it in between).
+
+### Fresh reads
+Under the current serial model, fresh reads are trivially
+satisfied — no other process can modify σ during your execution.
+Space variable reads see exactly what the active process (or its
+sub-processes) last wrote. Pipeline variables remain the mechanism
+for stashing values within a pipeline, but the motivation is
+convenience, not protection from concurrent modification.
+
+### Block scope isolation
+Pipeline variables flow into sub-processes (lexical inheritance
+from the parent process) but never flow out. A sub-process gets a
+copy of the parent's env; variables bound inside the sub-process
+(via `>x`) do not propagate back. This is safe because pipeline
+vars are write-once (immutable bindings), so the inherited values
+are frozen. The one-way information flow makes blocks safe to pass
+around as values — evaluating a block cannot corrupt the caller's
+state.
+
+### Space isolation
+Spaces are fully isolated containers. A subspace cannot read or
+write its parent's space variables directly — all cross-boundary
+communication goes through ports. This applies at every level of
+nesting: inner spaces can only interact with outer spaces through
+explicit port wiring. The parent controls what the child can do
+(via wiring rules and dialect), and the child cannot reach beyond
+what the parent exposes. This is what makes composition safe
+(§0.6): wiring spaces together cannot break their internal
+invariants. At the outermost level, separate Daimio instances have
+no knowledge of each other; inter-instance communication is
+entirely the outer application's concern.
+
+### Effect locality
+Effects only occur at the outside of the outermost space. Every
+effectful command invocation within a space produces a port request.
+Port requests propagate outward (via down-port forwarding through
+parent spaces) until they reach the outermost space, where real
+effects occur. Any intermediate space can intercept and handle the
+request (via up-port wiring to a subspace or a local handler).
+This is the mechanism behind testability (§0.4): any space can be
+tested by composing it into a parent that provides mock handlers,
+and the space cannot tell the difference from the inside.
+
+### Command/port duality
+From inside a space, every command looks the same — pure and
+effectful use the same syntax and return values into the pipeline.
+From outside, the effectful commands are visible as ports: the
+space's "effect surface" is the set of ports created by its
+effectful commands. Pure commands are invisible from outside.
+The command is the inside view; the port is the outside view.
+These are the same thing seen from two sides of the space boundary.
+
+This duality is what makes spaces testable and composable. A space
+that uses `{time now}` and `{db query}` has ports for time and db
+requests. Wire those ports to production handlers, mock handlers,
+or forward them to the parent's boundary — the space cannot tell
+the difference from the inside.
+
+### Single-response effects
+Every effectful command produces exactly one response. A down-port
+round trip is a single request/response pair — no streaming, no
+multi-shot continuations. This keeps pipelines linear: after an
+effectful command, the programmer gets one value and continues.
+If the outside wants to send multiple values, it uses an in-port
+(fire-and-forget), not a down-port response.
+
+### Port demand-creation
+The effect surface of a Daimio instance is not fully fixed at
+construction time. Ports are created when first needed and wired
+according to the parent space's rules. This supports block evaluation
+and socket loading without requiring static knowledge of all possible
+effects.
+
+### Composition
+Spaces compose by nesting. A subspace's effect surface becomes
+obligations on the parent. The parent either handles them, forwards
+them to its own boundary, or swallows them. Dialects restrict
+downward: an invited actor or loaded subspace can never exceed the
+host's permissions. This composes recursively to arbitrary depth
+(§0.6).
+
+### Liveness
+No process waits forever. Every down-port request has a finite
+timeout (explicit, inherited, or the 10s system default). When the
+timeout fires, the process resumes with a default value. Unwired
+ports return the default immediately with no async boundary at all.
+This guarantees that every process eventually completes its block,
+modulo the totality of the block's pure computation.
+
+### Timeout compositionality
+The effective timeout for a request chain is the minimum of all
+timeouts along the chain. Outer spaces' timeouts are authoritative:
+no inner wire can extend the wait time beyond what an outer wire
+allows. Inner wires can only shorten it. This means the socket owner
+always controls the maximum wait time for anything loaded into their
+socket.
+
+### Uniform evaluation
+There is no special "eval" mechanism. Blocks, received programs,
+named blocks, and station blocks all execute as processes under the
+same rules — same dialect, same serial execution, same fresh reads,
+same effect routing. A program received as data is evaluated the
+same way as a block passed to `list map` — both create a
+sub-process. This is what makes programmable applications work
+(§0.1): a program sent by an actor executes under exactly the same
+rules as built-in code, constrained by the actor's dialect.
+
+### Deterministic pipe filling
+The implicit pipe value fills the first unfilled parameter of the
+next command, determined by the command's parameter definition order.
+This is fully deterministic from the command signature alone — the
+programmer can predict what gets filled without knowing implementation
+details. Named parameters override this by explicitly binding a value
+to a parameter name, removing it from the implicit filling order.
+
+
+## 2. Design Decisions Record
+
+Rationale for decisions that aren't obvious from the spec itself.
+
+TODO: examine "request tagging" -- that seems weird
+TODO: let's not call requests orphans that's just sad
+
+### Why single-response effects?
+The alternative is multi-shot continuations (streaming responses via
+down ports). Single-response was chosen because it aligns with the
+free monad interpretation (single-shot continuations), keeps the
+pipeline model linear, and avoids stream termination logic. If the
+outside wants to send multiple values, it uses an in-port
+(fire-and-forget) — the down-port response can serve as the trigger
+("start streaming") while the in-port carries the data.
+
+### Why overlap for socket transitions?
+When a new space is loaded into an occupied socket, the alternative
+is to drain the old space before activating the new one (blocking).
+Overlap was chosen to avoid blocking on potentially long-running
+in-flight operations. The cost is that state doesn't survive
+transitions — but this is consistent with the space isolation
+model. Persistent state lives Outside (via ports to external
+storage), not in space variables.
+
+### Why is cross-boundary state access verbose?
+Crossing a space boundary to access state is a significant action
+that should be visible in the topology, not hidden behind sugar.
+The explicit `{var read name :foo}` through a down port makes it
+clear where isolation boundaries are being crossed. Syntactic sugar
+may be added later, but the underlying mechanism will always be a
+port round trip.
+
+### Why DAML source as the serialization format?
+The alternative is a separate binary format or manifest. DAML source
+was chosen because the existing syntax already supports station
+definitions, subspace definitions, and space variable declarations
+with values. No new format needed — a serialized space is just
+DAML that can be read, edited, and debugged with normal tools.
+
+### Why resource limits per instance?
+Resource measurement (CPU, memory) is per Daimio instance, with
+enforcement delegated to the outer application. Waiting processes
+do not consume CPU while waiting (though they consume memory).
+This keeps resource tracking out of the language model and lets
+the outer application use whatever monitoring and enforcement
+strategy fits its needs.
+
+### Why do blocks inherit parent pipeline vars?
+The alternative is requiring explicit parameter passing (e.g. a
+`with` param on every command that takes a block). Lexical
+inheritance was chosen because pipeline vars are write-once
+(immutable bindings), making it safe — the block gets a frozen
+snapshot, and vars bound inside the block don't propagate back.
+This eliminates boilerplate in the common case of accessing outer
+variables from inner blocks.
+
+### Why programmable applications?
+The alternative is traditional APIs: the application exposes
+endpoints, and clients call them. But an API is the application
+author's model of what you want to do. A program is YOUR model of
+what you want to do. Sending a program lets you compose operations,
+express conditional logic, and avoid round-trips — all without the
+application author anticipating your exact use case. The dialect
+makes this safe: the program runs under the sender's restricted
+permissions, so it can only do what the sender is allowed to do.
+The application doesn't need to trust the program; it trusts the
+dialect.
+
+### Why dialects instead of ACLs?
+The alternative is per-command or per-resource access control lists.
+Dialects were chosen because they compose naturally with spaces:
+a dialect is a property of the execution context, not of individual
+resources. When you nest spaces, dialects restrict downward — a
+child space's dialect is always a subset of its parent's. This
+means permission delegation is structural, not administrative. The
+space owner gives an actor a dialect; the actor can invoke commands
+and those commands can delegate to subspaces, but nothing in the
+chain can escalate beyond the original grant.
+
+### Why are effectful commands modelled as ports?
+The alternative is having effectful commands execute directly in
+the runtime (like a syscall). Modelling them as ports means the
+effect surface of a space is explicit and external: you can see
+exactly what effects a space needs by examining its ports. This
+enables testability (wire ports to mocks), portability (wire ports
+to different backends), and composition (a parent space can
+intercept, forward, or suppress any child's effects). The command
+is the ergonomic inside interface; the port is the composable
+outside interface. Same thing, two views.
+
+### Why channel-independent messages?
+The alternative is binding authentication to the transport (session
+cookies, connection-based auth). Channel independence means a
+message carries its own authentication — it doesn't matter whether
+it arrives via WebSocket, HTTP, letter, or carrier pigeon. This
+aligns with the actor model: the message identifies the sender,
+the space looks up the sender's dialect, and the program executes
+under those permissions. Separating identity from channel makes
+the system robust to transport changes and enables use cases like
+offline program shipping.
+
+
+# Part II: Formal Model — Statics
+
+## 3. Concrete Syntax
 
 ### Grammar
 
@@ -171,7 +439,7 @@ TODO: right now, inside a dot-path Par only works in curlies.
 
 
 
-## 2. Domains
+## 4. Domains
 
 ### Values
 ```
@@ -230,8 +498,6 @@ The empty value is the identity element. It coerces based on context:
 as a list. This is why totality works without error values — a missing
 path, an unbound variable, or a timed-out effect all produce the empty
 value, which becomes whatever zero the consuming command expects.
-
-TODO: this is the first mention of totality, seems weird. We should introduce it better.
 
 ### Value semantics
 
@@ -611,7 +877,7 @@ composed with a state monad** for space variables:
     with a single-shot continuation. The outer space + wiring
     interprets these operations by routing requests to handlers.
 
-Under the current serial scheduling model (§9), each process has
+Under the current serial scheduling model (§7), each process has
 exclusive access to σ for its entire lifetime. This is what makes
 the composed model clean: the state transitions are deterministic,
 because no other process can modify σ between your segments.
@@ -624,7 +890,7 @@ evaluation can invoke arbitrary effectful commands determined at
 runtime. This means the free monad is over an open effect
 signature — the set of possible effects isn't known until the
 block runs. Daimio handles this through demand-created ports and
-wiring rules with OTHER fallbacks (§6).
+wiring rules with OTHER fallbacks (§8).
 
 Requires: the outer space's dialect must include whatever commands
 the program invokes, and port wiring must exist (or be
@@ -763,7 +1029,7 @@ direction ::= In | Out | Down | Up
 flavour   — the port's type (e.g. "time-now", "socket-in")
 
 wiring    — how this port connects to the outside; determined by the
-            parent space's wiring declarations (see §6)
+            parent space's wiring declarations (see §8)
 ```
 
 ### Spaces
@@ -773,8 +1039,8 @@ space = (stations, subspaces, ports, wiringRules, defaultTimeout?)
   stations      : name → station
   subspaces     : name → space
   ports         : set of port
-  wiringRules   : list of WiringRule     — pattern-based routing (see §6)
-  defaultTimeout: Duration?              — default timeout for wires (see §4.3)
+  wiringRules   : list of WiringRule     — pattern-based routing (see §8)
+  defaultTimeout: Duration?              — default timeout for wires (see §9.3)
 ```
 
 A space is a **definition** — a template for execution. It specifies
@@ -800,17 +1066,17 @@ each station's block is a program (free monad over effects + state
 monad, as described in Programs above). When a ship docks at a
 station, a process is created to execute the station's block.
 The full picture is: a reactive automaton whose transitions are
-effectful programs, executed one at a time (§9).
+effectful programs, executed one at a time (§7).
 
 A space processes **one ship at a time**. When a ship arrives at
 a busy space, it is queued. Processes (including sub-processes
 from block evaluation) have exclusive access to σ for their
-entire lifetime. See §9 for the full scheduling model.
+entire lifetime. See §7 for the full scheduling model.
 
 A space carries its own topology, stations, and state. It depends
 on the parent for two things:
   - **Port wiring**: the parent's wiring rules determine how
-    the space's down-port requests are handled (§6)
+    the space's down-port requests are handled (§8)
   - **Dialect**: the parent assigns the dialect that governs
     which commands are available inside the space
 
@@ -820,14 +1086,166 @@ go nowhere, and without a dialect, its commands don't execute.
 
 Spaces can also be serialized as DAML source text and loaded into
 sockets at runtime. Socketed spaces have additional properties
-around loading, transitions, and state ephemerality — see §7.
+around loading, transitions, and state ephemerality — see §10.
 
 
-## 3. Execution: Synchronous Segments
+# Part III: Formal Model — Block Execution
 
-A **synchronous segment** is a maximal sequence of pipeline steps that
-contains no effectful command invocations (no async boundaries). It is
-the atomic unit of execution.
+## 5. Block Execution
+
+A process executes a block's segments sequentially. This section
+defines the transition relations for each segment type, pipe
+composition, and block invocation (sub-processes).
+
+### The implicit pipe value
+
+The `|` operator sequences segments. It also automatically **fills
+a parameter** of the next command. The first unfilled parameter
+takes the previous segment's output. This is the core pipe mechanic:
+
+```
+{3 | math add to 5}
+```
+
+Here the value `3` flows in to the `value` parameter of `math add`,
+producing `8`. The flowing value is never named, it's injected
+automatically into the first unnamed parameter.
+
+```
+{2 | list range}
+{2 | list range length 3}
+{2 | list range length 3 start 4}
+```
+
+Note that **parameter ordering** is important.
+The command `list range` is defined with parameters `length`, `start`,
+and `step`, in that order. In the first example, the `length`
+parameter is filled by `2`, yielding `(1 2)`. In the second the
+`start` parameter is the first unfilled parameter by definition
+order, so it takes the `2`, yielding `(2 3 4)`. Only after the
+first two parameters are explicitly filled is the `2` finally
+allowed to infest `step`, producing `(4 6 8)`.
+
+```
+{2 |  list range length 3 step __}
+{2 || list range length 3 step __}
+```
+
+What if you want to fill the `step` parameter? The implicit value
+is also available explicitly as `__`. In the first example `step`
+is explicitly taking the previous pipe's value -- but `start` is
+also taking the implicit piped value, yielding `(2 4 6)`.
+
+Astute readers will have noticed the subtle difference in the
+second example. The `||` construction blocks the implicit value
+from flowing through, while still allowing the previous segment's
+value to be referenced explicitly. Here `step` receives `2` but
+`start` is unfilled, yielding `(1 3 5)`. This is useful when you
+want to set a specific parameter explicitly without filling any
+others implicitly.
+
+```
+{( 1 2 3 ) | map block "{__ | add 1 | add __in | add __}"}
+```
+
+Pipelines can also take an initial input value, for instance when
+used as part of a block applied to data, as in this example. This
+does not implicitly fill a parameter in the first segment of the
+pipeline, but is accessible by `__`. It is also accessible as
+`__in` within any segment in that pipeline -- a fixed value, unlike
+`__`, which updates after each segment. Note that `__` is the only
+pipeline variable that updates inside a pipeline. All other `_`
+vars are single-assignment (they actually get compiled down to
+wiring). This example takes the input value, adds 1, adds the
+input value again, and then adds that value to itself, yielding
+`(6 10 14)`.
+
+### Variables and scope
+
+```
+__         — the implicit pipe value (injected by runtime)
+__in       — the input to the current pipeline/block (injected by runtime)
+_foo       — pipeline variable (set with >foo)
+$foo       — space variable (set with >$foo)
+```
+
+**Scope hierarchy:**
+- `__`   — previous segment value: resets each segment
+- `_foo` — pipeline variable: local to the pipeline; inherited by
+  child blocks, but pvars set inside a block don't propagate back out
+- `$foo` — space variable: available within all pipelines in the
+  same space
+
+### The `||` barrier
+
+`||` (double pipe) blocks the implicit pipe value from flowing to the
+next segment. After `||`, the next command receives the empty value as
+its implicit input. Pipeline variables (`_foo`) still cross the barrier
+— only the implicit value is blocked.
+
+This is how you run independent computations in sequence within one
+pipeline, using pipeline vars to stash results:
+
+```
+{some_query | >a || other_query | >b || command foo _a bar _b}
+```
+
+Without `||`, `other_query` would receive `some_query`'s result as
+its implicit input, which is probably wrong:
+
+```
+{some_query | >a | other_query | ...}
+                    ↑ oops, other_query gets some_query's result piped in
+```
+
+A trailing `||` causes the pipeline to return the empty value instead
+of its last segment's result. Useful in templating contexts where
+side-effectful operations shouldn't produce visible output:
+
+```
+{$count | >@notify ||}                           — side effects, no output
+```
+
+### Block syntax
+
+A block is a quoted DAML string — a program as a value. There are
+two syntactic forms, but they produce the same thing:
+
+```
+"{__ | add 1}"                       — quoted block (inline)
+{begin foo}Hello, {name}!{end foo}   — named block (multi-line friendly)
+```
+
+Both are parsed into the same Block segment via the same code path.
+A quoted block is DAML wrapped in quotes. A named block is syntactic
+sugar: the parser transforms `{begin foo | cmd}body{end foo}` into
+a pipeline where the body becomes a quoted block passed as the first
+value to `cmd`. The name exists only for matching the end tag and
+readability.
+
+Named blocks do not automatically create a variable or squelch
+output. To save one for reuse, pipe it explicitly:
+
+```
+{begin greeting | >$greeting ||}
+  Hello, {__.name}! You have {__.count} rice balls.
+{end greeting}
+
+{$user | run block $greeting}
+```
+
+### Parameter ordering
+
+```
+{math subtract value 5 from 8}
+{math subtract from 8 value 5}
+```
+
+Note that **explicit parameter ordering** is unimportant. The
+command `math subtract` has the form
+`math subtract value _x from _y`, but those parameters can be
+specified in either order. The ordering in the command's definition
+is only relevant for the implicit value carried through the pipe.
 
 ### Transition relation for synchronous steps
 
@@ -884,7 +1302,7 @@ and no fallback defined), the command is not executed. A soft error
 is emitted and the pipeline continues with the empty value.
 
 **Dialect check:** if c ∉ δ.commands, the command is not executed.
-A soft error is emitted (see §5), and the pipeline value is unchanged.
+A soft error is emitted (see §6), and the pipeline value is unchanged.
 
 **Read space variable:**
 ```
@@ -903,7 +1321,7 @@ value (consistent with totality — no errors, just defaults).
   (process, σ) —[WriteSVar(s, path)]→ (process, σ')
 ```
 
-If path is empty, this sets s directly. See §2 Path expressions for
+If path is empty, this sets s directly. See §4 Path expressions for
 full poke semantics: Key creates on keyed/Empty/scalar (affine only),
 Pos only modifies existing, Star only modifies existing children,
 Key on unkeyed lists coerces or soft errors.
@@ -1002,7 +1420,7 @@ scope, it simply sees an empty env.
 
 ### Atomicity guarantee
 
-A space processes one ship at a time (§9). The active process has
+A space processes one ship at a time (§7). The active process has
 exclusive access to σ for its entire lifetime — not just within a
 synchronous segment, but across async boundaries as well. No other
 process may read or write σ while the active process exists.
@@ -1023,137 +1441,7 @@ pipe     ::= '|' or '||'             — normal pipe or barrier pipe
 ```
 
 
-## 4. Execution: Asynchronous Boundaries
-
-An effectful command creates an **async boundary**. The process's
-execution splits into two phases: before the effect (sync) and after
-the response (sync). The process waits for the response; under the
-current serial model (§9), the space remains busy during the wait.
-
-### Down ports return exactly one value
-
-A down-port round trip always produces exactly one response. This is a
-design decision with several consequences:
-
-  1. It aligns with the free monad interpretation: each effect operation
-     waits, receives one value, and continues. Single-shot continuations.
-  2. It keeps the pipeline model simple: the programmer knows that after
-     an effectful command, they get one value and continue. No need to
-     reason about iteration or stream termination.
-  3. If the Outside wants to send multiple values (a stream), it uses
-     an in-port, not a down-port response. The down-port can serve as
-     the trigger ("start streaming") and the in-port carries the data.
-
-This means multi-shot continuations (nondeterminism, backtracking) are
-NOT expressible via down ports. These are exotic for Daimio's use cases
-(app actions, network APIs, and other CRUD are all naturally call-response).
-
-### Effectful command execution
-
-```
-  c ∈ δ.commands       (command is in the outer space's dialect)
-  c is Effectful(c, params, portType, _)
-  p = resolveOrCreatePort(space, portType)    — see §6 for port resolution
-  ─────────────────────────────────────────────────
-  (process, σ) —[EffCmd(c, args)]→ WAIT(p, process, continuation)
-```
-
-The process waits. Its pipeline variables are preserved. The request
-(payload + args) is sent out through port p. The continuation is the
-remainder of the block after this segment.
-
-### Resumption
-
-When a response arrives for a waiting process:
-
-```
-  resp ∈ Val
-  process' = waiting.process{v := resp}
-  ─────────────────────────────────────────────────
-  RESUME(waiting, resp) → (process', σ_current)
-```
-
-Under the current serial model, σ_current is guaranteed to be
-unchanged from the time of waiting — no other process can modify σ
-while this process holds the space. The "fresh reads" property is
-trivially satisfied (see §10).
-
-### 4.3 Timeouts
-
-Every down-port wire has a **timeout**: the maximum duration the runtime
-will wait for a response before resuming the waiting process with a
-default value.
-
-#### Timeout values
-
-```
-Wire = {
-  pattern   : WiringPattern,
-  target    : WiringTarget,
-  timeout?  : Duration          — explicit timeout, or inherited
-}
-```
-
-A wire's **nominal timeout** is determined by:
-  1. Its own explicit timeout value, if set.
-  2. Otherwise, inherited from the nearest enclosing wire in the
-     chain that has an explicit value.
-  3. If no wire in the chain has an explicit value, the system
-     default of 10 seconds.
-
-Inheritance means: if spaces are nested A > B > C > D, and the
-B-A wire has timeout 30s, and C-B has no explicit timeout, then
-C-B inherits 30s from B-A. If D-C is explicitly set to 20s, it
-stays at 20s.
-
-#### Effective timeout
-
-The **effective timeout** for any down-port round trip is the
-minimum of all nominal timeouts along the chain from the requesting
-process to the handler. This arises naturally from the mechanics:
-
-If D sends a request through C through B to an external handler:
-  - D-C nominal timeout: 20s
-  - C-B nominal timeout: 30s (inherited from B-A)
-
-At 20s, D-C times out. D's process resumes with the default value.
-The request is still in flight from C's perspective. If the response
-arrives at 25s, C receives it but D has already moved on. C fires
-a soft error and drops the response.
-
-The key property: **an outer wire's timeout is authoritative.** No
-inner wire can extend the wait time beyond what the outer wire allows.
-An inner wire CAN shorten the wait by having a tighter timeout.
-
-#### Timeout and orphaned response behavior
-
-When a timeout fires, the waiting process resumes with the effectful
-command's default value, and a soft error is emitted. The request is
-marked completed.
-
-If a response later arrives for an already-completed request (an
-**orphaned response**), it is dropped and a soft error fires in the
-space where the response surfaced — not where the request originated.
-
-#### Unwired ports
-
-If a down port is not wired to any target (no matching wiring rule,
-and no OTHER fallback), the runtime detects this immediately at
-request time — no need to wait for a timeout:
-
-```
-  p has no wiring
-  defaultVal = the effectful command's default value
-  ─────────────────────────────────────────────────
-  (process, σ) —[EffCmd(c, args)]→ (process{v := defaultVal}, σ)
-  emit soft error: {type: "unwired_port", port: p}
-```
-
-This is synchronous — no async boundary is created, the process does
-not wait, no timeout. The pipeline continues immediately.
-
-
-## 5. Errors
+## 6. Errors
 
 Daimio is total. Commands do not throw exceptions. However, certain
 conditions produce **soft errors**:
@@ -1180,332 +1468,9 @@ This is analogous to IEEE 754 NaN propagation: errors flow through the
 pipeline as values, rather than interrupting control flow.
 
 
-## 6. Ports, Wiring, and Demand-Creation
+# Part IV: Formal Model — Space Execution
 
-### Port resolution
-
-When an effectful command executes, the runtime resolves its port:
-
-```
-resolveOrCreatePort(space, portType)
-  where portType ∈ space.ports = existing port of that type
-
-resolveOrCreatePort(space, portType)
-  where portType ∉ space.ports = (p, space')
-  where p      = new port(portType, Down)
-        wiring = matchRules(space.wiringRules, p)
-        space' = space with ports ∪ {p}, p wired by wiring
-```
-
-Ports are created on demand because:
-  1. Block evaluation can invoke arbitrary effectful commands at
-     runtime — the effect surface isn't known until the block runs
-  2. Serialized spaces loaded into sockets may have unknown effect surfaces
-
-### Wiring rules
-
-Wiring rules are declared in the parent space and pattern-match against
-port properties:
-
-```
-WiringRule = (pattern, target, timeout?)
-
-pattern ::= Match(properties)      — match ports with these properties
-           | OTHER                  — default fallback (everything unmatched)
-
-properties = {
-  handler? : string | !string,  — e.g. user, logic, or !math (NOT math)
-  method?  : string | !string,  — e.g. add, twitterpate, or !remove
-  type?    : Read | Write,      — polarity of the effect
-}
-
-timeout? : Duration        — explicit timeout for this wire
-                             (if absent, inherited from nearest outer
-                             wire with a value, or system default 10s)
-```
-
-Property values can be negated with `!` to mean "anything except this."
-Multiple properties in a single Match are conjunctive (all must hold).
-
-Concrete syntax example:
-```
-S.@[handler:math]                 → match all math commands
-S.@[handler:!user type:read]      → match reads that are NOT user commands
-S.@[handler:math method:fizzbuzz] → you can only fizzbuzz nothing else
-```
-
-Rules are evaluated in order. The first matching rule determines the
-target. OTHER matches anything not matched by a previous rule.
-
-The space's `defaultTimeout` (from the space definition) applies to
-all wiring rules unless individually overridden.
-
-The target of a wiring rule is one of:
-  - A handler function (the actual effect implementation)
-  - An up-port on a sibling subspace (the sibling provides the service)
-  - A down-port on the parent space's own boundary (forwarding the
-    effect outward — the parent's environment must handle it)
-  - Null (/dev/null — the effect is silently swallowed, returns empty)
-
-### Example wiring
-
-```
-Parent space A contains subspace S with a socket-in port.
-A.defaultTimeout = 15s
-
-A's wiring rules for S:
-  S.@[handler:db]                → dbHandler             timeout: 30s
-  S.@[handler:time]              → up-port on sibling T  (inherits 15s)
-  S.@[handler:user type:write]   → dev-null              (no timeout needed)
-  S.@[handler:!user type:!write] → down-port on A        (inherits 15s)
-  OTHER                          → down-port on A        (inherits 15s)
-```
-
-This means: db effects are handled locally with a generous 30s timeout. (The 'db' here is for 'dragon biscuits'. Alice would never give database access to Bob, she's not daft. I mean you know what he's like.) Time effects are served by subspace T with A's default 15s, user writes are suppressed (returns empty immediately, no async), and everything else is forwarded to A's parent environment with the default timeout.
-
-If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes orphaned.
-
-
-## 7. Sockets and Space Serialization
-
-### Serialized space format
-
-A serialized space is **source DAML**. The DAML syntax already supports:
-  - Station definitions with their pipelines
-  - Subspace definitions (including socketed subspaces)
-  - Space variable declarations with values
-
-```
-serializedSpace = DAML source text
-```
-
-The DAML source is the canonical serialization format. It includes
-current space variable values (the main thing that changes between
-the initial definition and a running snapshot). Socketed subspaces
-are serialized as regular subspace definitions — once loaded, a
-socketed space is just a subspace.
-
-A serialized space does NOT include:
-  - Dialect (the Daimio instance's dialect applies)
-  - Port wiring (wiring comes from the socket's parent)
-
-### Socket-in port
-
-A socket is any space that has a port of flavour "socket-in".
-
-```
-socketSpace = space with at least one port where flavour = "socket-in"
-```
-
-When a serialized space arrives as a ship at a socket-in port:
-
-```
-LOAD(socketSpace, damlSource) = socketSpace'
-  where spaceDef    = parse(damlSource)              — DAML source → space definition
-        subspace    = instantiate(spaceDef)           — build stations, init space vars
-        subspace'   = subspace with ports unresolved  — demand-created on first use
-        socketSpace' = socketSpace with subspaces ∪ {subspace'}
-                       wiringRules applied to subspace' ports on demand
-```
-
-### Socket transitions: overlap
-
-If a previous subspace occupied this socket, the transition uses
-**overlap** semantics:
-
-```
-TRANSITION(socketSpace, old, new) = socketSpace'
-  where socketSpace' routes new ships to new         — new is immediately live
-        old continues processing in-flight ships     — old drains naturally
-        old is collected when inFlight(old) = ∅      — no ships, no pending requests
-        old.σ is lost                                — state does not survive transitions
-```
-
-This is consistent with the outer space model: if you need
-persistent state across socket transitions, it lives Outside. The
-socket is a hot-swappable execution slot, not a state container.
-
-### Cross-boundary space variable access
-
-A subspace that needs to read or write a parent's space variable
-does so through an explicit effectful command and a down port:
-
-```
-{var read name :foo}     — sends a request up through a down port
-{var write name :foo}    — sends a write request up through a down port
-```
-
-The parent space must wire these ports to a handler — typically a
-station that reads or writes the parent's own space variables and
-returns the result. This is deliberately verbose: crossing a space
-boundary to access state is a significant action that should be
-visible in the topology.
-
-Syntactic sugar may be added later, but the underlying mechanism
-is always a down-port round trip. This preserves the property that
-spaces are fully isolated — all cross-boundary communication goes
-through ports.
-
-
-## 8. Informal Guide
-
-This section collects informal explanations and examples of DAML
-semantics. The formal treatment is in §3 (synchronous execution)
-and §4 (async boundaries). This section is tutorial-style and
-may be reorganized in a future pass.
-
-### The implicit pipe value
-
-The `|` operator sequences segments. It also automatically **fills
-a parameter** of the next command. The first unfilled parameter
-takes the previous segment's output. This is the core pipe mechanic:
-
-```
-{3 | math add to 5}
-```
-
-Here the value `3` flows in to the `value` parameter of `math add`,
-producing `8`. The flowing value is never named, it's injected
-automatically into the first unnamed parameter.
-
-```
-{2 | list range}
-{2 | list range length 3}
-{2 | list range length 3 start 4}
-```
-
-Note that **parameter ordering** is important.
-The command `list range` is defined with parameters `length`, `start`,
-and `step`, in that order. In the first example, the `length`
-parameter is filled by `2`, yielding `(1 2)`. In the second the
-`start` parameter is the first unfilled parameter by definition
-order, so it takes the `2`, yielding `(2 3 4)`. Only after the
-first two parameters are explicitly filled is the `2` finally
-allowed to infest `step`, producing `(4 6 8)`.
-
-```
-{2 |  list range length 3 step __}
-{2 || list range length 3 step __}
-```
-
-What if you want to fill the `step` parameter? The implicit value
-is also available explicitly as `__`. In the first example `step`
-is explicitly taking the previous pipe's value -- but `start` is
-also taking the implicit piped value, yielding `(2 4 6)`.
-
-Astute readers will have noticed the subtle difference in the
-second example. The `||` construction blocks the implicit value
-from flowing through, while still allowing the previous segment's
-value to be referenced explicitly. Here `step` receives `2` but
-`start` is unfilled, yielding `(1 3 5)`. This is useful when you
-want to set a specific parameter explicitly without filling any
-others implicitly.
-
-```
-{( 1 2 3 ) | map block "{__ | add 1 | add __in | add __}"}
-```
-
-Pipelines can also take an initial input value, for instance when
-used as part of a block applied to data, as in this example. This
-does not implicitly fill a parameter in the first segment of the
-pipeline, but is accessible by `__`. It is also accessible as
-`__in` within any segment in that pipeline -- a fixed value, unlike
-`__`, which updates after each segment. Note that `__` is the only
-pipeline variable that updates inside a pipeline. All other `_`
-vars are single-assignment (they actually get compiled down to
-wiring). This example takes the input value, adds 1, adds the
-input value again, and then adds that value to itself, yielding
-`(6 10 14)`.
-
-### Parameter ordering
-
-```
-{math subtract value 5 from 8}
-{math subtract from 8 value 5}
-```
-
-Note that **explicit parameter ordering** is unimportant. The
-command `math subtract` has the form
-`math subtract value _x from _y`, but those parameters can be
-specified in either order. The ordering in the command's definition
-is only relevant for the implicit value carried through the pipe.
-
-### Variables and scope
-
-```
-__         — the implicit pipe value (injected by runtime)
-__in       — the input to the current pipeline/block (injected by runtime)
-_foo       — pipeline variable (set with >foo)
-$foo       — space variable (set with >$foo)
-```
-
-**Scope hierarchy:**
-- `__`   — previous segment value: resets each segment
-- `_foo` — pipeline variable: local to the pipeline; inherited by
-  child blocks, but pvars set inside a block don't propagate back out
-- `$foo` — space variable: available within all pipelines in the
-  same space
-
-### The `||` barrier
-
-`||` (double pipe) blocks the implicit pipe value from flowing to the
-next segment. After `||`, the next command receives the empty value as
-its implicit input. Pipeline variables (`_foo`) still cross the barrier
-— only the implicit value is blocked.
-
-This is how you run independent computations in sequence within one
-pipeline, using pipeline vars to stash results:
-
-```
-{some_query | >a || other_query | >b || command foo _a bar _b}
-```
-
-Without `||`, `other_query` would receive `some_query`'s result as
-its implicit input, which is probably wrong:
-
-```
-{some_query | >a | other_query | ...}
-                    ↑ oops, other_query gets some_query's result piped in
-```
-
-A trailing `||` causes the pipeline to return the empty value instead
-of its last segment's result. Useful in templating contexts where
-side-effectful operations shouldn't produce visible output:
-
-```
-{$count | >@notify ||}                           — side effects, no output
-```
-
-### Blocks
-
-A block is a quoted DAML string — a program as a value. There are
-two syntactic forms, but they produce the same thing:
-
-```
-"{__ | add 1}"                       — quoted block (inline)
-{begin foo}Hello, {name}!{end foo}   — named block (multi-line friendly)
-```
-
-Both are parsed into the same Block segment via the same code path.
-A quoted block is DAML wrapped in quotes. A named block is syntactic
-sugar: the parser transforms `{begin foo | cmd}body{end foo}` into
-a pipeline where the body becomes a quoted block passed as the first
-value to `cmd`. The name exists only for matching the end tag and
-readability.
-
-Named blocks do not automatically create a variable or squelch
-output. To save one for reuse, pipe it explicitly:
-
-```
-{begin greeting | >$greeting ||}
-  Hello, {__.name}! You have {__.count} rice balls.
-{end greeting}
-
-{$user | run block $greeting}
-```
-
-
-## 9. Scheduling
+## 7. Scheduling
 
 ### Serial execution per space
 
@@ -1621,264 +1586,298 @@ This is not currently enabled. See `D2-concurrent-scheduling.md`
 for the aspirational concurrent model and its implications.
 
 
-## 10. Properties of the Model
+## 8. Ports, Wiring, and Demand-Creation
 
-### Totality
-Every command returns a value. Every port access either succeeds or
-produces a soft error with the empty value. No pipeline ever crashes
-or diverges (assuming commands are total, which is a requirement on
-command definitions). The empty value coerces to "", 0, or [] as
-needed, so it always flows cleanly through subsequent commands.
+### Port resolution
 
-TODO: producing a soft error with the empty value is used all the time, we need a new term for it. I suggest "sploot". "Every port access either succeeds or sploots." "A command that outside the dialect just sploots."
-TODO: think about `[]` vs `()` for empty value
-TODO: the smart quote rendering makes "" look dumb, turn that off
+When an effectful command executes, the runtime resolves its port:
 
-### Copy semantics
-Values flowing through pipelines are functionally pure from the
-programmer's perspective. A command receives its own copy of any
-collection; mutations inside a command don't propagate back to the
-caller's pipeline. Implementations may optimize with mutation when
-no future references exist (linear types style), but the observable
-behavior is always as-if copied.
+```
+resolveOrCreatePort(space, portType)
+  where portType ∈ space.ports = existing port of that type
 
-### Dialect confinement
-All execution within a Daimio instance is constrained to one dialect.
-There is no mechanism for privilege escalation during execution — a
-received program, a block passed as data, or a space loaded into a
-socket all run under the host instance's dialect. Commands outside
-the dialect are not executed (soft error, pipeline continues with
-empty). This is the core security property: the space owner controls
-what each actor can do by choosing their dialect. This is what makes
-multiactor applications safe (§0.2).
+resolveOrCreatePort(space, portType)
+  where portType ∉ space.ports = (p, space')
+  where p      = new port(portType, Down)
+        wiring = matchRules(space.wiringRules, p)
+        space' = space with ports ∪ {p}, p wired by wiring
+```
 
-### Serial execution
-Each space processes one ship at a time (see §9). The active
-process has exclusive access to the space's state from dock
-through completion, including across async boundaries. No other
-process can read or write space variables while a process is
-active, even while it is waiting for an effectful command's
-response.
+Ports are created on demand because:
+  1. Block evaluation can invoke arbitrary effectful commands at
+     runtime — the effect surface isn't known until the block runs
+  2. Serialized spaces loaded into sockets may have unknown effect surfaces
 
-This means space variable access is always consistent: there are
-no concurrent modifications, no stale reads, no TOCTOU hazards.
-A process that reads `$foo`, waits at an async boundary, and reads
-`$foo` again after resumption is guaranteed to see the same value
-(unless its own execution modified it in between).
+### Wiring rules
 
-### Fresh reads
-Under the current serial model, fresh reads are trivially
-satisfied — no other process can modify σ during your execution.
-Space variable reads see exactly what the active process (or its
-sub-processes) last wrote. Pipeline variables remain the mechanism
-for stashing values within a pipeline, but the motivation is
-convenience, not protection from concurrent modification.
+Wiring rules are declared in the parent space and pattern-match against
+port properties:
 
-### Block scope isolation
-Pipeline variables flow into sub-processes (lexical inheritance
-from the parent process) but never flow out. A sub-process gets a
-copy of the parent's env; variables bound inside the sub-process
-(via `>x`) do not propagate back. This is safe because pipeline
-vars are write-once (immutable bindings), so the inherited values
-are frozen. The one-way information flow makes blocks safe to pass
-around as values — evaluating a block cannot corrupt the caller's
-state.
+```
+WiringRule = (pattern, target, timeout?)
 
-### Space isolation
-Spaces are fully isolated containers. A subspace cannot read or
-write its parent's space variables directly — all cross-boundary
-communication goes through ports. This applies at every level of
-nesting: inner spaces can only interact with outer spaces through
-explicit port wiring. The parent controls what the child can do
-(via wiring rules and dialect), and the child cannot reach beyond
-what the parent exposes. This is what makes composition safe
-(§0.6): wiring spaces together cannot break their internal
-invariants. At the outermost level, separate Daimio instances have
-no knowledge of each other; inter-instance communication is
-entirely the outer application's concern.
+pattern ::= Match(properties)      — match ports with these properties
+           | OTHER                  — default fallback (everything unmatched)
 
-### Effect locality
-Effects only occur at the outside of the outermost space. Every
-effectful command invocation within a space produces a port request.
-Port requests propagate outward (via down-port forwarding through
-parent spaces) until they reach the outermost space, where real
-effects occur. Any intermediate space can intercept and handle the
-request (via up-port wiring to a subspace or a local handler).
-This is the mechanism behind testability (§0.4): any space can be
-tested by composing it into a parent that provides mock handlers,
-and the space cannot tell the difference from the inside.
+properties = {
+  handler? : string | !string,  — e.g. user, logic, or !math (NOT math)
+  method?  : string | !string,  — e.g. add, twitterpate, or !remove
+  type?    : Read | Write,      — polarity of the effect
+}
 
-### Command/port duality
-From inside a space, every command looks the same — pure and
-effectful use the same syntax and return values into the pipeline.
-From outside, the effectful commands are visible as ports: the
-space's "effect surface" is the set of ports created by its
-effectful commands. Pure commands are invisible from outside.
-The command is the inside view; the port is the outside view.
-These are the same thing seen from two sides of the space boundary.
+timeout? : Duration        — explicit timeout for this wire
+                             (if absent, inherited from nearest outer
+                             wire with a value, or system default 10s)
+```
 
-This duality is what makes spaces testable and composable. A space
-that uses `{time now}` and `{db query}` has ports for time and db
-requests. Wire those ports to production handlers, mock handlers,
-or forward them to the parent's boundary — the space cannot tell
-the difference from the inside.
+Property values can be negated with `!` to mean "anything except this."
+Multiple properties in a single Match are conjunctive (all must hold).
 
-### Single-response effects
-Every effectful command produces exactly one response. A down-port
-round trip is a single request/response pair — no streaming, no
-multi-shot continuations. This keeps pipelines linear: after an
-effectful command, the programmer gets one value and continues.
-If the outside wants to send multiple values, it uses an in-port
-(fire-and-forget), not a down-port response.
+Concrete syntax example:
+```
+S.@[handler:math]                 → match all math commands
+S.@[handler:!user type:read]      → match reads that are NOT user commands
+S.@[handler:math method:fizzbuzz] → you can only fizzbuzz nothing else
+```
 
-### Port demand-creation
-The effect surface of a Daimio instance is not fully fixed at
-construction time. Ports are created when first needed and wired
-according to the parent space's rules. This supports block evaluation
-and socket loading without requiring static knowledge of all possible
-effects.
+Rules are evaluated in order. The first matching rule determines the
+target. OTHER matches anything not matched by a previous rule.
 
-### Composition
-Spaces compose by nesting. A subspace's effect surface becomes
-obligations on the parent. The parent either handles them, forwards
-them to its own boundary, or swallows them. Dialects restrict
-downward: an invited actor or loaded subspace can never exceed the
-host's permissions. This composes recursively to arbitrary depth
-(§0.6).
+The space's `defaultTimeout` (from the space definition) applies to
+all wiring rules unless individually overridden.
 
-### Liveness
-No process waits forever. Every down-port request has a finite
-timeout (explicit, inherited, or the 10s system default). When the
-timeout fires, the process resumes with a default value. Unwired
-ports return the default immediately with no async boundary at all.
-This guarantees that every process eventually completes its block,
-modulo the totality of the block's pure computation.
+The target of a wiring rule is one of:
+  - A handler function (the actual effect implementation)
+  - An up-port on a sibling subspace (the sibling provides the service)
+  - A down-port on the parent space's own boundary (forwarding the
+    effect outward — the parent's environment must handle it)
+  - Null (/dev/null — the effect is silently swallowed, returns empty)
 
-### Timeout compositionality
-The effective timeout for a request chain is the minimum of all
-timeouts along the chain. Outer spaces' timeouts are authoritative:
-no inner wire can extend the wait time beyond what an outer wire
-allows. Inner wires can only shorten it. This means the socket owner
-always controls the maximum wait time for anything loaded into their
-socket.
+### Example wiring
 
-### Uniform evaluation
-There is no special "eval" mechanism. Blocks, received programs,
-named blocks, and station blocks all execute as processes under the
-same rules — same dialect, same serial execution, same fresh reads,
-same effect routing. A program received as data is evaluated the
-same way as a block passed to `list map` — both create a
-sub-process. This is what makes programmable applications work
-(§0.1): a program sent by an actor executes under exactly the same
-rules as built-in code, constrained by the actor's dialect.
+```
+Parent space A contains subspace S with a socket-in port.
+A.defaultTimeout = 15s
 
-### Deterministic pipe filling
-The implicit pipe value fills the first unfilled parameter of the
-next command, determined by the command's parameter definition order.
-This is fully deterministic from the command signature alone — the
-programmer can predict what gets filled without knowing implementation
-details. Named parameters override this by explicitly binding a value
-to a parameter name, removing it from the implicit filling order.
+A's wiring rules for S:
+  S.@[handler:db]                → dbHandler             timeout: 30s
+  S.@[handler:time]              → up-port on sibling T  (inherits 15s)
+  S.@[handler:user type:write]   → dev-null              (no timeout needed)
+  S.@[handler:!user type:!write] → down-port on A        (inherits 15s)
+  OTHER                          → down-port on A        (inherits 15s)
+```
+
+This means: db effects are handled locally with a generous 30s timeout. (The 'db' here is for 'dragon biscuits'. Alice would never give database access to Bob, she's not daft. I mean you know what he's like.) Time effects are served by subspace T with A's default 15s, user writes are suppressed (returns empty immediately, no async), and everything else is forwarded to A's parent environment with the default timeout.
+
+If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes orphaned.
 
 
-## 11. Design Decisions Record
+## 9. Async Boundaries
 
-Rationale for decisions that aren't obvious from the spec itself.
+An effectful command creates an **async boundary**. The process's
+execution splits into two phases: before the effect (sync) and after
+the response (sync). The process waits for the response; under the
+current serial model (§7), the space remains busy during the wait.
 
-TODO: examine "request tagging" -- that seems weird
-TODO: let's not call requests orphans that's just sad
+### Down ports return exactly one value
 
-### Why single-response effects?
-The alternative is multi-shot continuations (streaming responses via
-down ports). Single-response was chosen because it aligns with the
-free monad interpretation (single-shot continuations), keeps the
-pipeline model linear, and avoids stream termination logic. If the
-outside wants to send multiple values, it uses an in-port
-(fire-and-forget) — the down-port response can serve as the trigger
-("start streaming") while the in-port carries the data.
+A down-port round trip always produces exactly one response. This is a
+design decision with several consequences:
 
-### Why overlap for socket transitions?
-When a new space is loaded into an occupied socket, the alternative
-is to drain the old space before activating the new one (blocking).
-Overlap was chosen to avoid blocking on potentially long-running
-in-flight operations. The cost is that state doesn't survive
-transitions — but this is consistent with the space isolation
-model. Persistent state lives Outside (via ports to external
-storage), not in space variables.
+  1. It aligns with the free monad interpretation: each effect operation
+     waits, receives one value, and continues. Single-shot continuations.
+  2. It keeps the pipeline model simple: the programmer knows that after
+     an effectful command, they get one value and continue. No need to
+     reason about iteration or stream termination.
+  3. If the Outside wants to send multiple values (a stream), it uses
+     an in-port, not a down-port response. The down-port can serve as
+     the trigger ("start streaming") and the in-port carries the data.
 
-### Why is cross-boundary state access verbose?
-Crossing a space boundary to access state is a significant action
-that should be visible in the topology, not hidden behind sugar.
-The explicit `{var read name :foo}` through a down port makes it
-clear where isolation boundaries are being crossed. Syntactic sugar
-may be added later, but the underlying mechanism will always be a
-port round trip.
+This means multi-shot continuations (nondeterminism, backtracking) are
+NOT expressible via down ports. These are exotic for Daimio's use cases
+(app actions, network APIs, and other CRUD are all naturally call-response).
 
-### Why DAML source as the serialization format?
-The alternative is a separate binary format or manifest. DAML source
-was chosen because the existing syntax already supports station
-definitions, subspace definitions, and space variable declarations
-with values. No new format needed — a serialized space is just
-DAML that can be read, edited, and debugged with normal tools.
+### Effectful command execution
 
-### Why resource limits per instance?
-Resource measurement (CPU, memory) is per Daimio instance, with
-enforcement delegated to the outer application. Waiting processes
-do not consume CPU while waiting (though they consume memory).
-This keeps resource tracking out of the language model and lets
-the outer application use whatever monitoring and enforcement
-strategy fits its needs.
+```
+  c ∈ δ.commands       (command is in the outer space's dialect)
+  c is Effectful(c, params, portType, _)
+  p = resolveOrCreatePort(space, portType)    — see §8 for port resolution
+  ─────────────────────────────────────────────────
+  (process, σ) —[EffCmd(c, args)]→ WAIT(p, process, continuation)
+```
 
-### Why do blocks inherit parent pipeline vars?
-The alternative is requiring explicit parameter passing (e.g. a
-`with` param on every command that takes a block). Lexical
-inheritance was chosen because pipeline vars are write-once
-(immutable bindings), making it safe — the block gets a frozen
-snapshot, and vars bound inside the block don't propagate back.
-This eliminates boilerplate in the common case of accessing outer
-variables from inner blocks.
+The process waits. Its pipeline variables are preserved. The request
+(payload + args) is sent out through port p. The continuation is the
+remainder of the block after this segment.
 
-### Why programmable applications?
-The alternative is traditional APIs: the application exposes
-endpoints, and clients call them. But an API is the application
-author's model of what you want to do. A program is YOUR model of
-what you want to do. Sending a program lets you compose operations,
-express conditional logic, and avoid round-trips — all without the
-application author anticipating your exact use case. The dialect
-makes this safe: the program runs under the sender's restricted
-permissions, so it can only do what the sender is allowed to do.
-The application doesn't need to trust the program; it trusts the
-dialect.
+### Resumption
 
-### Why dialects instead of ACLs?
-The alternative is per-command or per-resource access control lists.
-Dialects were chosen because they compose naturally with spaces:
-a dialect is a property of the execution context, not of individual
-resources. When you nest spaces, dialects restrict downward — a
-child space's dialect is always a subset of its parent's. This
-means permission delegation is structural, not administrative. The
-space owner gives an actor a dialect; the actor can invoke commands
-and those commands can delegate to subspaces, but nothing in the
-chain can escalate beyond the original grant.
+When a response arrives for a waiting process:
 
-### Why are effectful commands modelled as ports?
-The alternative is having effectful commands execute directly in
-the runtime (like a syscall). Modelling them as ports means the
-effect surface of a space is explicit and external: you can see
-exactly what effects a space needs by examining its ports. This
-enables testability (wire ports to mocks), portability (wire ports
-to different backends), and composition (a parent space can
-intercept, forward, or suppress any child's effects). The command
-is the ergonomic inside interface; the port is the composable
-outside interface. Same thing, two views.
+```
+  resp ∈ Val
+  process' = waiting.process{v := resp}
+  ─────────────────────────────────────────────────
+  RESUME(waiting, resp) → (process', σ_current)
+```
 
-### Why channel-independent messages?
-The alternative is binding authentication to the transport (session
-cookies, connection-based auth). Channel independence means a
-message carries its own authentication — it doesn't matter whether
-it arrives via WebSocket, HTTP, letter, or carrier pigeon. This
-aligns with the actor model: the message identifies the sender,
-the space looks up the sender's dialect, and the program executes
-under those permissions. Separating identity from channel makes
-the system robust to transport changes and enables use cases like
-offline program shipping.
+Under the current serial model, σ_current is guaranteed to be
+unchanged from the time of waiting — no other process can modify σ
+while this process holds the space. The "fresh reads" property is
+trivially satisfied (see §1).
+
+### 9.3 Timeouts
+
+Every down-port wire has a **timeout**: the maximum duration the runtime
+will wait for a response before resuming the waiting process with a
+default value.
+
+#### Timeout values
+
+```
+Wire = {
+  pattern   : WiringPattern,
+  target    : WiringTarget,
+  timeout?  : Duration          — explicit timeout, or inherited
+}
+```
+
+A wire's **nominal timeout** is determined by:
+  1. Its own explicit timeout value, if set.
+  2. Otherwise, inherited from the nearest enclosing wire in the
+     chain that has an explicit value.
+  3. If no wire in the chain has an explicit value, the system
+     default of 10 seconds.
+
+Inheritance means: if spaces are nested A > B > C > D, and the
+B-A wire has timeout 30s, and C-B has no explicit timeout, then
+C-B inherits 30s from B-A. If D-C is explicitly set to 20s, it
+stays at 20s.
+
+#### Effective timeout
+
+The **effective timeout** for any down-port round trip is the
+minimum of all nominal timeouts along the chain from the requesting
+process to the handler. This arises naturally from the mechanics:
+
+If D sends a request through C through B to an external handler:
+  - D-C nominal timeout: 20s
+  - C-B nominal timeout: 30s (inherited from B-A)
+
+At 20s, D-C times out. D's process resumes with the default value.
+The request is still in flight from C's perspective. If the response
+arrives at 25s, C receives it but D has already moved on. C fires
+a soft error and drops the response.
+
+The key property: **an outer wire's timeout is authoritative.** No
+inner wire can extend the wait time beyond what the outer wire allows.
+An inner wire CAN shorten the wait by having a tighter timeout.
+
+#### Timeout and orphaned response behavior
+
+When a timeout fires, the waiting process resumes with the effectful
+command's default value, and a soft error is emitted. The request is
+marked completed.
+
+If a response later arrives for an already-completed request (an
+**orphaned response**), it is dropped and a soft error fires in the
+space where the response surfaced — not where the request originated.
+
+#### Unwired ports
+
+If a down port is not wired to any target (no matching wiring rule,
+and no OTHER fallback), the runtime detects this immediately at
+request time — no need to wait for a timeout:
+
+```
+  p has no wiring
+  defaultVal = the effectful command's default value
+  ─────────────────────────────────────────────────
+  (process, σ) —[EffCmd(c, args)]→ (process{v := defaultVal}, σ)
+  emit soft error: {type: "unwired_port", port: p}
+```
+
+This is synchronous — no async boundary is created, the process does
+not wait, no timeout. The pipeline continues immediately.
+
+
+## 10. Sockets and Space Serialization
+
+### Serialized space format
+
+A serialized space is **source DAML**. The DAML syntax already supports:
+  - Station definitions with their pipelines
+  - Subspace definitions (including socketed subspaces)
+  - Space variable declarations with values
+
+```
+serializedSpace = DAML source text
+```
+
+The DAML source is the canonical serialization format. It includes
+current space variable values (the main thing that changes between
+the initial definition and a running snapshot). Socketed subspaces
+are serialized as regular subspace definitions — once loaded, a
+socketed space is just a subspace.
+
+A serialized space does NOT include:
+  - Dialect (the Daimio instance's dialect applies)
+  - Port wiring (wiring comes from the socket's parent)
+
+### Socket-in port
+
+A socket is any space that has a port of flavour "socket-in".
+
+```
+socketSpace = space with at least one port where flavour = "socket-in"
+```
+
+When a serialized space arrives as a ship at a socket-in port:
+
+```
+LOAD(socketSpace, damlSource) = socketSpace'
+  where spaceDef    = parse(damlSource)              — DAML source → space definition
+        subspace    = instantiate(spaceDef)           — build stations, init space vars
+        subspace'   = subspace with ports unresolved  — demand-created on first use
+        socketSpace' = socketSpace with subspaces ∪ {subspace'}
+                       wiringRules applied to subspace' ports on demand
+```
+
+### Socket transitions: overlap
+
+If a previous subspace occupied this socket, the transition uses
+**overlap** semantics:
+
+```
+TRANSITION(socketSpace, old, new) = socketSpace'
+  where socketSpace' routes new ships to new         — new is immediately live
+        old continues processing in-flight ships     — old drains naturally
+        old is collected when inFlight(old) = ∅      — no ships, no pending requests
+        old.σ is lost                                — state does not survive transitions
+```
+
+This is consistent with the outer space model: if you need
+persistent state across socket transitions, it lives Outside. The
+socket is a hot-swappable execution slot, not a state container.
+
+### Cross-boundary space variable access
+
+A subspace that needs to read or write a parent's space variable
+does so through an explicit effectful command and a down port:
+
+```
+{var read name :foo}     — sends a request up through a down port
+{var write name :foo}    — sends a write request up through a down port
+```
+
+The parent space must wire these ports to a handler — typically a
+station that reads or writes the parent's own space variables and
+returns the result. This is deliberately verbose: crossing a space
+boundary to access state is a significant action that should be
+visible in the topology.
+
+Syntactic sugar may be added later, but the underlying mechanism
+is always a down-port round trip. This preserves the property that
+spaces are fully isolated — all cross-boundary communication goes
+through ports.

@@ -11,7 +11,7 @@ node tests/d2_spec_test.mjs     # 149 spec alignment tests
 node tests/daimio_test.mjs       # ~843 legacy tests (4 known failures)
 node tests/node_code.mjs         # 68 internal tests
 node tests/security_test.mjs    # 97 security tests (dialect, pollution, regex, actors)
-node tests/space_test.mjs       # 44 space/topology tests (ports, subspaces, wiring)
+node tests/space_test.mjs       # 91 space/topology tests (10 known failures)
 ```
 
 All five test suites must pass before any change is considered complete.
@@ -165,19 +165,26 @@ Effectful commands declare an `effect` property instead of (or alongside) `fun`.
 
 ## Spec reference
 
-The formal execution model is in `D2-spec.md`. Key sections:
-- §0: Prelude
-- §1: Concrete syntax (grammar)
-- §2: Domains (values, paths, ships, spaces, ports, three sendable things)
-- §3: Synchronous execution
-- §4: Async boundaries (effectful commands, timeouts)
-- §5: Errors (soft errors, totality)
-- §6: Ports and wiring (demand-creation, pattern matching, OTHER fallback)
-- §7: Sockets and serialization
-- §8: Informal guide (pipe semantics, scope, barriers, blocks)
-- §9: Scheduling (serial per space, queue, ship lifecycle)
-- §10: Properties (totality, isolation, atomicity, liveness)
-- §11: Design decisions record
+The formal execution model is in `D2-spec.md`. Structure:
+
+Part I — Orientation:
+- §0: Prelude (motivation, six core ideas)
+- §1: Properties (totality, isolation, duality, liveness)
+- §2: Design decisions
+
+Part II — Statics:
+- §3: Concrete syntax (grammar, parsing)
+- §4: Domains (values, paths, ships, blocks, processes, spaces, ports)
+
+Part III — Block Execution:
+- §5: Block execution (transition relations, pipes, scope, sub-processes)
+- §6: Errors (soft errors, totality)
+
+Part IV — Space Execution:
+- §7: Scheduling (serial per space, queue, process lifecycle)
+- §8: Ports and wiring (demand-creation, pattern matching, OTHER fallback)
+- §9: Async boundaries (effectful commands, timeouts)
+- §10: Sockets and serialization
 
 ## Test status
 
@@ -185,7 +192,7 @@ The formal execution model is in `D2-spec.md`. Key sections:
 - **daimio_test**: 839/843 (4 known failures in `known_failures` set)
 - **node_code**: 68/68 pass
 - **security_test**: 97/97 pass
-- **space_test**: 53/53 pass (21 from spacetests.dm, 23 inline, 9 concurrent)
+- **space_test**: 81/91 pass (10 known failures for unimplemented spec behaviors)
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
 
