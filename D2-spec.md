@@ -94,13 +94,15 @@ no future references exist (linear types style), but the observable
 behavior is always as-if copied.
 
 ### Dialect confinement
-All execution within a Daimio instance is constrained to one dialect.
+Every process runs under a dialect — either the actor's dialect (if
+the ship came from an identified actor) or the space's base dialect.
+An actor's dialect is always a subset of the space's base dialect.
 There is no mechanism for privilege escalation during execution — a
 received program, a block passed as data, or a space loaded into a
-socket all run under the host instance's dialect. Commands outside
-the dialect are not executed (soft error, pipeline continues with
-empty). This is the core security property: the space owner controls
-what each actor can do by choosing their dialect. This is what makes
+socket all run under the applicable dialect. Commands outside the
+dialect are not executed (soft error, pipeline continues with empty).
+This is the core security property: the space owner controls what
+each actor can do by choosing their dialect. This is what makes
 multiactor applications safe (§0.2).
 
 ### Serial execution
@@ -957,37 +959,6 @@ boundaries within the same process. If a process waits at an
 effectful command and later resumes, its pipeline vars are intact.
 But they don't escape the process that created them.
 
-### Outer Spaces
-```
-The outer application instantiates Daimio once per actor. Each
-Daimio instance IS an outer space: a live copy of a space definition's
-topology, with its own space variables, running under one dialect.
-
-outerSpace = (space, δ, σ)
-  where space           : space        — the space definition
-        δ               : Dialect      — this instance's dialect
-        σ               : SVar → Val   — this instance's space variables
-```
-
-A Daimio instance has no knowledge of other Daimio instances. There
-is no cross-instance communication, no shared scheduler, no shared
-state. From Daimio's perspective, there is exactly one outer space —
-the one it's running. If the outer application wants 30 actors using
-the same space definition, it creates 30 separate Daimio instances.
-Each is a completely independent universe.
-
-The outer application is responsible for:
-  - Creating Daimio instances (one per actor)
-  - Assigning each instance's dialect
-  - Routing incoming data to the correct instance
-  - Monitoring resource usage per instance
-  - Providing effect handlers (wiring the outermost ports)
-
-Inter-actor communication happens entirely outside of Daimio, mediated
-by the outer application through whatever external systems it chooses
-(databases, CRDTs, message queues, etc.).
-
-
 ### Stations
 ```
 station = (name, block)
@@ -1046,7 +1017,7 @@ space = (stations, subspaces, ports, wiringRules, defaultTimeout?)
 A space is a **definition** — a template for execution. It specifies
 topology (stations and their wiring), subspaces, port structure, and
 wiring rules. It does NOT hold a dialect or space variable values.
-Those belong to the outer space (see Outer Spaces above).
+Those belong to the outer space (see Outer Space below).
 
 When the outer application wants an actor to use a space, it creates
 an outer space from the space definition, assigns a dialect, and
@@ -1087,6 +1058,48 @@ go nowhere, and without a dialect, its commands don't execute.
 Spaces can also be serialized as DAML source text and loaded into
 sockets at runtime. Socketed spaces have additional properties
 around loading, transitions, and state ephemerality — see §10.
+
+### Outer Space
+```
+outerSpace = (space, δ, σ, portHandlers)
+  where space        : Space           — the space definition (topology)
+        δ            : Dialect         — the space's base dialect
+        σ            : SVar → Val      — live space variable store
+        portHandlers : port → handler  — wiring of outermost ports to real effects
+```
+
+An outer space is a **live instance** of a space definition. It is
+where effects actually happen. A space definition is inert topology;
+an outer space is that topology wired up to the real world.
+
+The outer application creates an outer space by:
+  1. Choosing a space definition (the topology)
+  2. Assigning a base dialect (what commands are available)
+  3. Initializing the space variable store
+  4. Wiring the outermost ports to effect handlers (DOM, network,
+     database, filesystem, etc.)
+
+This wiring is what makes effects real. Inside the space, an
+effectful command like `{time now}` produces a port request that
+propagates outward. At the outermost boundary, the port handler
+executes the actual effect and returns the response. Without this
+wiring, the request would be unwired and return the default value.
+
+**Multiple outer spaces.** An application can create as many outer
+spaces as it needs. Each is a completely independent universe — no
+shared scheduler, no shared state, no cross-instance communication.
+Different outer spaces may use the same space definition with
+different dialects and different port wiring, or entirely different
+space definitions. The application is responsible for routing data
+between them (via whatever external systems it chooses).
+
+**Actors.** Multiple actors can send ships into the same outer
+space. Each actor may have their own dialect — a restricted subset
+of the space's base dialect. When a ship from an actor docks at a
+station, the process runs under that actor's dialect, not the
+space's base dialect. The mechanics of actor authentication and
+dialect assignment are discussed separately.
+TODO: actor model needs its own section — dialect per actor, auth, the relationship between actors and outer spaces
 
 
 # Part III: Formal Model — Block Execution
@@ -1412,9 +1425,10 @@ evaluated the same way — it's a block that gets run by a sub-process.
   5. Pipeline vars bound inside the sub-process (via `>x`) do NOT
      propagate back to the parent. The sub-process's env is its own.
 
-Everything in an outer space runs under that outer space's dialect,
-period. There is no mechanism for escalating or changing the dialect
-mid-execution. A program received as data inherits the pipeline vars
+Everything in an outer space runs under a dialect — either the
+actor's dialect or the space's base dialect. There is no mechanism
+for escalating or changing the dialect mid-execution. A program
+received as data inherits the pipeline vars
 of whatever process evaluates it — if there are no pipeline vars in
 scope, it simply sees an empty env.
 
