@@ -332,7 +332,7 @@ D.import_models({
           {
             key: 'data',
             desc: 'The list of lists to zip',
-            type: 'mutable-array'
+            type: 'array'
           },
           {
             key: 'also',
