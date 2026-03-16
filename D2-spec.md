@@ -76,12 +76,12 @@ wiring spaces together through ports.
 
 ### Totality
 Every command returns a value. Every port access either succeeds or
-produces a soft error with the empty value. No pipeline ever crashes
-or diverges (assuming commands are total, which is a requirement on
-command definitions). The empty value coerces to "", 0, or [] as
-needed, so it always flows cleanly through subsequent commands.
+sploots (emits a soft error and continues with the empty value). No
+pipeline ever crashes or diverges (assuming commands are total, which
+is a requirement on command definitions). The empty value coerces to
+"", 0, or [] as needed, so it always flows cleanly through subsequent
+commands. See §4 "Splooting" for the definition.
 
-TODO: producing a soft error with the empty value is used all the time, we need a new term for it. I suggest "sploot". "Every port access either succeeds or sploots." "A command that outside the dialect just sploots."
 TODO: think about `[]` vs `()` for empty value
 TODO: the smart quote rendering makes "" look dumb, turn that off
 
@@ -595,6 +595,20 @@ as a list. This is why totality works without error values — a missing
 path, an unbound variable, or a timed-out effect all produce the empty
 value, which becomes whatever zero the consuming command expects.
 
+### Splooting
+
+To **sploot** is to emit a soft error and continue with the empty
+value. A command outside the effective dialect sploots. An unbound
+variable sploots. An unwired port sploots. A key coercion failure
+sploots. The pipeline is never halted; the empty value flows
+through and coerces to whatever the next command expects.
+
+Splooting is the mechanism behind totality: every operation that
+"fails" actually succeeds — it just succeeds with the empty value
+and a side-channel error notification. The error is routed to the
+space's error port (if wired); the pipeline sees only the empty
+value.
+
 ### Value semantics
 
 Values flowing through pipelines have copy semantics at command
@@ -710,7 +724,6 @@ TODO: note that a value can be a list -- this is about the wrapping
 Poke writes a constant value at a path. **Only Key creates new
 structure.** Everything else modifies in place or soft errors and
 is a no-op.
-TODO: aka sploots
 
 ```
 poke(v, [], new) = new                    — replace entirely
@@ -1625,24 +1638,27 @@ pipe     ::= '|' or '||'             — normal pipe or barrier pipe
 
 ## 6. Errors
 
-Daimio is total. Commands do not throw exceptions. However, certain
-conditions produce **soft errors**:
+Daimio is total. Commands do not throw exceptions. When something
+goes wrong, the operation **sploots**: it emits a soft error and
+continues with the empty value (see §4 "Splooting").
+
+Conditions that sploot:
 
 ```
-error conditions:
-  - command not in dialect (c ∉ δ.commands)
+  - command not in effective dialect
   - effectful command with unwired port (returns default, no async)
   - timeout on down-port response (returns default after elapsed time)
   - orphaned response (response arrives for already-completed request)
-  - unbound space variable read (returns empty, may also emit error)
-  - type mismatch in command params (command returns default value)
+  - unbound space variable read (returns empty)
+  - type mismatch in command params (returns default value)
   - key coercion failure (non-numeric string key on unkeyed list)
   - Key poke on unkeyed list (no promotion, returns unchanged)
 ```
 
-A soft error:
-  1. Emits an error event as a ship to the space's error port (if wired)
-  2. Does NOT halt the pipeline
+When splooting:
+  1. A soft error is emitted as a ship to the space's error port
+     (if wired). The error ship carries the process's sender.
+  2. The pipeline is NOT halted.
   3. The pipeline continues with the empty value (which coerces to
      "", 0, or [] depending on context).
 
