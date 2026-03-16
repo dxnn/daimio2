@@ -218,6 +218,10 @@ D.import_models({
 
       merge: {
         desc: "Merge data with a template, returning a string",
+        examples: [
+          ['{list pair data (:a 1 :b 2) | >$h || ($h) | list merge block "{_a}:{_b}"}', '1:2'],
+          ['{list pair data (:name :alice) | >$x || list pair data (:name :bob) | >$y || ($x $y) | list merge block "{_name} "}', 'alice bob '],
+        ],
         params: [
           {
             key: 'data',

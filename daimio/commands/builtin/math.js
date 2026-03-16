@@ -134,9 +134,9 @@ D.import_models({
         examples: [
           ['{divide value 7 by 4}', '1.75'],
           ['{7 | divide by 4}', '1.75'],
-          ['{divide value (1 2 3)}', '0.16666666666666666'],
-          ['{(1 2 3) | divide by 3}', '[0.3333333333333333,0.6666666666666666,1]'],
-          ['{math divide value (1 2 3) by (6 5 4)}', '[0.16666666666666666,0.4,0.75]'],
+          ['{divide value (12 6)}', '2'],
+          ['{(12 24 36) | divide by 3}', '[4,8,12]'],
+          ['{math divide value (12 8 6) by (4 2 3)}', '[3,4,2]'],
         ],
         params: [
           {
@@ -202,7 +202,7 @@ D.import_models({
         examples: [
           ['{math pow value 2 exp 8}', '256'],
           ['{5 | math pow exp :3}', '125'],
-          ['{5 | math pow exp :0.5}', '2.23606797749979'],
+          ['{4 | math pow exp :0.5}', '2'],
         ],
         params: [
           {

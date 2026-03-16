@@ -7,14 +7,15 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 149 spec alignment tests
+node tests/d2_spec_test.mjs     # 158 spec alignment tests
 node tests/daimio_test.mjs       # ~843 legacy tests (4 known failures)
 node tests/node_code.mjs         # 68 internal tests
 node tests/security_test.mjs    # 97 security tests (dialect, pollution, regex, actors)
-node tests/space_test.mjs       # 91 space/topology tests (10 known failures)
+node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
+node tests/example_test.mjs     # 102 command example tests
 ```
 
-All five test suites must pass before any change is considered complete.
+All six test suites must pass before any change is considered complete.
 
 ## Language overview
 
@@ -112,9 +113,10 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (149 tests)
+  d2_spec_test.mjs     — spec alignment tests (158 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
-  node_code.mjs        — internal JS-level tests (69 tests)
+  node_code.mjs        — internal JS-level tests (68 tests)
+  example_test.mjs     — command example tests (102 tests, auto-discovered)
   daimio.dm            — test definitions (text format)
 D2-spec.md             — formal execution model specification
 extra/
@@ -141,6 +143,11 @@ D.import_models({
   handler: {
     methods: {
       method: {
+        desc: 'What this method does',
+        help: ['Detailed usage notes'],
+        examples: [
+          ['{handler method param 5}', 'expected output'],
+        ],
         params: [{ key: 'value', type: 'number', required: true }],
         fun: function(value) { return result }
       }
@@ -150,6 +157,9 @@ D.import_models({
 ```
 
 Effectful commands declare an `effect` property instead of (or alongside) `fun`.
+
+Examples are `[input, expected]` tuples tested by `example_test.mjs`. The test harness
+auto-discovers all examples from `D.Commands` — no registration needed.
 
 ### Port inside/outside pairing
 
@@ -188,11 +198,12 @@ Part IV — Space Execution:
 
 ## Test status
 
-- **d2_spec_test**: 149/149 pass
+- **d2_spec_test**: 158/158 pass
 - **daimio_test**: 839/843 (4 known failures in `known_failures` set)
 - **node_code**: 68/68 pass
 - **security_test**: 97/97 pass
-- **space_test**: 81/91 pass (10 known failures for unimplemented spec behaviors)
+- **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
+- **example_test**: 102/102 pass
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
 
