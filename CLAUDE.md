@@ -205,7 +205,7 @@ Part IV — Space Execution:
 - **security_test**: 97/97 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
-- **perf_test**: 9/9 benchmarks pass
+- **perf_test**: 21/21 benchmarks pass
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
 

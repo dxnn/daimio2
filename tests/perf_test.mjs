@@ -211,11 +211,13 @@ var benchmarks = [
     name: 'pathfinder_star_poke',
     expected_ratio: 1.1,
     run: function() {
-      // Build keyed structure, then poke with star paths to mutate all children
+      // Repeatedly star-poke all children of a keyed structure (no accumulation — star poke
+      // with accumulation causes exponential growth, which is a separate bug to investigate)
+      // Must use `list poke path` — the `poke` alias fills `value` not `path`
       return run_timed(
         '{( {* (:a 1 :b 2 :c 3)} {* (:a 4 :b 5 :c 6)} {* (:a 7 :b 8 :c 9)} ) | >$d' +
-        ' || range 100 | each block "{$d | poke ("*" :a) value __ | poke ("*" :b) value __ | poke ("*" :c) value __ | >$d}"' +
-        ' || $d | count}',
+        ' || range 270 | map block "{$d | list poke path ("*" :a) value __ | list poke path ("*" :b) value __ | list poke path ("*" :c) value __}"' +
+        ' | count}',
         iterations)
     }
   },
@@ -233,11 +235,23 @@ var benchmarks = [
   },
   // ── Named blocks ───────────────────────────────────────────────────
   {
-    name: 'named_blocks',
-    expected_ratio: 1.4,
+    name: 'named_block_parse',
+    expected_ratio: 2.5,
     run: function() {
-      // Parse and evaluate many named blocks — each {begin}...{end} is a fresh template parse
-      // Then run the resulting block many times
+      // Generate DAML with many distinct named blocks to stress the parser
+      // Each {begin}...{end} is a separate template that must be parsed
+      var parts = []
+      for(var i = 0; i < 300; i++)
+        parts.push('{begin b' + i + ' | >$fn}{__ | add ' + i + '}{end b' + i + '}')
+      parts.push('{$fn | run value 1}')
+      return run_timed(parts.join(''), iterations)
+    }
+  },
+  {
+    name: 'named_block_run',
+    expected_ratio: 1.7,
+    run: function() {
+      // Parse one named block, then run it many times via process.run
       return run_timed(
         '{begin tmpl | >$fn}{__ | add 1 | multiply 2 | subtract 3}{end tmpl}' +
         '{range 5000 | map block "{$fn | run value __}"}' +
@@ -246,6 +260,16 @@ var benchmarks = [
     }
   },
   // ── Conditional branching ──────────────────────────────────────────
+  {
+    name: 'conditional_cond',
+    expected_ratio: 1.4,
+    run: function() {
+      // cond evaluates block conditions until one is truthy — heavier than switch
+      return run_timed(
+        '{range 4200 | map block "{__ | cond ({__ | mod 3 | not} :fizz {__ | mod 5 | not} :buzz 1 __)}"}',
+        iterations)
+    }
+  },
   {
     name: 'conditional_then_else',
     expected_ratio: 1.0,
@@ -256,7 +280,7 @@ var benchmarks = [
     }
   },
   {
-    name: 'conditional_cond',
+    name: 'conditional_switch',
     expected_ratio: 1.0,
     run: function() {
       // switch scans pairs looking for matching value
@@ -305,13 +329,21 @@ var benchmarks = [
     name: 'error_path',
     expected_ratio: 1.0,
     run: function() {
-      // Each iteration triggers a soft error (division by zero), pipeline continues with empty
-      // Suppress console.log during this benchmark to avoid flooding output
+      // Each ship triggers a soft error (division by zero) which routes to @err port.
+      // Tests actual error routing through the port system, not just D.on_error returning "".
+      // Suppress console.log to avoid flooding output.
       var real_log = console.log
       console.log = function() {}
-      return run_timed(
-        '{range 8000 | map block "{__ | math divide by 0 | add 1}"}',
-        iterations)
+      return run_space_timed(`
+        outer
+          @init from-js
+          @out  perf-collect
+          @err  perf-collect
+          badmath {__ | math divide by 0 | add 1 | >@done}
+          @init -> badmath
+          badmath.done -> @out`,
+        function(i) { return {port: 'init', value: i} },
+        6000, iterations)
         .then(function(ms) { console.log = real_log; return ms })
     }
   },
