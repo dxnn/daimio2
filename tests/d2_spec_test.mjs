@@ -1898,6 +1898,65 @@ test(
 
 
 // =====================================================
+// list zip
+// =====================================================
+
+// basic zip: list of two lists
+test('zip: basic two lists',
+  '{((1 2 3) (4 5 6)) | list zip}',
+  '[[1,4],[2,5],[3,6]]'
+)
+
+// zip with also param
+test('zip: data + also',
+  '{(1 2 3) | list zip also (4 5 6)}',
+  '[[4,1],[5,2],[6,3]]'
+)
+
+// zip three lists
+test('zip: three lists',
+  '{((:a :b) (:c :d) (:e :f)) | list zip}',
+  '[["a","c","e"],["b","d","f"]]'
+)
+
+// zip single list (each element becomes a singleton tuple)
+test('zip: single list wraps elements',
+  '{((1 2 3)) | list zip}',
+  '[[1],[2],[3]]'
+)
+
+// zip with uneven lengths (short lists produce null for missing)
+test('zip: uneven lengths',
+  '{((1 2 3) (4 5)) | list zip}',
+  '[[1,4],[2,5],[3,null]]'
+)
+
+// zip empty input
+test('zip: empty input',
+  '{() | list zip}',
+  ''
+)
+
+// no mutation: zip should not alter the original list
+test('zip: no mutation of source',
+  '{((1 2) (3 4)) | >$data || $data | list zip | >$zipped || $data}',
+  '[[1,2],[3,4]]'
+)
+
+// no mutation: zip with also should not alter either input
+test('zip: no mutation with also',
+  '{(1 2 3) | >$a || (4 5 6) | >$b || $a | list zip also $b || $a | string join on "-"}',
+  '1-2-3'
+)
+
+// zip alias
+test('zip: alias',
+  '{((1 2) (3 4)) | zip}',
+  '[[1,3],[2,4]]'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

@@ -8,6 +8,10 @@ D.import_models({
 
       'if': {
         desc: 'Return the "then" param if "value" is true, else "else"',
+        examples: [
+          ['{logic if value 1 then :yes else :no}', 'yes'],
+          ['{logic if value 0 then :yes else :no}', 'no'],
+        ],
         params: [
           {
             key: 'value',
@@ -39,6 +43,10 @@ D.import_models({
 
       'is': {
         desc: 'If value is in in or like like, return true',
+        examples: [
+          ['{logic is value 5 in (1 3 5 7) | logic if then :yes else :no}', 'yes'],
+          ['{logic is value :hello like :hello | logic if then :yes else :no}', 'yes'],
+        ],
         params: [
           {
             key: 'value',
@@ -94,6 +102,9 @@ D.import_models({
 
       'cond': {
         desc: 'Takes a list with odd elements providing conditions and even elements providing actions. Finds the first true test and returns its action',
+        examples: [
+          ['{logic cond value (1 :first 0 :second)}', 'first'],
+        ],
         params: [
           {
             key: 'value',
@@ -113,6 +124,9 @@ D.import_models({
 
       'switch': {
         desc: 'Given a value, find a matching expression',
+        examples: [
+          ['{logic switch on :b value (:a :alpha :b :beta)}', 'beta'],
+        ],
         params: [
           {
             key: 'on',
@@ -144,6 +158,10 @@ D.import_models({
 
       and: {
         desc: "If all values are true, return true",
+        examples: [
+          ['{logic and value (1 2 3) | logic if then :yes else :no}', 'yes'],
+          ['{logic and value (1 0 3) | logic if then :yes else :no}', 'no'],
+        ],
         params: [
           {
             key: 'value',
@@ -176,11 +194,10 @@ D.import_models({
         desc: "Accepts a list of values or two separate values; runs all incoming templates, no short-circuiting",
         help: "Note that the 'first' param is considered before the 'value' param, if it is included. This makes the examples easier to read.",
         examples: [
-          '{5 | or 10}',
-          '{false | or :true}',
-          '{(false 1 2 3) | or}',
-          '{or (false 1 2 3)}',
-          '{(false 0 "") | or :true}',
+          ['{5 | or 10}', '5'],
+          ['{0 | or :true}', 'true'],
+          ['{(0 1 2 3) | or}', '1'],
+          ['{or (0 1 2 3)}', '1'],
         ],
         params: [
           {
@@ -210,6 +227,10 @@ D.import_models({
 
       not: {
         desc: "Returns the opposite of value",
+        examples: [
+          ['{logic not value 0 | logic if then :yes else :no}', 'yes'],
+          ['{logic not value 1 | logic if then :yes else :no}', 'no'],
+        ],
         params: [
           {
             key: 'value',

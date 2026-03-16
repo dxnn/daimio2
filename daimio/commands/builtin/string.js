@@ -10,6 +10,11 @@ D.import_models({
 
       join: {
         desc: "Concatenate an array of strings",
+        examples: [
+          ['{(:hello :world) | string join}', 'helloworld'],
+          ['{(:hello :world) | string join on " "}', 'hello world'],
+          ['{(:a :b :c) | string join on ", "}', 'a, b, c'],
+        ],
         params: [
           {
             key: 'value',
@@ -52,6 +57,10 @@ D.import_models({
 
       grep: {
         desc: "Find a string in a haystack",
+        examples: [
+          ['{string grep value (:cat :car :dog) on :ca}', '["cat","car"]'],
+          ['{string grep value (:cat :car :dog) on :do}', '["dog"]'],
+        ],
         params: [
           {
             key: 'value',
@@ -79,6 +88,10 @@ D.import_models({
 
       split: {
         desc: "Break up a string",
+        examples: [
+          ['{string split value "hello world" on " "}', '["hello","world"]'],
+          ['{string split value "a-b-c" on "-"}', '["a","b","c"]'],
+        ],
         params: [
           {
             key: 'value',
@@ -100,6 +113,9 @@ D.import_models({
 
       quote: {
         desc: "Sometimes a string is just a string",
+        examples: [
+          ['{string quote value :hello}', 'hello'],
+        ],
         params: [
           {
             key: 'value',
@@ -119,6 +135,9 @@ D.import_models({
 
       trim: {
         desc: "Whitespace begone",
+        examples: [
+          ['{:hello | string trim}', 'hello'],
+        ],
         params: [
           {
             key: 'value',
@@ -134,6 +153,9 @@ D.import_models({
 
       uppercase: {
         desc: "MAKE IT LOUD",
+        examples: [
+          ['{:hello | string uppercase}', 'HELLO'],
+        ],
         params: [
           {
             key: 'value',
@@ -149,6 +171,9 @@ D.import_models({
 
       lowercase: {
         desc: "make it quiet",
+        examples: [
+          ['{:HELLO | string lowercase}', 'hello'],
+        ],
         params: [
           {
             key: 'value',
@@ -164,6 +189,9 @@ D.import_models({
 
       "uri-decode": {
 	  desc: "Decode a string containing URI escape sequences to one without them",
+	  examples: [
+	    ['{:hello%20world | string uri-decode}', 'hello world'],
+	  ],
 	  params: [
 	      {
 		  key: 'value',
@@ -178,6 +206,9 @@ D.import_models({
 
       transform: {
         desc: "Convert a string to something new",
+        examples: [
+          ['{string transform value :abcabc from :b to :B}', 'aBcaBc'],
+        ],
         params: [
           {
             key: 'value',
@@ -291,6 +322,10 @@ D.import_models({
 
       slice: {
         desc: "Slice a string",
+        examples: [
+          ['{:abcdef | string slice start 2}', 'cdef'],
+          ['{:abcdef | string slice start 1 end 4}', 'bcd'],
+        ],
         params: [
           {
             key: 'value',
@@ -319,6 +354,9 @@ D.import_models({
 
       truncate: {
         desc: 'Like slice, but tries to snip at word boundaries',
+        examples: [
+          ['{:hello-world | string truncate to 7}', 'hello-w'],
+        ],
         help: 'Use this to chop a string down to size without losing your mind. Currently only cuts at spaces.',
         params: [
           {
@@ -352,6 +390,9 @@ D.import_models({
 
       from: {
         desc: "Turn a code point into a character",
+        examples: [
+          ['{string from code 65}', 'A'],
+        ],
         help: "BTW open curly is 123, pipe is 124, closing curly is 125, and poo is 128169",
         params: [
           {

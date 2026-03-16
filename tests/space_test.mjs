@@ -35,8 +35,7 @@ var known_failures = new Set([
   'timeout inheritance: outer timeout is authoritative',
   // §10 Effect locality: forwarding through parent boundary
   'effect locality: subspace effect forwarded to parent boundary',
-  // §10 Space isolation: subspace cannot read parent space vars
-  'space isolation: subspace cannot read parent vars directly',
+  // §10 Space isolation: subspace cannot read parent space vars — FIXED (was test expectation bug)
   // §6 Wiring rules: multiple rules, first match wins
   'wiring rules: first matching rule wins',
   // §7 Socket overlap: old state lost on transition
@@ -1366,9 +1365,9 @@ space_test(
   1,
   function(collected) {
     // The inner space should NOT be able to read $parent_secret.
-    // It should get empty (which coerces to ""), not "42".
+    // It gets false (Daimio's internal empty value), not "42".
     assert_eq('space isolation: subspace cannot read parent vars directly',
-      collected.out[0], '')
+      collected.out[0], false)
   }
 )
 

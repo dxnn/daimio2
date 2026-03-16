@@ -21,11 +21,11 @@ D.import_models({
           'You can use "add" as an alias for this command.',
         ],
         examples: [
-          '{add 4 to 7}',
-          '{7 | add 4}',
-          '{add (1 2 3)}',
-          '{(1 2 3) | add 3}',
-          '{math add value (1 2 3) to (6 5 4)}',
+          ['{add 4 to 7}', '11'],
+          ['{7 | add 4}', '11'],
+          ['{add (1 2 3)}', '6'],
+          ['{(1 2 3) | add 3}', '[4,5,6]'],
+          ['{math add value (1 2 3) to (6 5 4)}', '[7,7,7]'],
         ],
         params: [
           {
@@ -58,11 +58,11 @@ D.import_models({
           'You can use "multiply" as an alias for this command.',
         ],
         examples: [
-          '{multiply 4 by 7}',
-          '{7 | multiply 4}',
-          '{multiply (1 2 3)}',
-          '{(1 2 3) | multiply 3}',
-          '{math multiply value (1 2 3) by (6 5 4)}',
+          ['{multiply 4 by 7}', '28'],
+          ['{7 | multiply 4}', '28'],
+          ['{multiply (1 2 3)}', '6'],
+          ['{(1 2 3) | multiply 3}', '[3,6,9]'],
+          ['{math multiply value (1 2 3) by (6 5 4)}', '[6,10,12]'],
         ],
         params: [
           {
@@ -95,11 +95,11 @@ D.import_models({
           'You can use "subtract" as an alias for this command.',
         ],
         examples: [
-          '{subtract 4 from 7}',
-          '{7 | subtract 4}',
-          '{subtract (100 2 3 4 5)}',
-          '{(1 3 5 7) | subtract 3}',
-          '{math subtract value (6 5 4) from (1 2 3)}',
+          ['{subtract 4 from 7}', '3'],
+          ['{7 | subtract 4}', '3'],
+          ['{subtract (100 2 3 4 5)}', '86'],
+          ['{(1 3 5 7) | subtract 3}', '[-2,0,2,4]'],
+          ['{math subtract value (6 5 4) from (1 2 3)}', '[-5,-3,-1]'],
         ],
         params: [
           {
@@ -132,11 +132,11 @@ D.import_models({
           'You can use "divide" as an alias for this command. When ambiguous read it as _divides_ instead of _divide by_ -- the second example will be confusing otherwise.',
         ],
         examples: [
-          '{divide value 7 by 4}',
-          '{7 | divide by 4}',
-          '{divide value (1 2 3)}',
-          '{(1 2 3) | divide by 3}',
-          '{math divide value (1 2 3) by (6 5 4)}',
+          ['{divide value 7 by 4}', '1.75'],
+          ['{7 | divide by 4}', '1.75'],
+          ['{divide value (1 2 3)}', '0.16666666666666666'],
+          ['{(1 2 3) | divide by 3}', '[0.3333333333333333,0.6666666666666666,1]'],
+          ['{math divide value (1 2 3) by (6 5 4)}', '[0.16666666666666666,0.4,0.75]'],
         ],
         params: [
           {
@@ -166,8 +166,8 @@ D.import_models({
           'Take the modulo of a value with respect to another value.'
         ],
         examples: [
-          '{math mod value 7 by 2}',
-          '{7 | mod 2}',
+          ['{math mod value 7 by 2}', '1'],
+          ['{7 | mod 2}', '1'],
         ],
         params: [
           {
@@ -200,9 +200,9 @@ D.import_models({
           'This raises value to the exp. Fractional exponents are fine, so the square root of five is {5 | math pow exp :0.5}.',
         ],
         examples: [
-          '{math pow value 2 exp 8}',
-          '{5 | math pow exp :3}',
-          '{5 | math pow exp :0.5}',
+          ['{math pow value 2 exp 8}', '256'],
+          ['{5 | math pow exp :3}', '125'],
+          ['{5 | math pow exp :0.5}', '2.23606797749979'],
         ],
         params: [
           {
@@ -229,6 +229,10 @@ D.import_models({
 
       less: {
         desc: "Is value less than than?",
+        examples: [
+          ['{math less value 3 than 5 | logic if then :yes else :no}', 'yes'],
+          ['{math less value 5 than 3 | logic if then :yes else :no}', 'no'],
+        ],
         params: [
           {
             key: 'value',
@@ -250,6 +254,7 @@ D.import_models({
 
       random: {
         desc: "There's random, and then there's AYN random",
+        // no examples: output is nondeterministic
         params: [
           {
             key: 'max',
@@ -267,6 +272,9 @@ D.import_models({
 
       log: {
         desc: "Returns the logarithm, natural by default",
+        examples: [
+          ['{math log value 100 base 10}', '2'],
+        ],
         params: [
           {
             key: 'value',
@@ -288,6 +296,9 @@ D.import_models({
       // CAREFUL WHEN YOU ADD asin and acos and also sqrt and log -- all of those can give NaNs!
       sin: {
         desc: "Find out if yours is original",
+        examples: [
+          ['{90 | math sin}', '1'],
+        ],
         params: [
           {
             key: 'value',
@@ -302,6 +313,9 @@ D.import_models({
 
       cos: {
         desc: "The reason we did it: jus",
+        examples: [
+          ['{0 | math cos}', '1'],
+        ],
         params: [
           {
             key: 'value',
@@ -316,6 +330,10 @@ D.import_models({
 
       round: {
         desc: "Round yourself out",
+        examples: [
+          ['{math round value 3.7}', '4'],
+          ['{math round value 3.14159 to 2}', '3.14'],
+        ],
         params: [
           {
             key: 'value',
@@ -341,6 +359,10 @@ D.import_models({
 
       min: {
         desc: "Find the lowest value",
+        examples: [
+          ['{math min value (5 3 8 1)}', '1'],
+          ['{math min value 5 also 3}', '3'],
+        ],
         params: [
           {
             key: 'value',
@@ -367,6 +389,10 @@ D.import_models({
 
       max: {
         desc: "Find the highest value",
+        examples: [
+          ['{math max value (5 3 8 1)}', '8'],
+          ['{math max value 5 also 8}', '8'],
+        ],
         params: [
           {
             key: 'value',

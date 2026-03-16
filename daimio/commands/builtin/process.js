@@ -127,6 +127,9 @@ D.import_models({
 
       quote: {
         desc: "Return a pure string, possibly containing Daimio",
+        examples: [
+          ['{process quote value "{1 | add 2}"}', '{1 | add 2}'],
+        ],
         params: [
           {
             key: 'value',
@@ -142,6 +145,9 @@ D.import_models({
 
       unquote: {
         desc: "Convert a string into a block. This will eventually execute (it's a bit like a delayed run), so use it carefully",
+        examples: [
+          ['{"{1 | add 2}" | process unquote | process run}', '3'],
+        ],
         params: [
           {
             key: 'value',
@@ -157,6 +163,10 @@ D.import_models({
 
       run: {
         desc: "Completely process some Daimio code",
+        examples: [
+          ['{process run block "{add 1 to 2}"}', '3'],
+          ['{process run block "{__in | add 10}" value 5}', '15'],
+        ],
         params: [
           {
             key: 'block',

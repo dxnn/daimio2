@@ -22,6 +22,9 @@ D.import_models({
 
       map: {
         desc: 'Run Daimio for each item, returning a list',
+        examples: [
+          ['{(1 2 3) | list map block "{__ | add 10}"}', '[11,12,13]'],
+        ],
         injects: ['value', 'key'],
         params: [
           {
@@ -116,6 +119,9 @@ D.import_models({
 
       reduce: {
         desc: 'Each pair of items is fed into the block',
+        examples: [
+          ['{(1 2 3) | list reduce block "{_total | add _value}"}', '6'],
+        ],
         injects: ['value', 'total'],
         params: [
           {
@@ -165,6 +171,9 @@ D.import_models({
 
       each: {
         desc: 'Run Daimio for each item, returning a string',
+        examples: [
+          ['{(1 2 3) | list each block "{__ | add 10}, "}', '11, 12, 13, '],
+        ],
         params: [
           {
             key: 'data',
@@ -254,6 +263,9 @@ D.import_models({
 
       'from-json': {
         desc: "Convert from a JSON string to a list",
+        examples: [
+          ['{list from-json data "[1,2,3]"}', '[1,2,3]'],
+        ],
         params: [
           {
             key: 'data',
@@ -275,6 +287,9 @@ D.import_models({
 
       'to-json': {
         desc: "Convert a list to a JSON string",
+        examples: [
+          ['{(:hello :world) | list to-json}', '["hello","world"]'],
+        ],
         params: [
           {
             key: 'data',
@@ -289,6 +304,9 @@ D.import_models({
 
       count: {
         desc: "Count the items in a list",
+        examples: [
+          ['{(1 2 3) | list count}', '3'],
+        ],
         params: [
           {
             key: 'data',
@@ -303,6 +321,9 @@ D.import_models({
 
       zip: {
         desc: "Zip a list of lists into tuples of elements of lists of lists",
+        examples: [
+          ['{((1 2 3) (4 5 6)) | list zip}', '[[1,4],[2,5],[3,6]]'],
+        ],
         params: [
           {
             key: 'data',
@@ -333,6 +354,9 @@ D.import_models({
 
       keys: {
         desc: 'Returns the keys from a list, or the integer indices if unkeyed',
+        examples: [
+          ['{(1 2 3) | list keys}', '["0","1","2"]'],
+        ],
         params: [
           {
             key: 'data',
@@ -348,6 +372,9 @@ D.import_models({
 
       pair: {
         desc: "Create a new list, using the first item as its first key, the second item as that value, and so on.",
+        examples: [
+          ['{list pair data (:name :alice :age :30)}', '{"name":"alice","age":"30"}'],
+        ],
         params: [
           {
             key: 'data',
@@ -378,6 +405,9 @@ D.import_models({
       intersect: {
         desc: "Return a list of all items matching the path items",
         help: "Note that this removes any associated keys",
+        examples: [
+          ['{((1 2 3) (2 3 4)) | list intersect}', '[2,3]'],
+        ],
         params: [
           {
             key: 'data',
@@ -429,6 +459,10 @@ D.import_models({
 
       peek: {
         desc: "Return a list of all items matching the path items",
+        examples: [
+          ['{(1 2 3) | list peek path (:1)}', '2'],
+          ['{list pair data (:x 10 :y 20) | list peek path (:x)}', '10'],
+        ],
         params: [
           {
             key: 'data',
@@ -455,6 +489,9 @@ D.import_models({
 
       poke: {
         desc: "Set a subitem",
+        examples: [
+          ['{list pair data (:x 10 :y 20) | list poke path (:x) value 99}', '{"x":99,"y":20}'],
+        ],
         params: [
           {
             key: 'data',
@@ -484,6 +521,10 @@ D.import_models({
 
       remove: {
         desc: "Remove elements from an array",
+        examples: [
+          ['{(1 2 3) | list remove by_key (1)}', '[1,3]'],
+          ['{(1 2 3) | list remove by_value (2)}', '[1,3]'],
+        ],
         params: [
           {
             key: 'data',
@@ -529,6 +570,10 @@ D.import_models({
 
       union: {
         desc: 'Union the lists in a list',
+        examples: [
+          ['{((1 2) (3 4)) | list union}', '[1,2,3,4]'],
+          ['{(1 2 3) | list union also (4 5)}', '[4,5,1,2,3]'],
+        ],
         help: 'Given a single param it unions all the lists in the list. Given two params it considers each a single list and unions the two together. So you can use it through pipes but also directly, which is nice. Respects keys if the first list has them, otherwise eats all keys.',
         params: [
           {
@@ -599,6 +644,9 @@ D.import_models({
 
       rekey: {
         desc: 'Key the data by a different property',
+        examples: [
+          ['{list pair data (:a 1 :b 2) | list rekey by "{__ | add 10}"}', '{"11":1,"12":2}'],
+        ],
         help: 'Note that like all list commands this returns the modified value, but does not change the input data.',
         params: [
           {
@@ -651,6 +699,9 @@ D.import_models({
 
       group: {
         desc: 'group a list by something',
+        examples: [
+          ['{list pair data (:a 1 :b 2) | list group by "{__ | mod 2}"}', '{"0":[2],"1":[1]}'],
+        ],
         params: [
           {
             key: 'data',
@@ -711,6 +762,10 @@ D.import_models({
 
       sort: {
         desc: 'Sort a list by something',
+        examples: [
+          ['{(3 1 2) | list sort}', '[1,2,3]'],
+          ['{(3 1 2) | list sort by "{__ | multiply -1}"}', '[3,2,1]'],
+        ],
         help: 'Preserves keys on keyed lists.',
         params: [
           {
@@ -792,6 +847,11 @@ D.import_models({
 
       range: {
         desc: 'Returns a range of numbers',
+        examples: [
+          ['{list range length 5}', '[1,2,3,4,5]'],
+          ['{list range length 3 start 0}', '[0,1,2]'],
+          ['{list range length 4 start 2 step 3}', '[2,5,8,11]'],
+        ],
         params: [
           {
             key: 'length',
@@ -833,6 +893,9 @@ D.import_models({
 
       reverse: {
         desc: 'Reverse a list',
+        examples: [
+          ['{(3 1 2) | list reverse}', '[2,1,3]'],
+        ],
         help: 'Preserves keys on keyed lists.',
         params: [
           {
@@ -900,6 +963,9 @@ D.import_models({
 
       filter: {
         desc: "Select matching items from a list",
+        examples: [
+          ['{(1 2 3 4 5 6) | list filter block "{__ | mod 2}"}', '[1,3,5]'],
+        ],
         params: [
           {
             key: 'data',
@@ -947,6 +1013,9 @@ D.import_models({
 
       first: {
         desc: "Select the first matching item from a list",
+        examples: [
+          ['{(1 2 3) | list filter block "{__ | math less than 3}"}', '[1,2]'],
+        ],
         params: [
           {
             key: 'data',
@@ -1002,6 +1071,9 @@ D.import_models({
 
       unique: {
         desc: 'Removes duplicate items',
+        examples: [
+          ['{(1 2 3 2 1) | list unique}', '[1,2,3]'],
+        ],
         params: [
           {
             key: 'data',
@@ -1038,6 +1110,9 @@ D.import_models({
 
       index: {
         desc: 'Given an item value, return its key',
+        examples: [
+          ['{(:a :b :c) | list index value :b}', '1'],
+        ],
         params: [
           {
             key: 'data',
