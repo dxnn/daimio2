@@ -94,16 +94,17 @@ no future references exist (linear types style), but the observable
 behavior is always as-if copied.
 
 ### Dialect confinement
-Every process runs under a dialect — either the actor's dialect (if
-the ship came from an identified actor) or the space's base dialect.
-An actor's dialect is always a subset of the space's base dialect.
-There is no mechanism for privilege escalation during execution — a
-received program, a block passed as data, or a space loaded into a
-socket all run under the applicable dialect. Commands outside the
-dialect are not executed (soft error, pipeline continues with empty).
-This is the core security property: the space owner controls what
-each actor can do by choosing their dialect. This is what makes
-multiactor applications safe (§0.2).
+Every process runs under an effective dialect: the intersection of
+the sender's dialect (if the ship carries a sender) and the outer
+space's base dialect. The effective dialect is computed once at dock
+time and inherited by all sub-processes, block evaluations, and port
+routing. There is no mechanism for privilege escalation during
+execution — a received program, a block passed as data, or a space
+loaded into a socket all run under the effective dialect. Commands
+outside the effective dialect sploot. This is the core security
+property: the space owner controls the base dialect, the App
+controls sender dialects, and the intersection guarantees neither
+party can escalate beyond the other (§0.2).
 
 ### Serial execution
 Each space processes one ship at a time (see §7). The active
@@ -222,8 +223,8 @@ same rules — same dialect, same serial execution, same fresh reads,
 same effect routing. A program received as data is evaluated the
 same way as a block passed to `list map` — both create a
 sub-process. This is what makes programmable applications work
-(§0.1): a program sent by an actor executes under exactly the same
-rules as built-in code, constrained by the actor's dialect.
+(§0.1): a program sent by a sender executes under exactly the same
+rules as built-in code, constrained by the effective dialect.
 
 ### Deterministic pipe filling
 The implicit pipe value fills the first unfilled parameter of the
@@ -232,6 +233,99 @@ This is fully deterministic from the command signature alone — the
 programmer can predict what gets filled without knowing implementation
 details. Named parameters override this by explicitly binding a value
 to a parameter name, removing it from the implicit filling order.
+
+
+### Invariants
+
+These are constraints the system MUST maintain. Violating any of
+these is a bug.
+
+**I1. Totality.** Every command invocation produces a value. Every
+path access produces a value. Every port request eventually resolves
+(via response, timeout, or unwired default). No pipeline diverges
+or crashes. The empty value is always a valid result.
+
+**I2. Dialect monotonicity.** A process's effective dialect is
+always ≤ the outer space's base dialect. A sender's dialect is
+always ≤ the outer space's base dialect. No mechanism — block
+evaluation, program-as-data, socket loading, port routing — can
+produce a process with a dialect that exceeds the outer space's
+base dialect. Subspaces do not have their own dialects; they
+inherit from the outer space. Restrictions only accumulate; they
+never relax.
+
+**I3. Sender preservation.** If a ship carries a sender, every
+process in the execution tree rooted at that ship inherits the
+sender and its effective dialect. This includes sub-processes
+from block evaluation, ships sent through `>@portname`, ships
+exiting through `_out`, down-port requests, and error ships.
+The sender exits all ports, including the outermost boundary
+to the App.
+
+**I4. Sender confinement.** For any process P with sender S in
+outer space X: `P.effective_dialect = S.dialect ∩ X.dialect`.
+The process can never do more than the sender allows AND the
+outer space allows. This is computed once at dock time and
+inherited by all sub-processes. A command outside the effective
+dialect sploots.
+
+**I5. Serial exclusion.** At most one process is active in a
+space at any time. A waiting process holds the space — no other
+ship can dock until the active process completes. The queue is
+FIFO. (This invariant may be relaxed per-space in a future
+concurrent model.)
+
+**I6. Space variable atomicity.** Within a single process
+execution (including all sub-processes), space variable access
+is consistent — no other process can read or write σ during the
+active process's lifetime.
+
+**I7. Pipeline variable isolation.** Pipeline variables bound in
+a sub-process do not propagate to the parent. Pipeline variables
+from the parent are readable (inherited copy) but the inheritance
+is one-way. No sub-process can modify the parent's pipeline state.
+
+**I8. Space boundary opacity.** A subspace cannot read or write
+its parent's space variables directly. All cross-boundary
+communication goes through ports. A parent cannot read a
+subspace's space variables directly. The port interface is the
+only channel.
+
+**I9. Liveness.** Every down-port request resolves within finite
+time. Unwired ports resolve immediately. Wired ports resolve
+within the effective timeout (minimum of all timeouts along the
+chain). No process waits forever.
+
+**I10. Effect exteriority.** Effectful commands produce port
+requests, not direct effects. The actual effect occurs only at
+the outermost port boundary, where the App's handler executes it.
+No space can cause a real-world effect without a port request
+traversing to the outside.
+
+**I11. Wiring authority.** The parent space controls all wiring
+for its subspaces. A subspace cannot wire its own ports — it can
+only declare them. The parent decides what each port connects to
+(handler, sibling up-port, forwarded down-port, or null).
+
+**I12. Timeout authority.** The effective timeout for a request
+chain is the minimum of all nominal timeouts along the chain. No
+inner wire can extend the wait time beyond what an outer wire
+allows. The outermost space always controls the maximum wait.
+
+**I13. Queue priority.** When a process completes, queued ships
+dock before ships produced by the completing process's output
+routing. Ships already waiting have priority over newly routed
+ships.
+
+**I14. Copy semantics.** A command receives its own copy of any
+collection it intends to mutate. Values flowing through pipelines
+are never modified by downstream commands. From the programmer's
+perspective, pipeline flow is functionally pure.
+
+**I15. Deterministic pipe filling.** The implicit pipe value fills
+the first unfilled parameter by the command's definition order.
+This is deterministic from the command signature alone — no runtime
+state affects which parameter receives the implicit value.
 
 
 ## 2. Design Decisions Record
@@ -894,22 +988,72 @@ signature — the set of possible effects isn't known until the
 block runs. Daimio handles this through demand-created ports and
 wiring rules with OTHER fallbacks (§8).
 
-Requires: the outer space's dialect must include whatever commands
-the program invokes, and port wiring must exist (or be
-demand-creatable) for any effects used.
+Requires: the effective dialect (sender's dialect ∩ outer space's
+dialect) must include whatever commands the program invokes, and
+port wiring must exist (or be demand-creatable) for any effects
+used.
 
 ### Ships
 ```
-ship ∈ Val                — a value in transit between ports
+ship = (value, sender?)
+  where value    : Val              — the payload
+        sender   : Sender?          — who sent this ship (optional)
 ```
 
-A ship is a value being ferried between ports. It is just data — it
-carries no execution state, no pipeline variables, no dialect. When a
-ship arrives at a station's in-port, a process is created to handle
-it (see Processes below). When a process completes, it sends its
-result as a ship through the station's out-port. A single process
-may send multiple ships to different ports during its execution
-(via `>@portname`), and soft errors send ships to the error port.
+A ship is a value being ferried between ports, optionally carrying
+a sender. When a ship arrives at a station's in-port, a process is
+created to handle it (see Processes below). When a process completes,
+it sends its result as a ship through the station's out-port. A
+single process may send multiple ships to different ports during its
+execution (via `>@portname`), and soft errors send ships to the
+error port.
+
+All ships produced by a process inherit that process's sender. This
+includes ships sent through `>@portname`, the implicit `_out` ship,
+error ships, and down-port requests. The sender propagates through
+every port exit, ensuring that the App always knows who originated
+each ship.
+
+### Senders
+```
+sender = (id, dialect)
+  where id      : string           — who sent this ship
+        dialect : Dialect           — what they're allowed to do
+```
+
+A sender identifies who originated a ship and what dialect they
+operate under. The sender's dialect is always a subset of the
+outer space's base dialect (`sender.dialect ⊆ outerSpace.dialect`).
+
+When a ship with a sender docks at a station, the process runs
+under the **effective dialect**: the intersection of the sender's
+dialect and the outer space's base dialect.
+
+```
+effective_dialect = sender.dialect ∩ outerSpace.dialect
+```
+
+This intersection is computed once, at dock time in the outer space.
+It can be memoized by the `(sender.id, outerSpace)` pair.
+
+A ship without a sender runs under the outer space's base dialect
+(the default case for internal routing, system events, etc.).
+
+**Sender propagation.** The sender is immutable and propagates
+through the entire execution tree:
+  - Sub-processes from block evaluation inherit the sender
+  - Ships sent through `>@portname` carry the sender
+  - Ships exiting through `_out` carry the sender
+  - Down-port requests carry the sender
+  - Error ships carry the sender
+  - Ships exiting the outermost space carry the sender (so the
+    App can route responses back and apply its own policies)
+
+The sender is how the App tracks which external entity triggered
+a computation. Daimio does not authenticate senders — the App is
+responsible for validating identity before passing a sender into
+the outer space. From Daimio's perspective, the sender is trusted
+metadata.
 
 ### Blocks
 ```
@@ -926,19 +1070,28 @@ Blocks can also be passed as values to commands (`list map`,
 
 ### Processes
 ```
-process = (space, block, state, pipeline_vars, current, asynced)
-  where space         : Space          — the enclosing space
-        block         : Block          — the block being executed
-        state         : key → Val      — segment outputs and scope vars
-        pipeline_vars : PVar → Val     — pipeline variable bindings
-        current       : int            — current segment index
-        asynced       : bool           — waiting for async response?
+process = (space, block, state, pipeline_vars, current, asynced,
+           sender?, effective_dialect)
+  where space             : Space          — the enclosing space
+        block             : Block          — the block being executed
+        state             : key → Val      — segment outputs and scope vars
+        pipeline_vars     : PVar → Val     — pipeline variable bindings
+        current           : int            — current segment index
+        asynced           : bool           — waiting for async response?
+        sender            : Sender?        — who sent the originating ship
+        effective_dialect : Dialect         — sender.dialect ∩ space.dialect
 ```
 
 A process is the unit of execution. It is created when a ship docks
 at a station, and destroyed when the block completes. A process
 executes its block's segments sequentially, maintaining pipeline
 variable bindings and tracking its position.
+
+The effective dialect is computed at process creation: if the ship
+carries a sender, `effective_dialect = sender.dialect ∩
+outerSpace.dialect`. If no sender, `effective_dialect =
+outerSpace.dialect`. All command invocations within the process
+(and its sub-processes) are checked against this effective dialect.
 
 **Pipeline variable scope:** pipeline variables are write-once and
 scoped to a single process. When a block is evaluated by a command
@@ -951,8 +1104,9 @@ one-way: parent → child, never child → parent.
 **Sub-processes** are synchronous and depth-first. When a command
 evaluates a block, the sub-process runs to completion (or waits)
 before the parent process continues. Sub-processes can nest to
-arbitrary depth. Each sub-process runs in the same space and has
-access to the same σ (space variables).
+arbitrary depth. Each sub-process runs in the same space, has
+access to the same σ (space variables), and inherits the parent's
+sender and effective dialect.
 
 **Async boundaries:** pipeline variables survive across async
 boundaries within the same process. If a process waits at an
@@ -1019,8 +1173,8 @@ topology (stations and their wiring), subspaces, port structure, and
 wiring rules. It does NOT hold a dialect or space variable values.
 Those belong to the outer space (see Outer Space below).
 
-When the outer application wants an actor to use a space, it creates
-an outer space from the space definition, assigns a dialect, and
+When the outer application wants to use a space, it creates an outer
+space from the space definition, assigns a base dialect, and
 initializes the space variable store.
 
 Externally, a space is a **reactive automaton** (Mealy machine):
@@ -1045,15 +1199,22 @@ from block evaluation) have exclusive access to σ for their
 entire lifetime. See §7 for the full scheduling model.
 
 A space carries its own topology, stations, and state. It depends
-on the parent for two things:
+on the parent for:
   - **Port wiring**: the parent's wiring rules determine how
     the space's down-port requests are handled (§8)
-  - **Dialect**: the parent assigns the dialect that governs
-    which commands are available inside the space
+
+The dialect is a property of the **outer space**, not of individual
+subspaces. All subspaces inherit the outer space's dialect (as
+intersected with the sender's dialect, if present). Subspace
+restrictions come entirely from wiring: if you don't want a
+subspace to access `db`, don't wire its `db` port. The dialect
+says "these commands exist." The wiring says "these effects are
+connected." Both must be true for an effectful command to work.
+A command in the dialect but with an unwired port sploots.
 
 The space is "self-reliant" — it brings its own programs and
 state. But it is not self-sufficient: without wiring, its effects
-go nowhere, and without a dialect, its commands don't execute.
+go nowhere.
 
 Spaces can also be serialized as DAML source text and loaded into
 sockets at runtime. Socketed spaces have additional properties
@@ -1093,13 +1254,18 @@ different dialects and different port wiring, or entirely different
 space definitions. The application is responsible for routing data
 between them (via whatever external systems it chooses).
 
-**Actors.** Multiple actors can send ships into the same outer
-space. Each actor may have their own dialect — a restricted subset
-of the space's base dialect. When a ship from an actor docks at a
-station, the process runs under that actor's dialect, not the
-space's base dialect. The mechanics of actor authentication and
-dialect assignment are discussed separately.
-TODO: actor model needs its own section — dialect per actor, auth, the relationship between actors and outer spaces
+**Senders.** Multiple senders can send ships into the same outer
+space. Each sender carries their own dialect — a restricted subset
+of the space's base dialect. When a ship with a sender docks at a
+station, the process runs under the effective dialect:
+`sender.dialect ∩ outerSpace.dialect`. This intersection is
+computed once at dock time and inherited by all sub-processes.
+
+Daimio does not authenticate senders. The App validates identity
+externally (HMAC, capability tokens, session auth, etc.) and
+passes trusted sender information into the outer space. From
+Daimio's perspective, the sender is metadata — the App is the
+authority on who sent what.
 
 
 # Part III: Formal Model — Block Execution
@@ -1275,7 +1441,7 @@ new store `σ'`. Here `process.v` is the current pipeline value and
 
 **Pure command:**
 ```
-  c ∈ δ.commands      (command is in the outer space's dialect)
+  c ∈ effective_dialect.commands   (command is in the effective dialect)
   c is Pure(c, params, fun)
   args' = fillImplicit(args, process.v)     — process.v fills first unfilled param
   v' = fun(args')
@@ -1314,8 +1480,9 @@ no value (not from explicit naming, not from implicit pipe filling,
 and no fallback defined), the command is not executed. A soft error
 is emitted and the pipeline continues with the empty value.
 
-**Dialect check:** if c ∉ δ.commands, the command is not executed.
-A soft error is emitted (see §6), and the pipeline value is unchanged.
+**Dialect check:** if c ∉ effective_dialect.commands, the command is
+not executed. A soft error is emitted (see §6), and the pipeline
+value is unchanged.
 
 **Read space variable:**
 ```
@@ -1421,16 +1588,17 @@ evaluated the same way — it's a block that gets run by a sub-process.
   3. `__in` is the sub-process's input (typically `_value`). `__` is
      the previous pipe segment's output — at the start, `__ = __in`.
   4. The sub-process executes in the same space as the parent, under
-     the same dialect, with access to the same space variables (σ).
+     the same effective dialect, with the same sender, and with
+     access to the same space variables (σ).
   5. Pipeline vars bound inside the sub-process (via `>x`) do NOT
      propagate back to the parent. The sub-process's env is its own.
 
-Everything in an outer space runs under a dialect — either the
-actor's dialect or the space's base dialect. There is no mechanism
+Every process runs under its effective dialect (sender.dialect ∩
+outerSpace.dialect, computed at dock time). There is no mechanism
 for escalating or changing the dialect mid-execution. A program
-received as data inherits the pipeline vars
-of whatever process evaluates it — if there are no pipeline vars in
-scope, it simply sees an empty env.
+received as data inherits the sender and effective dialect of
+whatever process evaluates it — the sender's restrictions apply
+to all code, whether built-in or received as data.
 
 ### Atomicity guarantee
 
@@ -1534,9 +1702,12 @@ ships are queued, those queued ships dock first.
 ### Process lifecycle
 
 When a ship docks at a station, a process is created to run the
-station's block. The process goes through these phases:
+station's block. If the ship carries a sender, the effective dialect
+is computed: `sender.dialect ∩ outerSpace.dialect`. The process goes
+through these phases:
 
   1. **Dock**: ship arrives at station's in-port, process is created
+     with the ship's sender (if any) and effective dialect
   2. **Execute**: process runs the block's segments sequentially
   3. **Wait** (if effectful command): process waits for a response
      via a down-port — the space remains busy
@@ -1548,7 +1719,8 @@ station's block. The process goes through these phases:
 
 A process may also send ships to named ports during execution
 (via `>@portname`), and soft errors send ships to the space's
-error port (if wired). All port routing is deferred — the ships
+error port (if wired). All ships produced by the process carry
+the process's sender. All port routing is deferred — the ships
 arrive at their destinations after the current process completes.
 
 A waiting process **holds the space**. While a process waits for
@@ -1714,15 +1886,17 @@ NOT expressible via down ports. These are exotic for Daimio's use cases
 ### Effectful command execution
 
 ```
-  c ∈ δ.commands       (command is in the outer space's dialect)
+  c ∈ effective_dialect.commands    (command is in the effective dialect)
   c is Effectful(c, params, portType, _)
   p = resolveOrCreatePort(space, portType)    — see §8 for port resolution
   ─────────────────────────────────────────────────
   (process, σ) —[EffCmd(c, args)]→ WAIT(p, process, continuation)
 ```
 
-The process waits. Its pipeline variables are preserved. The request
-(payload + args) is sent out through port p. The continuation is the
+The process waits. Its pipeline variables and sender are preserved.
+The request (payload + args + sender) is sent out through port p.
+The sender exits with the request, so the outside (App, parent
+space, or handler) knows who originated it. The continuation is the
 remainder of the block after this segment.
 
 ### Resumption
