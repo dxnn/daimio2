@@ -189,10 +189,161 @@ var benchmarks = [
   {
     name: 'big_data_poke_loop',
     expected_ratio: 6.0,
-
     run: function() { return run_timed('{(:a (:x 1 :y 2) :b (:x 3 :y 4) :c (:x 5 :y 6)) | >$d || range 240 | each block "{$d | poke (:a :x) value __ | poke (:b :y) value __ | poke (:c :x) value __ | >$d}" || $d}', iterations) }
   },
+  // ── Pathfinders (star + par) ────────────────────────────────────────
+  {
+    name: 'pathfinder_star',
+    expected_ratio: 1.2,
+    run: function() {
+      // Build a big keyed structure from dialect, then hammer it with star paths
+      // $d.*.methods gives all method objects; $d.*.methods.*.desc gives all descriptions
+      // Also poke with star to mutate all leaves at a level
+      return run_timed(
+        '{process dialect | >$d' +
+        ' || range 200 | each block "{ $d.*.methods.*.desc | count | >$acc }"' +
+        ' || range 200 | each block "{ $d.*.methods.*.params | count | >$acc }"' +
+        ' || $acc}',
+        iterations)
+    }
+  },
+  {
+    name: 'pathfinder_star_poke',
+    expected_ratio: 1.1,
+    run: function() {
+      // Build keyed structure, then poke with star paths to mutate all children
+      return run_timed(
+        '{( {* (:a 1 :b 2 :c 3)} {* (:a 4 :b 5 :c 6)} {* (:a 7 :b 8 :c 9)} ) | >$d' +
+        ' || range 100 | each block "{$d | poke ("*" :a) value __ | poke ("*" :b) value __ | poke ("*" :c) value __ | >$d}"' +
+        ' || $d | count}',
+        iterations)
+    }
+  },
+  {
+    name: 'pathfinder_par',
+    expected_ratio: 1.4,
+    run: function() {
+      // Use par (list) pathfinder to peek multiple keys in parallel
+      return run_timed(
+        '{process dialect | >$d' +
+        ' || range 5000 | each block "{$d | peek ((:math :string :list :logic) :methods) | count | >$acc}"' +
+        ' || $acc}',
+        iterations)
+    }
+  },
+  // ── Named blocks ───────────────────────────────────────────────────
+  {
+    name: 'named_blocks',
+    expected_ratio: 1.4,
+    run: function() {
+      // Parse and evaluate many named blocks — each {begin}...{end} is a fresh template parse
+      // Then run the resulting block many times
+      return run_timed(
+        '{begin tmpl | >$fn}{__ | add 1 | multiply 2 | subtract 3}{end tmpl}' +
+        '{range 5000 | map block "{$fn | run value __}"}' +
+        ' | count',
+        iterations)
+    }
+  },
+  // ── Conditional branching ──────────────────────────────────────────
+  {
+    name: 'conditional_then_else',
+    expected_ratio: 1.0,
+    run: function() {
+      return run_timed(
+        '{range 7000 | map block "{__ | mod 2 | then 1 else 0}"}',
+        iterations)
+    }
+  },
+  {
+    name: 'conditional_cond',
+    expected_ratio: 1.0,
+    run: function() {
+      // switch scans pairs looking for matching value
+      return run_timed(
+        '{range 7000 | map block "{__ | mod 4 | switch (0 :zero 1 :one 2 :two 3 :three)}"}',
+        iterations)
+    }
+  },
+  // ── Deep nesting ───────────────────────────────────────────────────
+  {
+    name: 'deep_space_creation',
+    expected_ratio: 1.0,
+    run: function() {
+      // Time how long it takes to create a deeply nested space
+      var depth = 350
+      return new Promise(function(resolve) {
+        var times = []
+        var done = 0
+        function run_one() {
+          var seedlike = make_deep_seedlike(depth)
+          var start = performance.now()
+          D.make_some_space(seedlike)
+          times.push(performance.now() - start)
+          done++
+          if(done < iterations) run_one()
+          else resolve(median(times))
+        }
+        run_one()
+      })
+    }
+  },
+  {
+    name: 'deep_space_traversal',
+    expected_ratio: 1.0,
+    run: function() {
+      // Send a ship through many levels of nested spaces and back out
+      var depth = 200
+      return run_space_timed(
+        make_deep_seedlike(depth),
+        function() { return {port: 'init', value: 1} },
+        1, iterations)
+    }
+  },
+  // ── Error path ─────────────────────────────────────────────────────
+  {
+    name: 'error_path',
+    expected_ratio: 1.0,
+    run: function() {
+      // Each iteration triggers a soft error (division by zero), pipeline continues with empty
+      // Suppress console.log during this benchmark to avoid flooding output
+      var real_log = console.log
+      console.log = function() {}
+      return run_timed(
+        '{range 8000 | map block "{__ | math divide by 0 | add 1}"}',
+        iterations)
+        .then(function(ms) { console.log = real_log; return ms })
+    }
+  },
+  // TODO: wiring rules with pattern matching (once implemented)
 ]
+
+// ── Deep space seed generator ─────────────────────────────────────────
+
+function make_deep_seedlike(depth) {
+  var lines = []
+  // innermost space
+  lines.push('level0')
+  lines.push('  @in')
+  lines.push('  @out')
+  lines.push('  work {__ | add 1}')
+  lines.push('  @in -> work -> @out')
+  // each wrapping level
+  for(var i = 1; i < depth; i++) {
+    lines.push('level' + i)
+    lines.push('  @in')
+    lines.push('  @out')
+    lines.push('  @in -> level' + (i - 1) + '.in')
+    lines.push('  level' + (i - 1) + '.out -> @out')
+  }
+  // outermost space with ports for testing
+  lines.push('outer')
+  lines.push('  @init from-js')
+  lines.push('  @out  perf-collect')
+  lines.push('  @init -> level' + (depth - 1) + '.in')
+  lines.push('  level' + (depth - 1) + '.out -> @out')
+  return lines.join('\n')
+}
 
 // ── Run ─────────────────────────────────────────────────────────────
 
