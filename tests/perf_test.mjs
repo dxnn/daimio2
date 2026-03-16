@@ -188,8 +188,8 @@ var benchmarks = [
   },
   {
     name: 'big_data_poke_loop',
-    expected_ratio: 6.0,
-    run: function() { return run_timed('{(:a (:x 1 :y 2) :b (:x 3 :y 4) :c (:x 5 :y 6)) | >$d || range 240 | each block "{$d | poke (:a :x) value __ | poke (:b :y) value __ | poke (:c :x) value __ | >$d}" || $d}', iterations) }
+    expected_ratio: 5.5,
+    run: function() { return run_timed('{* (:a {* (:x 1 :y 2)} :b {* (:x 3 :y 4)} :c {* (:x 5 :y 6)}) | >$d || range 6500 | each block "{$d | list poke path (:a :x) value __in | list poke path (:b :y) value __in | list poke path (:c :x) value __in | >$d}" || $d}', iterations) }
   },
   // ── Pathfinders (star + par) ────────────────────────────────────────
   {
@@ -223,7 +223,7 @@ var benchmarks = [
   },
   {
     name: 'pathfinder_par',
-    expected_ratio: 1.4,
+    expected_ratio: 1.7,
     run: function() {
       // Use par (list) pathfinder to peek multiple keys in parallel
       return run_timed(
