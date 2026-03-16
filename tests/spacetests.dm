@@ -307,10 +307,20 @@ Spacial tests and other fun stuff!
       catcher.out -> @out
   
   
+  Define subspace after referencing it (forward reference)
+    outer
+      @init from-js 5
+      @out  assert  10
+      @init -> late.in
+      late.out -> @out
+    late
+      @in
+      @out
+      @in -> {__ | times 2} -> @out
+
   Exec ports / virtual spaces
   move this test suite into daimio
   parallel execution like {__ | add $total | wait | $>total} times 2 or 3
   Two same subspaces with different state [?]
 
-  Define subspace after referencing it (BUG)
   Data structure in port creation (BUG)
