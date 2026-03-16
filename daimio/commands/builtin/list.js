@@ -533,7 +533,7 @@ D.import_models({
           {
             key: 'data',
             desc: 'The list to edit',
-            type: 'mutable-list', // TODO: can we get rid of this? 
+            type: 'mutable-list', 
             required: true
           },
           {
