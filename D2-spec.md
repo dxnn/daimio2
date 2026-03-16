@@ -122,7 +122,7 @@ A process that reads `$foo`, waits at an async boundary, and reads
 
 ### Fresh reads
 Under the current serial model, fresh reads are trivially
-satisfied — no other process can modify σ during your execution.
+satisfied — no other process can modify space state during your execution.
 Space variable reads see exactly what the active process (or its
 sub-processes) last wrote. Pipeline variables remain the mechanism
 for stashing values within a pipeline, but the motivation is
@@ -277,8 +277,8 @@ concurrent model.)
 
 **I6. Space variable atomicity.** Within a single process
 execution (including all sub-processes), space variable access
-is consistent — no other process can read or write σ during the
-active process's lifetime.
+is consistent — no other process can read or write space state
+during the active process's lifetime.
 
 **I7. Pipeline variable isolation.** Pipeline variables bound in
 a sub-process do not propagate to the parent. Pipeline variables
@@ -361,12 +361,12 @@ clear where isolation boundaries are being crossed. Syntactic sugar
 may be added later, but the underlying mechanism will always be a
 port round trip.
 
-### Why DAML source as the serialization format?
-The alternative is a separate binary format or manifest. DAML source
-was chosen because the existing syntax already supports station
-definitions, subspace definitions, and space variable declarations
+### Why space syntax as the serialization format?
+The alternative is a separate binary format or manifest. Space syntax
+was chosen because it already supports station definitions (with DAML
+blocks inside), subspace definitions, and space variable declarations
 with values. No new format needed — a serialized space is just
-DAML that can be read, edited, and debugged with normal tools.
+source text that can be read, edited, and debugged with normal tools.
 
 ### Why resource limits per instance?
 Resource measurement (CPU, memory) is per Daimio instance, with
@@ -435,28 +435,124 @@ offline program shipping.
 
 ## 3. Space Syntax
 
-TODO: formalize the spaceseed grammar. The following is a sketch
-based on the current code's `D.spaceseed_add()` structure.
+Space syntax is the textual format for defining a space's topology.
+It is distinct from DAML (the block language, §9) — space syntax
+describes structure (stations, ports, wiring, subspaces), while
+DAML describes behavior (pipelines, commands, values). Station
+definitions contain DAML inside them, but the surrounding topology
+is space syntax.
 
-A space definition (spaceseed) declares the topology:
+### Grammar
+
+Space syntax is **indentation-based**. A top-level name at column 0
+declares a space. Indented lines below it define the space's contents.
 
 ```
-spaceseed ::= '{' station* subspace* port* route* state* '}'
+space_def  ::= name NL (indent line NL)*     — NL = newline
 
-station   ::= '@' name daml                — a named station with its block
-subspace  ::= name spaceseed               — a named subspace (nested)
-port      ::= '@' name flavour settings?   — a named port with flavour
-route     ::= source '->' transform? '->' dest  — wiring between ports
-state     ::= '$' name '=' value           — initial space variable
+line       ::= port_decl
+             | station_decl
+             | route_decl
+             | state_decl
+             | dialect_decl
+
+port_decl  ::= '@' name flavour param*     — @counter dom-set-text
+station_decl ::= name NL indent daml       — station name, then DAML block
+route_decl ::= endpoint ('->' endpoint)+    — chain of connections
+state_decl ::= '$' name json_value?         — $count 0, $items []
+dialect_decl ::= '{' json_object '}'        — inline JSON restrictions
+
+endpoint   ::= '@' name                    — space-level port
+             | name                        — station (auto-expands to .in/.out)
+             | name '.' name               — station.port or subspace.port
+             | '{' daml '}'                — anonymous inline station
 ```
 
-Stations contain DAML (block syntax, see §9). Ports declare flavour
-and direction. Routes wire ports together. State initializes space
-variables.
+Every station automatically gets three implicit ports: `_in`,
+`_out`, and `_error`. When a station name appears in a route
+without a `.port` suffix, it expands to `.in` (as a destination)
+or `.out` (as a source).
 
-The spaceseed is a static declaration — it describes topology, not
-behavior. Behavior lives in the station blocks (§9) and in the
+Anonymous inline stations can appear in routes as `{DAML}`:
+```
+@init -> {__ | add 1} -> {__ | times 2} -> @out
+```
+These create unnamed stations with the given DAML block.
+
+### Examples
+
+A simple counter app:
+```
+counter
+  @button  dom-on-submit
+  @display dom-set-text
+  $count 0
+  @button -> {1 | add $count | >$count} -> @display
+```
+
+A space with subspaces:
+```
+inner
+  @in
+  @out
+  @in -> {__ | times 2} -> @out
+
+outer
+  @init from-js 20
+  @out  assert  42
+  @init -> inner.in
+  inner.out -> @out
+```
+
+A station with named out-ports:
+```
+splitter
+  {__ | >@left | >@right ||}
+
+main
+  @init from-js
+  @out  assert
+  @init -> splitter
+  splitter.left -> {__ | add 1} -> @out
+```
+
+Station extra ports are declared implicitly by the DAML using
+`>@portname`. They appear in routes as `station.portname`.
+
+### Static declarations
+
+A space definition is a static declaration — it describes topology,
+not behavior. Behavior lives in the station blocks (§9) and in the
 wiring rules that determine how effects are routed (§6).
+
+### Spaceseeds
+
+A **spaceseed** is the compiled result of parsing a space definition.
+It is a content-addressed data structure: the seed's identifier is
+derived from its content, so identical definitions produce the same
+seed.
+
+```
+spaceseed = {
+  id         : hash            — content-based identifier
+  stations   : [BlockId]       — compiled DAML blocks (1-indexed)
+  ports      : [PortDescriptor] — port declarations + implicit station ports
+  routes     : [[int, int]]    — pairs of port indices (1-indexed)
+  subspaces  : [SpaceseedId]   — nested spaceseeds (1-indexed)
+  state      : key → Val       — initial space variable values
+  dialect    : object?         — dialect restrictions (optional)
+}
+```
+
+Each station contributes three implicit ports (`_in`, `_out`,
+`_error`) to the ports array. Named out-ports from `>@portname`
+in station DAML are added as extra ports. Routes are pairs of
+port indices connecting the topology.
+
+The runtime works with spaceseeds, not with space syntax directly.
+An outer space is instantiated from a spaceseed (see §4 Outer Space).
+Multiple outer spaces can share the same spaceseed — each gets its
+own live state, but the topology definition is shared.
 
 
 ## 4. Space Domains
@@ -513,17 +609,18 @@ composed with a state monad** for space variables:
     synchronous state transitions: `(process, σ) → (process', σ')`.
     This includes block evaluation — commands like `list map` and
     `process run` create sub-processes that execute as nested state
-    transitions, sharing σ with the parent process.
+    transitions, sharing space state with the parent process.
   - **Free monad**: effectful commands cause the process to wait,
     producing port requests. Each request is an abstract operation
     with a single-shot continuation. The outer space + wiring
     interprets these operations by routing requests to handlers.
 
 Under the current serial scheduling model (§5), each process has
-exclusive access to σ for its entire lifetime. This is what makes
-the composed model clean: the state transitions are deterministic,
-because no other process can modify σ between your segments.
-Without serial execution, σ could change nondeterministically
+exclusive access to space state for its entire lifetime. This is
+what makes the composed model clean: the state transitions are
+deterministic, because no other process can modify space state
+between your segments. Without serial execution, it could change
+nondeterministically
 between async boundaries, and the state monad composition would
 break down (see `D2-concurrent-scheduling.md`).
 
@@ -612,9 +709,9 @@ the receiving environment:
 - **Program** — a pipeline as DAML source text. Needs dialect +
   state + ports from the host (see Programs above). The program
   is "parasitic" — it borrows everything.
-- **Space** — a serialized space as DAML source text. Needs port
-  wiring + dialect from the parent (see Spaces below). The space
-  is "self-reliant" — it brings its own programs and state.
+- **Space** — a serialized space definition (space syntax). Needs
+  port wiring + dialect from the parent (see Spaces below). The
+  space is "self-reliant" — it brings its own programs and state.
 
 ### Stations
 ```
@@ -676,13 +773,13 @@ topology (stations and their wiring), subspaces, port structure, and
 wiring rules. It does NOT hold a dialect or space variable values.
 Those belong to the outer space (see Outer Space below).
 
-When the outer application wants to use a space, it creates an outer
-space from the space definition, assigns a base dialect, and
-initializes the space variable store.
+When the outer application wants to use a space, it compiles a space
+definition into a spaceseed, creates an outer space from it, assigns
+a base dialect, and initializes the space variable store.
 
 Externally, a space is a **reactive automaton** (Mealy machine):
 it accepts ships at in-ports, produces ships at out-ports, and
-maintains internal state (σ) between interactions. The parent
+maintains internal state between interactions. The parent
 cannot observe or modify the internal state — only the port
 interface is visible. This external view is coalgebraic:
 `S → (Input → Output × S)`.
@@ -698,7 +795,7 @@ effectful programs, executed one at a time (§5).
 
 A space processes **one ship at a time**. When a ship arrives at
 a busy space, it is queued. Processes (including sub-processes
-from block evaluation) have exclusive access to σ for their
+from block evaluation) have exclusive access to space state for their
 entire lifetime. See §5 for the full scheduling model.
 
 A space carries its own topology, stations, and state. It depends
@@ -719,25 +816,25 @@ The space is "self-reliant" — it brings its own programs and
 state. But it is not self-sufficient: without wiring, its effects
 go nowhere.
 
-Spaces can also be serialized as DAML source text and loaded into
+Spaces can also be serialized as space syntax and loaded into
 sockets at runtime. Socketed spaces have additional properties
 around loading, transitions, and state ephemerality — see §8.
 
 ### Outer Space
 ```
-outerSpace = (space, δ, σ, portHandlers)
-  where space        : Space           — the space definition (topology)
+outerSpace = (spaceseed, δ, σ, portHandlers)
+  where spaceseed    : Spaceseed       — the compiled space definition
         δ            : Dialect         — the space's base dialect
         σ            : SVar → Val      — live space variable store
         portHandlers : port → handler  — wiring of outermost ports to real effects
 ```
 
-An outer space is a **live instance** of a space definition. It is
-where effects actually happen. A space definition is inert topology;
-an outer space is that topology wired up to the real world.
+An outer space is a **live instance** of a spaceseed. It is where
+effects actually happen. A spaceseed is inert compiled topology; an
+outer space is that topology wired up to the real world.
 
 The outer application creates an outer space by:
-  1. Choosing a space definition (the topology)
+  1. Choosing a spaceseed (the compiled topology)
   2. Assigning a base dialect (what commands are available)
   3. Initializing the space variable store
   4. Wiring the outermost ports to effect handlers (DOM, network,
@@ -853,7 +950,7 @@ Commands that accept block parameters (`list map`, `process run`,
 `if then`, etc.) evaluate the block by creating a **sub-process**.
 A sub-process:
 
-  - Runs in the same space, with access to the same σ
+  - Runs in the same space, with access to the same space state
   - Bypasses the queue (it is part of the active process's work)
   - Executes synchronously and depth-first: the parent process
     waits for the sub-process to complete before continuing
@@ -1030,7 +1127,7 @@ When a response arrives for a waiting process:
 ```
 
 Under the current serial model, σ_current is guaranteed to be
-unchanged from the time of waiting — no other process can modify σ
+unchanged from the time of waiting — no other process can modify space state
 while this process holds the space. The "fresh reads" property is
 trivially satisfied (see §1).
 
@@ -1113,20 +1210,22 @@ not wait, no timeout. The pipeline continues immediately.
 
 ### Serialized space format
 
-A serialized space is **source DAML**. The DAML syntax already supports:
-  - Station definitions with their pipelines
+A serialized space is **space syntax** (§3) — the textual format
+for defining topology, with DAML inside station blocks. Space
+syntax supports:
+  - Station definitions with their DAML blocks
   - Subspace definitions (including socketed subspaces)
-  - Space variable declarations with values
+  - Space variable declarations with current values
 
 ```
-serializedSpace = DAML source text
+serializedSpace = space syntax source text
 ```
 
-The DAML source is the canonical serialization format. It includes
-current space variable values (the main thing that changes between
-the initial definition and a running snapshot). Socketed subspaces
-are serialized as regular subspace definitions — once loaded, a
-socketed space is just a subspace.
+Space syntax is the canonical serialization format. A serialized
+space includes current space variable values (the main thing that
+changes between the initial definition and a running snapshot).
+Socketed subspaces are serialized as regular subspace definitions
+— once loaded, a socketed space is just a subspace.
 
 A serialized space does NOT include:
   - Dialect (the Daimio instance's dialect applies)
@@ -1143,8 +1242,8 @@ socketSpace = space with at least one port where flavour = "socket-in"
 When a serialized space arrives as a ship at a socket-in port:
 
 ```
-LOAD(socketSpace, damlSource) = socketSpace'
-  where spaceDef    = parse(damlSource)              — DAML source → space definition
+LOAD(socketSpace, sourceText) = socketSpace'
+  where spaceDef    = parse(sourceText)              — space syntax → space definition
         subspace    = instantiate(spaceDef)           — build stations, init space vars
         subspace'   = subspace with ports unresolved  — demand-created on first use
         socketSpace' = socketSpace with subspaces ∪ {subspace'}
@@ -1279,6 +1378,21 @@ selector   ::= name                     — Key: a key: .foo, 12
 ```
 
 TODO: right now, inside a dot-path Par only works in curlies.
+
+### No escape sequences
+
+DAML has no escape mechanism for curly braces. There is no `\{`
+or `{{` syntax. This is deliberate:
+
+  - An unmatched `{` (no balanced `}`) is literal text.
+  - A lone `}` is always literal text.
+  - To produce a balanced `{...}` as literal output (without
+    evaluation), use `{string from code 123}` to emit `{` and
+    `{string from code 125}` to emit `}`, or use `process quote`
+    to return a string containing DAML without evaluating it.
+
+This keeps the parser simple — structural brace matching is the
+only rule, with no context-dependent escape processing.
 
 ### Concrete examples
 
@@ -1720,7 +1834,7 @@ one-way: parent → child, never child → parent.
 evaluates a block, the sub-process runs to completion (or waits)
 before the parent process continues. Sub-processes can nest to
 arbitrary depth. Each sub-process runs in the same space, has
-access to the same σ (space variables), and inherits the parent's
+access to the same space variables, and inherits the parent's
 sender and effective dialect.
 
 **Async boundaries:** pipeline variables survive across async
@@ -2048,7 +2162,7 @@ evaluated the same way — it's a block that gets run by a sub-process.
      the previous pipe segment's output — at the start, `__ = __in`.
   4. The sub-process executes in the same space as the parent, under
      the same effective dialect, with the same sender, and with
-     access to the same space variables (σ).
+     access to the same space variables.
   5. Pipeline vars bound inside the sub-process (via `>x`) do NOT
      propagate back to the parent. The sub-process's env is its own.
 
@@ -2062,9 +2176,10 @@ to all code, whether built-in or received as data.
 ### Atomicity guarantee
 
 A space processes one ship at a time (§5). The active process has
-exclusive access to σ for its entire lifetime — not just within a
-synchronous segment, but across async boundaries as well. No other
-process may read or write σ while the active process exists.
+exclusive access to space state for its entire lifetime — not just
+within a synchronous segment, but across async boundaries as well.
+No other process may read or write space variables while the active
+process exists.
 
 #### Pipeline Segments
 ```
