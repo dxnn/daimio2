@@ -66,7 +66,7 @@ D.import_port_flavour('perf-collect', {
   }
 })
 
-function run_space_timed(seedlike, make_sends, expect_count, n) {
+function run_space_timed(seedlike, make_send, send_count, n) {
   seedlike = dedent(seedlike)
   return new Promise(function(resolve) {
     var times = []
@@ -80,7 +80,7 @@ function run_space_timed(seedlike, make_sends, expect_count, n) {
       var start = performance.now()
       space_callbacks[perf_id] = {
         count: 0,
-        expected: expect_count,
+        expected: send_count,
         resolve: function() {
           times.push(performance.now() - start)
           delete space_callbacks[perf_id]
@@ -90,10 +90,10 @@ function run_space_timed(seedlike, make_sends, expect_count, n) {
         }
       }
 
-      var sends = make_sends()
-      sends.forEach(function(send) {
+      for(var i = 0; i < send_count; i++) {
+        var send = make_send(i)
         D.send_value_to_js_port(space, send.port, send.value)
-      })
+      }
     }
     run_one()
   })
@@ -101,32 +101,32 @@ function run_space_timed(seedlike, make_sends, expect_count, n) {
 
 // ── Benchmarks ──────────────────────────────────────────────────────
 
-var calibration_daml = '{range 500 | map block "{__ | add 1 | multiply 2}"}'
+var calibration_daml = '{range 5000 | map block "{__ | add 1 | multiply 2}"}'
 
 var benchmarks = [
   {
     name: 'list_reduce',
-    expected_ratio: 2.0,
-    run: function() { return run_timed('{range 700 | reduce block "{_total | add _value}"}', iterations) }
+    expected_ratio: 1.0,
+    run: function() { return run_timed('{range 7000 | reduce block "{_total | add _value}"}', iterations) }
   },
   {
     name: 'pipeline_vars',
-    expected_ratio: 1.0,
-    run: function() { return run_timed('{range 600 | map block "{__ | >x || _x | add _x}"}', iterations) }
+    expected_ratio: 0.9,
+    run: function() { return run_timed('{range 6000 | map block "{__ | >x || _x | add _x}"}', iterations) }
   },
   {
     name: 'space_vars',
-    expected_ratio: 2.0,
-    run: function() { return run_timed('{0 | >$acc || range 1000 | each block "{$acc | add __ | >$acc}" || $acc}', iterations) }
+    expected_ratio: 1.4,
+    run: function() { return run_timed('{0 | >$acc || range 10000 | each block "{$acc | add __ | >$acc}" || $acc}', iterations) }
   },
   {
     name: 'nested_map',
-    expected_ratio: 1.0,
-    run: function() { return run_timed('{range 30 | map block "{range 30 | map block "{__ | multiply __in}"}"}', iterations) }
+    expected_ratio: 1.4,
+    run: function() { return run_timed('{range 95 | map block "{range 95 | map block "{__ | multiply __in}"}"}', iterations) }
   },
   {
     name: 'space_ship_routing',
-    expected_ratio: 20.0,
+    expected_ratio: 6.0,
     run: function() {
       return run_space_timed(`
         outer
@@ -134,17 +134,17 @@ var benchmarks = [
           @init from-js
           @out  perf-collect
           stepper {__ | add 1 | >$count}
-          check   {$count | less than 500 | then "{$count | >@loop}" else "{$count | >@done}" | run}
+          check   {$count | less than 1100 | then "{$count | >@loop}" else "{$count | >@done}" | run}
           @init -> stepper -> check
           check.loop -> stepper
           check.done -> @out`,
-        function() { return [{port: 'init', value: 0}] },
+        function() { return {port: 'init', value: 0} },
         1, iterations)
     }
   },
   {
     name: 'space_subspace_crossing',
-    expected_ratio: 2.0,
+    expected_ratio: 1.4,
     run: function() {
       return run_space_timed(`
         inner
@@ -157,17 +157,13 @@ var benchmarks = [
           @out  perf-collect
           @init -> inner.in
           inner.out -> @out`,
-        function() {
-          var sends = []
-          for(var i = 0; i < 600; i++) sends.push({port: 'init', value: i})
-          return sends
-        },
-        600, iterations)
+        function(i) { return {port: 'init', value: i} },
+        6000, iterations)
     }
   },
   {
     name: 'compiler_stress',
-    expected_ratio: 3.0,
+    expected_ratio: 2.5,
     run: function() {
       return run_space_timed(`
         outer
@@ -176,28 +172,25 @@ var benchmarks = [
           compiler {__ | unquote | run | >@done}
           @init -> compiler
           compiler.done -> @out`,
-        function() {
-          var sends = []
-          for(var i = 1; i <= 100; i++) sends.push({port: 'init', value: '{' + i + ' | add 1}'})
-          return sends
-        },
-        100, iterations)
+        function(i) { return {port: 'init', value: '{' + (i + 1) + ' | add 1}'} },
+        1000, iterations)
     }
   },
   {
     name: 'compiler_stress_inline',
-    expected_ratio: 3.0,
-    run: function() { return run_timed('{range 200 | map block "{"{5 | math add value 7}" | process quote | string transform from :7 to __in | process unquote | run}"}', iterations) }
+    expected_ratio: 4.5,
+    run: function() { return run_timed('{range 2000 | map block "{"{5 | math add value 7}" | process quote | string transform from :7 to __in | process unquote | run}"}', iterations) }
   },
   {
     name: 'big_data_peek',
-    expected_ratio: 2.0,
-    run: function() { return run_timed('{process dialect | >$d || range 700 | map block "{$d | peek (:math :methods :add :params)}" | count}', iterations) }
+    expected_ratio: 1.4,
+    run: function() { return run_timed('{process dialect | >$d || range 7000 | map block "{$d | peek (:math :methods :add :params)}" | count}', iterations) }
   },
   {
     name: 'big_data_poke_loop',
-    expected_ratio: 8.0,
-    run: function() { return run_timed('{(:a (:x 1 :y 2) :b (:x 3 :y 4) :c (:x 5 :y 6)) | >$d || range 100 | each block "{$d | poke (:a :x) value __ | poke (:b :y) value __ | poke (:c :x) value __ | >$d}" || $d}', iterations) }
+    expected_ratio: 6.0,
+
+    run: function() { return run_timed('{(:a (:x 1 :y 2) :b (:x 3 :y 4) :c (:x 5 :y 6)) | >$d || range 240 | each block "{$d | poke (:a :x) value __ | poke (:b :y) value __ | poke (:c :x) value __ | >$d}" || $d}', iterations) }
   },
 ]
 
