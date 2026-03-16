@@ -1,0 +1,244 @@
+// Daimio performance regression tests
+// Run with: node tests/perf_test.mjs
+//
+// Self-calibrating: measures each benchmark as a ratio to a calibration run.
+// Fails if any benchmark exceeds its expected ratio by more than 3x.
+// This makes the suite portable across machines of different speeds.
+
+var D = (await import('../daimio/daimio.js')).default
+
+var iterations = 3
+var threshold_multiplier = 3
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function median(arr) {
+  var sorted = arr.slice().sort(function(a, b) { return a - b })
+  var mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+function run_timed(daml, n) {
+  return new Promise(function(resolve) {
+    var times = []
+    var done = 0
+    function run_one() {
+      var start = performance.now()
+      D.run(daml, function() {
+        times.push(performance.now() - start)
+        done++
+        if(done < n) run_one()
+        else resolve(median(times))
+      })
+    }
+    run_one()
+  })
+}
+
+function dedent(s) {
+  var lines = s.split('\n')
+  while(lines.length && !lines[0].trim()) lines.shift()
+  var min = Infinity
+  lines.forEach(function(line) {
+    if(!line.trim()) return
+    var indent = line.search(/\S/)
+    if(indent < min) min = indent
+  })
+  if(min === Infinity) min = 0
+  return lines.map(function(line) { return line.slice(min) }).join('\n')
+}
+
+// ── Collect port flavour (for space benchmarks) ─────────────────────
+
+var space_callbacks = {}
+var space_id_counter = 0
+
+D.import_port_flavour('perf-collect', {
+  dir: 'out',
+  outside_exit: function(ship) {
+    var space = this.pair.space
+    var entry = space_callbacks[space._perf_id]
+    if(!entry) return
+    entry.count++
+    if(entry.count >= entry.expected) {
+      entry.resolve()
+    }
+  }
+})
+
+function run_space_timed(seedlike, make_sends, expect_count, n) {
+  seedlike = dedent(seedlike)
+  return new Promise(function(resolve) {
+    var times = []
+    var done = 0
+    function run_one() {
+      var perf_id = ++space_id_counter
+      var seed_id = D.make_some_space(seedlike)
+      var space = new D.Space(seed_id)
+      space._perf_id = perf_id
+
+      var start = performance.now()
+      space_callbacks[perf_id] = {
+        count: 0,
+        expected: expect_count,
+        resolve: function() {
+          times.push(performance.now() - start)
+          delete space_callbacks[perf_id]
+          done++
+          if(done < n) run_one()
+          else resolve(median(times))
+        }
+      }
+
+      var sends = make_sends()
+      sends.forEach(function(send) {
+        D.send_value_to_js_port(space, send.port, send.value)
+      })
+    }
+    run_one()
+  })
+}
+
+// ── Benchmarks ──────────────────────────────────────────────────────
+
+var calibration_daml = '{range 500 | map block "{__ | add 1 | multiply 2}"}'
+
+var benchmarks = [
+  {
+    name: 'list_reduce',
+    expected_ratio: 2.0,
+    run: function() { return run_timed('{range 700 | reduce block "{_total | add _value}"}', iterations) }
+  },
+  {
+    name: 'pipeline_vars',
+    expected_ratio: 1.0,
+    run: function() { return run_timed('{range 600 | map block "{__ | >x || _x | add _x}"}', iterations) }
+  },
+  {
+    name: 'space_vars',
+    expected_ratio: 2.0,
+    run: function() { return run_timed('{0 | >$acc || range 1000 | each block "{$acc | add __ | >$acc}" || $acc}', iterations) }
+  },
+  {
+    name: 'nested_map',
+    expected_ratio: 1.0,
+    run: function() { return run_timed('{range 30 | map block "{range 30 | map block "{__ | multiply __in}"}"}', iterations) }
+  },
+  {
+    name: 'space_ship_routing',
+    expected_ratio: 20.0,
+    run: function() {
+      return run_space_timed(`
+        outer
+          $count 0
+          @init from-js
+          @out  perf-collect
+          stepper {__ | add 1 | >$count}
+          check   {$count | less than 500 | then "{$count | >@loop}" else "{$count | >@done}" | run}
+          @init -> stepper -> check
+          check.loop -> stepper
+          check.done -> @out`,
+        function() { return [{port: 'init', value: 0}] },
+        1, iterations)
+    }
+  },
+  {
+    name: 'space_subspace_crossing',
+    expected_ratio: 2.0,
+    run: function() {
+      return run_space_timed(`
+        inner
+          @in
+          @out
+          transform {__ | multiply 2 | add 1}
+          @in -> transform -> @out
+        outer
+          @init from-js
+          @out  perf-collect
+          @init -> inner.in
+          inner.out -> @out`,
+        function() {
+          var sends = []
+          for(var i = 0; i < 600; i++) sends.push({port: 'init', value: i})
+          return sends
+        },
+        600, iterations)
+    }
+  },
+  {
+    name: 'compiler_stress',
+    expected_ratio: 3.0,
+    run: function() {
+      return run_space_timed(`
+        outer
+          @init from-js
+          @out  perf-collect
+          compiler {__ | unquote | run | >@done}
+          @init -> compiler
+          compiler.done -> @out`,
+        function() {
+          var sends = []
+          for(var i = 1; i <= 100; i++) sends.push({port: 'init', value: '{' + i + ' | add 1}'})
+          return sends
+        },
+        100, iterations)
+    }
+  },
+  {
+    name: 'compiler_stress_inline',
+    expected_ratio: 3.0,
+    run: function() { return run_timed('{range 200 | map block "{"{5 | math add value 7}" | process quote | string transform from :7 to __in | process unquote | run}"}', iterations) }
+  },
+  {
+    name: 'big_data_peek',
+    expected_ratio: 2.0,
+    run: function() { return run_timed('{process dialect | >$d || range 700 | map block "{$d | peek (:math :methods :add :params)}" | count}', iterations) }
+  },
+  {
+    name: 'big_data_poke_loop',
+    expected_ratio: 8.0,
+    run: function() { return run_timed('{(:a (:x 1 :y 2) :b (:x 3 :y 4) :c (:x 5 :y 6)) | >$d || range 100 | each block "{$d | poke (:a :x) value __ | poke (:b :y) value __ | poke (:c :x) value __ | >$d}" || $d}', iterations) }
+  },
+]
+
+// ── Run ─────────────────────────────────────────────────────────────
+
+var total_start = performance.now()
+
+console.log('=== Daimio Performance Tests ===')
+
+var cal_ms = await run_timed(calibration_daml, iterations)
+console.log('Calibration: ' + cal_ms.toFixed(1) + 'ms (median of ' + iterations + ')\n')
+
+var passed = 0
+var failed = 0
+var fail_details = []
+
+for(var i = 0; i < benchmarks.length; i++) {
+  var b = benchmarks[i]
+  var ms = await b.run()
+  var ratio = ms / cal_ms
+  var limit = b.expected_ratio * threshold_multiplier
+  var ok = ratio <= limit
+
+  if(ok) passed++
+  else {
+    failed++
+    fail_details.push(b.name)
+  }
+
+  var pad_name = (b.name + '                        ').slice(0, 24)
+  var pad_ms = (ms.toFixed(1) + 'ms').padStart(10)
+  var pad_ratio = ('ratio ' + ratio.toFixed(2)).padStart(12)
+  var pad_limit = ('(limit ' + limit.toFixed(1) + ')').padStart(14)
+  console.log('  ' + pad_name + pad_ms + '  ' + pad_ratio + '  ' + pad_limit + '  ' + (ok ? 'PASS' : 'FAIL'))
+}
+
+var total_ms = performance.now() - total_start
+console.log('\n' + (passed + failed) + ' benchmarks: ' + passed + ' passed, ' + failed + ' failed')
+console.log('Completed in ' + (total_ms / 1000).toFixed(1) + 's')
+
+if(failed) {
+  console.log('\nFailed: ' + fail_details.join(', '))
+  process.exit(1)
+}
