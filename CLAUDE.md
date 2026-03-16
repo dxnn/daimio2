@@ -13,7 +13,7 @@ node tests/node_code.mjs         # 68 internal tests
 node tests/security_test.mjs    # 97 security tests (dialect, pollution, regex, actors)
 node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
 node tests/example_test.mjs     # 102 command example tests
-node tests/perf_test.mjs        # 9 performance regression benchmarks
+node tests/perf_test.mjs        # 21 performance regression benchmarks
 ```
 
 All seven test suites must pass before any change is considered complete.
@@ -180,22 +180,22 @@ The formal execution model is in `D2-spec.md`. Structure:
 
 Part I — Orientation:
 - §0: Prelude (motivation, six core ideas)
-- §1: Properties (totality, isolation, duality, liveness)
+- §1: Properties + Invariants (totality, isolation, duality, liveness, I1-I15)
 - §2: Design decisions
 
-Part II — Statics:
-- §3: Concrete syntax (grammar, parsing)
-- §4: Domains (values, paths, ships, blocks, processes, spaces, ports)
+Part II — Spaces (outer topology):
+- §3: Space syntax (spaceseed grammar sketch)
+- §4: Space domains (dialects, commands, programs, ships, senders, stations, ports, spaces, outer space)
+- §5: Space execution (scheduling, queue, process lifecycle, deferred routing)
+- §6: Ports and wiring (demand-creation, pattern matching, OTHER fallback)
+- §7: Async boundaries (effectful commands, timeouts)
+- §8: Sockets and serialization
 
-Part III — Block Execution:
-- §5: Block execution (transition relations, pipes, scope, sub-processes)
-- §6: Errors (soft errors, totality)
-
-Part IV — Space Execution:
-- §7: Scheduling (serial per space, queue, process lifecycle)
-- §8: Ports and wiring (demand-creation, pattern matching, OTHER fallback)
-- §9: Async boundaries (effectful commands, timeouts)
-- §10: Sockets and serialization
+Part III — Blocks (inner language):
+- §9: Block syntax (DAML grammar, parsing algorithm)
+- §10: Block domains (values, collections, paths, splooting, blocks, processes)
+- §11: Block execution (transition relations, pipes, scope, sub-processes)
+- §12: Errors (soft errors, splooting)
 
 ## Test status
 
@@ -213,6 +213,33 @@ One test is marked KNOWN PROBLEMATIC: `poke([1,2,3], ["*", :a], 99)` — star ex
 to scalar children, then keyfinder can't create/set on primitives because D.poke doesn't
 track parent references. Fixing requires refactoring D.poke to carry `{parent, key}`
 context for each todo item.
+
+## Optimization opportunities
+
+### setImmediate overhead in port routing
+
+Port routing (`port_standard_exit`, `port_standard_sync`, `Space.execute` via `run_queue`)
+uses `D.setImmediate` to defer each step to the next tick. This keeps browser UIs responsive
+during heavy computation but costs ~11µs per call in Node.js. In the space_ship_routing
+benchmark, 1100 hops generate 3301 setImmediate calls — the scheduling overhead accounts
+for nearly the entire 36ms runtime. The actual command dispatch and block evaluation is
+negligible by comparison.
+
+A synchronous mode (skip setImmediate when no UI is present, or when the space opts in)
+could give 10-50× speedup for pure computation workloads like the mandelbrot solver.
+
+Relevant code:
+- `daimio/1_daimio.js` line 804: `D.setImmediate` in `port_standard_exit`
+- `daimio/1_daimio.js` line 838: `D.setImmediate` in `port_standard_sync`
+- `daimio/1_daimio.js` line 2611: `D.setImmediate` in `run_queue`
+
+### Poke alias footgun
+
+The `poke` alias is `list poke value`, which fills the `value` param from the pipe.
+This means `{$d | poke (:a :x) value 99}` puts `(:a :x)` into the wrong param (it
+gets treated as a push, not a path). Must use `list poke path (:a :x) value 99` for
+key-path pokes. Similarly, inside a block `{$d | list poke path (:a :x) value __}`
+sets value to the pipe value (`$d`), not the block input — use `value __in` instead.
 
 ## REPL
 

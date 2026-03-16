@@ -80,7 +80,7 @@ sploots (emits a soft error and continues with the empty value). No
 pipeline ever crashes or diverges (assuming commands are total, which
 is a requirement on command definitions). The empty value coerces to
 "", 0, or [] as needed, so it always flows cleanly through subsequent
-commands. See §4 "Splooting" for the definition.
+commands. See §10 "Splooting" for the definition.
 
 TODO: think about `[]` vs `()` for empty value
 TODO: the smart quote rendering makes "" look dumb, turn that off
@@ -107,7 +107,7 @@ controls sender dialects, and the intersection guarantees neither
 party can escalate beyond the other (§0.2).
 
 ### Serial execution
-Each space processes one ship at a time (see §7). The active
+Each space processes one ship at a time (see §5). The active
 process has exclusive access to the space's state from dock
 through completion, including across async boundaries. No other
 process can read or write space variables while a process is
@@ -431,9 +431,768 @@ the system robust to transport changes and enables use cases like
 offline program shipping.
 
 
-# Part II: Formal Model — Statics
+# Part II: Spaces — The Outer Topology
 
-## 3. Concrete Syntax
+## 3. Space Syntax
+
+TODO: formalize the spaceseed grammar. The following is a sketch
+based on the current code's `D.spaceseed_add()` structure.
+
+A space definition (spaceseed) declares the topology:
+
+```
+spaceseed ::= '{' station* subspace* port* route* state* '}'
+
+station   ::= '@' name daml                — a named station with its block
+subspace  ::= name spaceseed               — a named subspace (nested)
+port      ::= '@' name flavour settings?   — a named port with flavour
+route     ::= source '->' transform? '->' dest  — wiring between ports
+state     ::= '$' name '=' value           — initial space variable
+```
+
+Stations contain DAML (block syntax, see §9). Ports declare flavour
+and direction. Routes wire ports together. State initializes space
+variables.
+
+The spaceseed is a static declaration — it describes topology, not
+behavior. Behavior lives in the station blocks (§9) and in the
+wiring rules that determine how effects are routed (§6).
+
+
+## 4. Space Domains
+
+### Identifiers
+```
+x ∈ PVar      — pipeline variable names (_foo, _bar)
+s ∈ SVar      — space variable names ($foo, $bar)
+c ∈ Cmd       — command names (math.add, time.now)
+p ∈ PortId    — port identifiers, generated at runtime
+```
+
+### Dialect
+```
+δ ∈ Dialect = (commands, aliases)
+  where commands : P(Cmd)               — permitted commands
+        aliases  : AliasName → Pipeline  — compile-time expansions
+```
+
+A dialect determines what commands can be invoked and what shorthand
+is available within an outer space. Dialects are partially ordered:
+δ_Bob ⊆ δ_Alice means Bob's command set is a subset of Alice's AND
+Bob's alias set is a subset of Alice's.
+
+**Aliases** are compile-time substitutions. An alias name expands to a
+fixed pipeline fragment before execution. They are part of the dialect
+because restricting a dialect may remove aliases as well as commands.
+Aliases are purely syntactic — they expand before any execution
+happens, and the expanded form must be valid under the same dialect.
+
+### Commands
+```
+A command definition is either:
+  Pure(c, params, fun)         — a pure command with a handler function
+  Effectful(c, params, portType, defaultHandler)  — an effectful command
+```
+
+Pure commands are total functions from params to Val.
+Effectful commands have no fun; they have a port type and a default handler.
+The port type names the kind of port that will be created on demand.
+The default handler is an implementation that the environment may override.
+
+### Programs
+
+A program is a pipeline, serialized as DAML source text. It enters
+an outer space as a ship payload. A station's process may evaluate it
+as a block, through the ordinary block evaluation mechanisms like
+`process run`, thereby creating a sub-process.
+
+Formally, a program is a **free monad over the effect signature,
+composed with a state monad** for space variables:
+
+  - **State monad**: pure commands and space variable access are
+    synchronous state transitions: `(process, σ) → (process', σ')`.
+    This includes block evaluation — commands like `list map` and
+    `process run` create sub-processes that execute as nested state
+    transitions, sharing σ with the parent process.
+  - **Free monad**: effectful commands cause the process to wait,
+    producing port requests. Each request is an abstract operation
+    with a single-shot continuation. The outer space + wiring
+    interprets these operations by routing requests to handlers.
+
+Under the current serial scheduling model (§5), each process has
+exclusive access to σ for its entire lifetime. This is what makes
+the composed model clean: the state transitions are deterministic,
+because no other process can modify σ between your segments.
+Without serial execution, σ could change nondeterministically
+between async boundaries, and the state monad composition would
+break down (see `D2-concurrent-scheduling.md`).
+
+One caveat: the effect surface is not statically fixed. Block
+evaluation can invoke arbitrary effectful commands determined at
+runtime. This means the free monad is over an open effect
+signature — the set of possible effects isn't known until the
+block runs. Daimio handles this through demand-created ports and
+wiring rules with OTHER fallbacks (§6).
+
+Requires: the effective dialect (sender's dialect ∩ outer space's
+dialect) must include whatever commands the program invokes, and
+port wiring must exist (or be demand-creatable) for any effects
+used.
+
+### Ships
+```
+ship = (value, sender?)
+  where value    : Val              — the payload
+        sender   : Sender?          — who sent this ship (optional)
+```
+
+A ship is a value being ferried between ports, optionally carrying
+a sender. When a ship arrives at a station's in-port, a process is
+created to handle it (see §10 Processes). When a process completes,
+it sends its result as a ship through the station's out-port. A
+single process may send multiple ships to different ports during its
+execution (via `>@portname`), and soft errors send ships to the
+error port.
+
+All ships produced by a process inherit that process's sender. This
+includes ships sent through `>@portname`, the implicit `_out` ship,
+error ships, and down-port requests. The sender propagates through
+every port exit, ensuring that the App always knows who originated
+each ship.
+
+### Senders
+```
+sender = (id, dialect)
+  where id      : string           — who sent this ship
+        dialect : Dialect           — what they're allowed to do
+```
+
+A sender identifies who originated a ship and what dialect they
+operate under. The sender's dialect is always a subset of the
+outer space's base dialect (`sender.dialect ⊆ outerSpace.dialect`).
+
+When a ship with a sender docks at a station, the process runs
+under the **effective dialect**: the intersection of the sender's
+dialect and the outer space's base dialect.
+
+```
+effective_dialect = sender.dialect ∩ outerSpace.dialect
+```
+
+This intersection is computed once, at dock time in the outer space.
+It can be memoized by the `(sender.id, outerSpace)` pair.
+
+A ship without a sender runs under the outer space's base dialect
+(the default case for internal routing, system events, etc.).
+
+**Sender propagation.** The sender is immutable and propagates
+through the entire execution tree:
+  - Sub-processes from block evaluation inherit the sender
+  - Ships sent through `>@portname` carry the sender
+  - Ships exiting through `_out` carry the sender
+  - Down-port requests carry the sender
+  - Error ships carry the sender
+  - Ships exiting the outermost space carry the sender (so the
+    App can route responses back and apply its own policies)
+
+The sender is how the App tracks which external entity triggered
+a computation. Daimio does not authenticate senders — the App is
+responsible for validating identity before passing a sender into
+the outer space. From Daimio's perspective, the sender is trusted
+metadata.
+
+### Sendability and the gradient of dependency
+
+Three kinds of values can be serialized and sent over ports,
+including over the network. They differ in what they need from
+the receiving environment:
+
+- **Data** — just a Val. No behavior, no effects, no requirements.
+  Enters a space as a ship payload through any in-port.
+- **Program** — a pipeline as DAML source text. Needs dialect +
+  state + ports from the host (see Programs above). The program
+  is "parasitic" — it borrows everything.
+- **Space** — a serialized space as DAML source text. Needs port
+  wiring + dialect from the parent (see Spaces below). The space
+  is "self-reliant" — it brings its own programs and state.
+
+### Stations
+```
+station = (name, block)
+  where name     : string
+        block    : Block           — the compiled DAML for this station
+```
+
+A station has exactly three built-in ports:
+  - **_in**:    receives ships (fire-and-forget inward)
+  - **_out**:   sends the process's result (fire-and-forget outward)
+  - **_error**: receives soft errors from this station's execution
+
+A station's process can also send ships to the enclosing **space's**
+out-ports using `>@portname`. This is how a station pushes data to
+named space-level ports (not station ports).
+
+Down ports are NOT station-level constructs. They arise in two ways:
+  1. **From effectful commands:** when a process invokes an effectful
+     command, the runtime creates/uses a down port on the space.
+  2. **From explicit space-level wiring:** the space definition can
+     connect two stations (one's _out to another's _in) through a
+     down/up port pair, creating a call-response link between them.
+
+This means the station itself is simple — it's a block with in,
+out, and error ports. All the interesting port topology (down, up,
+wiring to subspaces, socket-in) lives at the space level.
+
+### Ports
+```
+port = (id, direction, flavour, wiring)
+
+direction ::= In | Out | Down | Up
+
+  In   — fire-and-forget inward (ships enter the space)
+  Out  — fire-and-forget outward (ships leave the space)
+  Down — round-trip outward (request/response, the space needs something)
+  Up   — round-trip inward (the space provides a service)
+
+flavour   — the port's type (e.g. "time-now", "socket-in")
+
+wiring    — how this port connects to the outside; determined by the
+            parent space's wiring declarations (see §6)
+```
+
+### Spaces
+```
+space = (stations, subspaces, ports, wiringRules, defaultTimeout?)
+
+  stations      : name → station
+  subspaces     : name → space
+  ports         : set of port
+  wiringRules   : list of WiringRule     — pattern-based routing (see §6)
+  defaultTimeout: Duration?              — default timeout for wires (see §7.3)
+```
+
+A space is a **definition** — a template for execution. It specifies
+topology (stations and their wiring), subspaces, port structure, and
+wiring rules. It does NOT hold a dialect or space variable values.
+Those belong to the outer space (see Outer Space below).
+
+When the outer application wants to use a space, it creates an outer
+space from the space definition, assigns a base dialect, and
+initializes the space variable store.
+
+Externally, a space is a **reactive automaton** (Mealy machine):
+it accepts ships at in-ports, produces ships at out-ports, and
+maintains internal state (σ) between interactions. The parent
+cannot observe or modify the internal state — only the port
+interface is visible. This external view is coalgebraic:
+`S → (Input → Output × S)`.
+
+However, the transition function is not a pure function — it may
+invoke effectful commands, which produce down-port requests that
+cause the process to wait until a response arrives. Internally,
+each station's block is a program (free monad over effects + state
+monad, as described in Programs above). When a ship docks at a
+station, a process is created to execute the station's block.
+The full picture is: a reactive automaton whose transitions are
+effectful programs, executed one at a time (§5).
+
+A space processes **one ship at a time**. When a ship arrives at
+a busy space, it is queued. Processes (including sub-processes
+from block evaluation) have exclusive access to σ for their
+entire lifetime. See §5 for the full scheduling model.
+
+A space carries its own topology, stations, and state. It depends
+on the parent for:
+  - **Port wiring**: the parent's wiring rules determine how
+    the space's down-port requests are handled (§6)
+
+The dialect is a property of the **outer space**, not of individual
+subspaces. All subspaces inherit the outer space's dialect (as
+intersected with the sender's dialect, if present). Subspace
+restrictions come entirely from wiring: if you don't want a
+subspace to access `db`, don't wire its `db` port. The dialect
+says "these commands exist." The wiring says "these effects are
+connected." Both must be true for an effectful command to work.
+A command in the dialect but with an unwired port sploots.
+
+The space is "self-reliant" — it brings its own programs and
+state. But it is not self-sufficient: without wiring, its effects
+go nowhere.
+
+Spaces can also be serialized as DAML source text and loaded into
+sockets at runtime. Socketed spaces have additional properties
+around loading, transitions, and state ephemerality — see §8.
+
+### Outer Space
+```
+outerSpace = (space, δ, σ, portHandlers)
+  where space        : Space           — the space definition (topology)
+        δ            : Dialect         — the space's base dialect
+        σ            : SVar → Val      — live space variable store
+        portHandlers : port → handler  — wiring of outermost ports to real effects
+```
+
+An outer space is a **live instance** of a space definition. It is
+where effects actually happen. A space definition is inert topology;
+an outer space is that topology wired up to the real world.
+
+The outer application creates an outer space by:
+  1. Choosing a space definition (the topology)
+  2. Assigning a base dialect (what commands are available)
+  3. Initializing the space variable store
+  4. Wiring the outermost ports to effect handlers (DOM, network,
+     database, filesystem, etc.)
+
+This wiring is what makes effects real. Inside the space, an
+effectful command like `{time now}` produces a port request that
+propagates outward. At the outermost boundary, the port handler
+executes the actual effect and returns the response. Without this
+wiring, the request would be unwired and return the default value.
+
+**Multiple outer spaces.** An application can create as many outer
+spaces as it needs. Each is a completely independent universe — no
+shared scheduler, no shared state, no cross-instance communication.
+Different outer spaces may use the same space definition with
+different dialects and different port wiring, or entirely different
+space definitions. The application is responsible for routing data
+between them (via whatever external systems it chooses).
+
+**Senders.** Multiple senders can send ships into the same outer
+space. Each sender carries their own dialect — a restricted subset
+of the space's base dialect. When a ship with a sender docks at a
+station, the process runs under the effective dialect:
+`sender.dialect ∩ outerSpace.dialect`. This intersection is
+computed once at dock time and inherited by all sub-processes.
+
+Daimio does not authenticate senders. The App validates identity
+externally (HMAC, capability tokens, session auth, etc.) and
+passes trusted sender information into the outer space. From
+Daimio's perspective, the sender is metadata — the App is the
+authority on who sent what.
+
+
+## 5. Space Execution (Scheduling)
+
+### Serial execution per space
+
+Each space processes **one ship at a time**. When a ship arrives at
+a space (via any in-port on any station), it either docks immediately
+(creating a process) or is placed in a FIFO queue. No two processes
+ever execute concurrently within the same space.
+
+This applies regardless of which station the ship targets. A space
+with stations A and B will never process a ship at A and a ship at
+B at the same time. The serialization is per-space, not per-station
+or per-port.
+
+### The queue
+
+Each space maintains a queue of pending ships. A ship is enqueued
+when it arrives at a space that already has an active process.
+
+```
+ARRIVE(space, ship, station):
+  if space.active:
+    space.queue ← space.queue ++ [(ship, station)]    — FIFO append
+    return                                             — ship waits
+  else:
+    space.active ← true
+    DOCK(space, ship, station)                         — create process, run block
+```
+
+When the active process completes (either synchronously or after
+all async round-trips), the space dequeues the next ship:
+
+```
+COMPLETE(space):
+  space.active ← false
+  if space.queue is non-empty:
+    (ship, station) ← space.queue.shift()              — FIFO dequeue
+    space.active ← true
+    DEFER(DOCK(space, ship, station))                  — deferred execution
+```
+
+Both the dequeue and the completing process's output routing are
+**deferred**. The dequeue fires first: queued ships have priority
+over ships produced by the completing process's output routing.
+If station A's `_out` routes a ship back to A's `_in` while other
+ships are queued, those queued ships dock first.
+
+### Process lifecycle
+
+When a ship docks at a station, a process is created to run the
+station's block. If the ship carries a sender, the effective dialect
+is computed: `sender.dialect ∩ outerSpace.dialect`. The process goes
+through these phases:
+
+  1. **Dock**: ship arrives at station's in-port, process is created
+     with the ship's sender (if any) and effective dialect
+  2. **Execute**: process runs the block's segments sequentially
+  3. **Wait** (if effectful command): process waits for a response
+     via a down-port — the space remains busy
+  4. **Resume** (when response arrives): process continues from
+     where it was waiting
+  5. **Complete**: block finishes, final value exits as a ship
+     through the station's `_out` port, process is destroyed,
+     space becomes available for the next queued ship
+
+A process may also send ships to named ports during execution
+(via `>@portname`), and soft errors send ships to the space's
+error port (if wired). All ships produced by the process carry
+the process's sender. All port routing is deferred — the ships
+arrive at their destinations after the current process completes.
+
+A waiting process **holds the space**. While a process waits for
+an async response, no other ships can dock. The process has
+exclusive access to the space's state for its entire lifetime,
+from dock through completion.
+
+### Sub-processes
+
+Commands that accept block parameters (`list map`, `process run`,
+`if then`, etc.) evaluate the block by creating a **sub-process**.
+A sub-process:
+
+  - Runs in the same space, with access to the same σ
+  - Bypasses the queue (it is part of the active process's work)
+  - Executes synchronously and depth-first: the parent process
+    waits for the sub-process to complete before continuing
+  - Can nest to arbitrary depth (sub-sub-processes, etc.)
+
+Sub-processes are nested execution, not concurrent execution.
+
+### Port routing and deferred entry
+
+When a process sends to a space-level port (`>@portname`), the
+port's output routing is **deferred**: the receiving station's
+in-port entry is scheduled asynchronously, not executed inline.
+The sending process continues immediately.
+
+This means `>@portname` does not block the sender's process.
+The routed ship arrives at the target station after the current
+process completes, entering through the normal queue mechanism.
+
+This also applies to the implicit `_out` routing. Ships produced
+by output routing arrive after ships already in the queue — queued
+ships have priority over newly routed ships.
+
+### Other Daimio instances
+
+Other Daimio instances are completely separate. A Daimio instance
+has no knowledge of other instances and no interaction with them.
+Inter-instance communication is entirely the outer application's
+concern.
+
+### Future: concurrent scheduling
+
+The serial model could be relaxed to allow multiple processes to
+execute concurrently within a space, interleaving at segment boundaries.
+This is not currently enabled. See `D2-concurrent-scheduling.md`
+for the aspirational concurrent model and its implications.
+
+
+## 6. Ports, Wiring, and Demand-Creation
+
+### Port resolution
+
+When an effectful command executes, the runtime resolves its port:
+
+```
+resolveOrCreatePort(space, portType)
+  where portType ∈ space.ports = existing port of that type
+
+resolveOrCreatePort(space, portType)
+  where portType ∉ space.ports = (p, space')
+  where p      = new port(portType, Down)
+        wiring = matchRules(space.wiringRules, p)
+        space' = space with ports ∪ {p}, p wired by wiring
+```
+
+Ports are created on demand because:
+  1. Block evaluation can invoke arbitrary effectful commands at
+     runtime — the effect surface isn't known until the block runs
+  2. Serialized spaces loaded into sockets may have unknown effect surfaces
+
+### Wiring rules
+
+Wiring rules are declared in the parent space and pattern-match against
+port properties:
+
+```
+WiringRule = (pattern, target, timeout?)
+
+pattern ::= Match(properties)      — match ports with these properties
+           | OTHER                  — default fallback (everything unmatched)
+
+properties = {
+  handler? : string | !string,  — e.g. user, logic, or !math (NOT math)
+  method?  : string | !string,  — e.g. add, twitterpate, or !remove
+  type?    : Read | Write,      — polarity of the effect
+}
+
+timeout? : Duration        — explicit timeout for this wire
+                             (if absent, inherited from nearest outer
+                             wire with a value, or system default 10s)
+```
+
+Property values can be negated with `!` to mean "anything except this."
+Multiple properties in a single Match are conjunctive (all must hold).
+
+Concrete syntax example:
+```
+S.@[handler:math]                 → match all math commands
+S.@[handler:!user type:read]      → match reads that are NOT user commands
+S.@[handler:math method:fizzbuzz] → you can only fizzbuzz nothing else
+```
+
+Rules are evaluated in order. The first matching rule determines the
+target. OTHER matches anything not matched by a previous rule.
+
+The space's `defaultTimeout` (from the space definition) applies to
+all wiring rules unless individually overridden.
+
+The target of a wiring rule is one of:
+  - A handler function (the actual effect implementation)
+  - An up-port on a sibling subspace (the sibling provides the service)
+  - A down-port on the parent space's own boundary (forwarding the
+    effect outward — the parent's environment must handle it)
+  - Null (/dev/null — the effect is silently swallowed, returns empty)
+
+### Example wiring
+
+```
+Parent space A contains subspace S with a socket-in port.
+A.defaultTimeout = 15s
+
+A's wiring rules for S:
+  S.@[handler:db]                → dbHandler             timeout: 30s
+  S.@[handler:time]              → up-port on sibling T  (inherits 15s)
+  S.@[handler:user type:write]   → dev-null              (no timeout needed)
+  S.@[handler:!user type:!write] → down-port on A        (inherits 15s)
+  OTHER                          → down-port on A        (inherits 15s)
+```
+
+This means: db effects are handled locally with a generous 30s timeout. (The 'db' here is for 'dragon biscuits'. Alice would never give database access to Bob, she's not daft. I mean you know what he's like.) Time effects are served by subspace T with A's default 15s, user writes are suppressed (returns empty immediately, no async), and everything else is forwarded to A's parent environment with the default timeout.
+
+If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes orphaned.
+
+
+## 7. Async Boundaries
+
+An effectful command creates an **async boundary**. The process's
+execution splits into two phases: before the effect (sync) and after
+the response (sync). The process waits for the response; under the
+current serial model (§5), the space remains busy during the wait.
+
+### Down ports return exactly one value
+
+A down-port round trip always produces exactly one response. This is a
+design decision with several consequences:
+
+  1. It aligns with the free monad interpretation: each effect operation
+     waits, receives one value, and continues. Single-shot continuations.
+  2. It keeps the pipeline model simple: the programmer knows that after
+     an effectful command, they get one value and continue. No need to
+     reason about iteration or stream termination.
+  3. If the Outside wants to send multiple values (a stream), it uses
+     an in-port, not a down-port response. The down-port can serve as
+     the trigger ("start streaming") and the in-port carries the data.
+
+This means multi-shot continuations (nondeterminism, backtracking) are
+NOT expressible via down ports. These are exotic for Daimio's use cases
+(app actions, network APIs, and other CRUD are all naturally call-response).
+
+### Effectful command execution
+
+```
+  c ∈ effective_dialect.commands    (command is in the effective dialect)
+  c is Effectful(c, params, portType, _)
+  p = resolveOrCreatePort(space, portType)    — see §6 for port resolution
+  ─────────────────────────────────────────────────
+  (process, σ) —[EffCmd(c, args)]→ WAIT(p, process, continuation)
+```
+
+The process waits. Its pipeline variables and sender are preserved.
+The request (payload + args + sender) is sent out through port p.
+The sender exits with the request, so the outside (App, parent
+space, or handler) knows who originated it. The continuation is the
+remainder of the block after this segment.
+
+### Resumption
+
+When a response arrives for a waiting process:
+
+```
+  resp ∈ Val
+  process' = waiting.process{v := resp}
+  ─────────────────────────────────────────────────
+  RESUME(waiting, resp) → (process', σ_current)
+```
+
+Under the current serial model, σ_current is guaranteed to be
+unchanged from the time of waiting — no other process can modify σ
+while this process holds the space. The "fresh reads" property is
+trivially satisfied (see §1).
+
+### 7.3 Timeouts
+
+Every down-port wire has a **timeout**: the maximum duration the runtime
+will wait for a response before resuming the waiting process with a
+default value.
+
+#### Timeout values
+
+```
+Wire = {
+  pattern   : WiringPattern,
+  target    : WiringTarget,
+  timeout?  : Duration          — explicit timeout, or inherited
+}
+```
+
+A wire's **nominal timeout** is determined by:
+  1. Its own explicit timeout value, if set.
+  2. Otherwise, inherited from the nearest enclosing wire in the
+     chain that has an explicit value.
+  3. If no wire in the chain has an explicit value, the system
+     default of 10 seconds.
+
+Inheritance means: if spaces are nested A > B > C > D, and the
+B-A wire has timeout 30s, and C-B has no explicit timeout, then
+C-B inherits 30s from B-A. If D-C is explicitly set to 20s, it
+stays at 20s.
+
+#### Effective timeout
+
+The **effective timeout** for any down-port round trip is the
+minimum of all nominal timeouts along the chain from the requesting
+process to the handler. This arises naturally from the mechanics:
+
+If D sends a request through C through B to an external handler:
+  - D-C nominal timeout: 20s
+  - C-B nominal timeout: 30s (inherited from B-A)
+
+At 20s, D-C times out. D's process resumes with the default value.
+The request is still in flight from C's perspective. If the response
+arrives at 25s, C receives it but D has already moved on. C fires
+a soft error and drops the response.
+
+The key property: **an outer wire's timeout is authoritative.** No
+inner wire can extend the wait time beyond what the outer wire allows.
+An inner wire CAN shorten the wait by having a tighter timeout.
+
+#### Timeout and orphaned response behavior
+
+When a timeout fires, the waiting process resumes with the effectful
+command's default value, and a soft error is emitted. The request is
+marked completed.
+
+If a response later arrives for an already-completed request (an
+**orphaned response**), it is dropped and a soft error fires in the
+space where the response surfaced — not where the request originated.
+
+#### Unwired ports
+
+If a down port is not wired to any target (no matching wiring rule,
+and no OTHER fallback), the runtime detects this immediately at
+request time — no need to wait for a timeout:
+
+```
+  p has no wiring
+  defaultVal = the effectful command's default value
+  ─────────────────────────────────────────────────
+  (process, σ) —[EffCmd(c, args)]→ (process{v := defaultVal}, σ)
+  emit soft error: {type: "unwired_port", port: p}
+```
+
+This is synchronous — no async boundary is created, the process does
+not wait, no timeout. The pipeline continues immediately.
+
+
+## 8. Sockets and Space Serialization
+
+### Serialized space format
+
+A serialized space is **source DAML**. The DAML syntax already supports:
+  - Station definitions with their pipelines
+  - Subspace definitions (including socketed subspaces)
+  - Space variable declarations with values
+
+```
+serializedSpace = DAML source text
+```
+
+The DAML source is the canonical serialization format. It includes
+current space variable values (the main thing that changes between
+the initial definition and a running snapshot). Socketed subspaces
+are serialized as regular subspace definitions — once loaded, a
+socketed space is just a subspace.
+
+A serialized space does NOT include:
+  - Dialect (the Daimio instance's dialect applies)
+  - Port wiring (wiring comes from the socket's parent)
+
+### Socket-in port
+
+A socket is any space that has a port of flavour "socket-in".
+
+```
+socketSpace = space with at least one port where flavour = "socket-in"
+```
+
+When a serialized space arrives as a ship at a socket-in port:
+
+```
+LOAD(socketSpace, damlSource) = socketSpace'
+  where spaceDef    = parse(damlSource)              — DAML source → space definition
+        subspace    = instantiate(spaceDef)           — build stations, init space vars
+        subspace'   = subspace with ports unresolved  — demand-created on first use
+        socketSpace' = socketSpace with subspaces ∪ {subspace'}
+                       wiringRules applied to subspace' ports on demand
+```
+
+### Socket transitions: overlap
+
+If a previous subspace occupied this socket, the transition uses
+**overlap** semantics:
+
+```
+TRANSITION(socketSpace, old, new) = socketSpace'
+  where socketSpace' routes new ships to new         — new is immediately live
+        old continues processing in-flight ships     — old drains naturally
+        old is collected when inFlight(old) = ∅      — no ships, no pending requests
+        old.σ is lost                                — state does not survive transitions
+```
+
+This is consistent with the outer space model: if you need
+persistent state across socket transitions, it lives Outside. The
+socket is a hot-swappable execution slot, not a state container.
+
+### Cross-boundary space variable access
+
+A subspace that needs to read or write a parent's space variable
+does so through an explicit effectful command and a down port:
+
+```
+{var read name :foo}     — sends a request up through a down port
+{var write name :foo}    — sends a write request up through a down port
+```
+
+The parent space must wire these ports to a handler — typically a
+station that reads or writes the parent's own space variables and
+returns the result. This is deliberately verbose: crossing a space
+boundary to access state is a significant action that should be
+visible in the topology.
+
+Syntactic sugar may be added later, but the underlying mechanism
+is always a down-port round trip. This preserves the property that
+spaces are fully isolated — all cross-boundary communication goes
+through ports.
+
+
+# Part III: Blocks — The Inner Language
+
+## 9. Block Syntax
 
 ### Grammar
 
@@ -534,8 +1293,7 @@ TODO: right now, inside a dot-path Par only works in curlies.
 ```
 
 
-
-## 4. Domains
+## 10. Block Domains
 
 ### Values
 ```
@@ -617,21 +1375,6 @@ intends to mutate. The original value in the pipeline is not affected.
 From the programmer's perspective, pipeline flow is functionally pure.
 Implementations may use mutation internally for efficiency (e.g.
 linear types style optimization when no future references exist).
-
-### Sendability and the gradient of dependency
-
-Three kinds of values can be serialized and sent over ports,
-including over the network. They differ in what they need from
-the receiving environment:
-
-- **Data** — just a Val. No behavior, no effects, no requirements.
-  Enters a space as a ship payload through any in-port.
-- **Program** — a pipeline as DAML source text. Needs dialect +
-  state + ports from the host (see Programs below). The program
-  is "parasitic" — it borrows everything.
-- **Space** — a serialized space as DAML source text. Needs port
-  wiring + dialect from the parent (see Spaces below). The space
-  is "self-reliant" — it brings its own programs and state.
 
 ### Path expressions and accessors
 
@@ -722,8 +1465,7 @@ TODO: note that a value can be a list -- this is about the wrapping
 #### Poke (write)
 
 Poke writes a constant value at a path. **Only Key creates new
-structure.** Everything else modifies in place or soft errors and
-is a no-op.
+structure.** Everything else modifies in place or sploots.
 
 ```
 poke(v, [], new) = new                    — replace entirely
@@ -928,146 +1670,6 @@ Star would also skip (both unchanged), so they actually agree there.
 After positional delete, positions shift: `peek(delete([a,b,c], [#2]),
 [#2])` = `c`. Consistent with splice semantics.
 
-### Identifiers
-```
-x ∈ PVar      — pipeline variable names (_foo, _bar)
-s ∈ SVar      — space variable names ($foo, $bar)
-c ∈ Cmd       — command names (math.add, time.now)
-p ∈ PortId    — port identifiers, generated at runtime
-```
-
-### Dialect
-```
-δ ∈ Dialect = (commands, aliases)
-  where commands : P(Cmd)               — permitted commands
-        aliases  : AliasName → Pipeline  — compile-time expansions
-```
-
-A dialect determines what commands can be invoked and what shorthand
-is available within an outer space. Dialects are partially ordered:
-δ_Bob ⊆ δ_Alice means Bob's command set is a subset of Alice's AND
-Bob's alias set is a subset of Alice's.
-
-**Aliases** are compile-time substitutions. An alias name expands to a
-fixed pipeline fragment before execution. They are part of the dialect
-because restricting a dialect may remove aliases as well as commands.
-Aliases are purely syntactic — they expand before any execution
-happens, and the expanded form must be valid under the same dialect.
-
-### Commands
-```
-A command definition is either:
-  Pure(c, params, fun)         — a pure command with a handler function
-  Effectful(c, params, portType, defaultHandler)  — an effectful command
-```
-
-Pure commands are total functions from params to Val.
-Effectful commands have no fun; they have a port type and a default handler.
-The port type names the kind of port that will be created on demand.
-The default handler is an implementation that the environment may override.
-
-### Programs
-
-A program is a pipeline, serialized as DAML source text. It enters
-an outer space as a ship payload. A station's process may evaluate it
-as a block, through the ordinary block evaluation mechanisms like
-`process run`, thereby creating a sub-process.
-
-Formally, a program is a **free monad over the effect signature,
-composed with a state monad** for space variables:
-
-  - **State monad**: pure commands and space variable access are
-    synchronous state transitions: `(process, σ) → (process', σ')`.
-    This includes block evaluation — commands like `list map` and
-    `process run` create sub-processes that execute as nested state
-    transitions, sharing σ with the parent process.
-  - **Free monad**: effectful commands cause the process to wait,
-    producing port requests. Each request is an abstract operation
-    with a single-shot continuation. The outer space + wiring
-    interprets these operations by routing requests to handlers.
-
-Under the current serial scheduling model (§7), each process has
-exclusive access to σ for its entire lifetime. This is what makes
-the composed model clean: the state transitions are deterministic,
-because no other process can modify σ between your segments.
-Without serial execution, σ could change nondeterministically
-between async boundaries, and the state monad composition would
-break down (see `D2-concurrent-scheduling.md`).
-
-One caveat: the effect surface is not statically fixed. Block
-evaluation can invoke arbitrary effectful commands determined at
-runtime. This means the free monad is over an open effect
-signature — the set of possible effects isn't known until the
-block runs. Daimio handles this through demand-created ports and
-wiring rules with OTHER fallbacks (§8).
-
-Requires: the effective dialect (sender's dialect ∩ outer space's
-dialect) must include whatever commands the program invokes, and
-port wiring must exist (or be demand-creatable) for any effects
-used.
-
-### Ships
-```
-ship = (value, sender?)
-  where value    : Val              — the payload
-        sender   : Sender?          — who sent this ship (optional)
-```
-
-A ship is a value being ferried between ports, optionally carrying
-a sender. When a ship arrives at a station's in-port, a process is
-created to handle it (see Processes below). When a process completes,
-it sends its result as a ship through the station's out-port. A
-single process may send multiple ships to different ports during its
-execution (via `>@portname`), and soft errors send ships to the
-error port.
-
-All ships produced by a process inherit that process's sender. This
-includes ships sent through `>@portname`, the implicit `_out` ship,
-error ships, and down-port requests. The sender propagates through
-every port exit, ensuring that the App always knows who originated
-each ship.
-
-### Senders
-```
-sender = (id, dialect)
-  where id      : string           — who sent this ship
-        dialect : Dialect           — what they're allowed to do
-```
-
-A sender identifies who originated a ship and what dialect they
-operate under. The sender's dialect is always a subset of the
-outer space's base dialect (`sender.dialect ⊆ outerSpace.dialect`).
-
-When a ship with a sender docks at a station, the process runs
-under the **effective dialect**: the intersection of the sender's
-dialect and the outer space's base dialect.
-
-```
-effective_dialect = sender.dialect ∩ outerSpace.dialect
-```
-
-This intersection is computed once, at dock time in the outer space.
-It can be memoized by the `(sender.id, outerSpace)` pair.
-
-A ship without a sender runs under the outer space's base dialect
-(the default case for internal routing, system events, etc.).
-
-**Sender propagation.** The sender is immutable and propagates
-through the entire execution tree:
-  - Sub-processes from block evaluation inherit the sender
-  - Ships sent through `>@portname` carry the sender
-  - Ships exiting through `_out` carry the sender
-  - Down-port requests carry the sender
-  - Error ships carry the sender
-  - Ships exiting the outermost space carry the sender (so the
-    App can route responses back and apply its own policies)
-
-The sender is how the App tracks which external entity triggered
-a computation. Daimio does not authenticate senders — the App is
-responsible for validating identity before passing a sender into
-the outer space. From Daimio's perspective, the sender is trusted
-metadata.
-
 ### Blocks
 ```
 block = (segments, wiring)
@@ -1126,164 +1728,8 @@ boundaries within the same process. If a process waits at an
 effectful command and later resumes, its pipeline vars are intact.
 But they don't escape the process that created them.
 
-### Stations
-```
-station = (name, block)
-  where name     : string
-        block    : Block           — the compiled DAML for this station
-```
 
-A station has exactly three built-in ports:
-  - **_in**:    receives ships (fire-and-forget inward)
-  - **_out**:   sends the process's result (fire-and-forget outward)
-  - **_error**: receives soft errors from this station's execution
-
-A station's process can also send ships to the enclosing **space's**
-out-ports using `>@portname`. This is how a station pushes data to
-named space-level ports (not station ports).
-
-Down ports are NOT station-level constructs. They arise in two ways:
-  1. **From effectful commands:** when a process invokes an effectful
-     command, the runtime creates/uses a down port on the space.
-  2. **From explicit space-level wiring:** the space definition can
-     connect two stations (one's _out to another's _in) through a
-     down/up port pair, creating a call-response link between them.
-
-This means the station itself is simple — it's a block with in,
-out, and error ports. All the interesting port topology (down, up,
-wiring to subspaces, socket-in) lives at the space level.
-
-### Ports
-```
-port = (id, direction, flavour, wiring)
-
-direction ::= In | Out | Down | Up
-
-  In   — fire-and-forget inward (ships enter the space)
-  Out  — fire-and-forget outward (ships leave the space)
-  Down — round-trip outward (request/response, the space needs something)
-  Up   — round-trip inward (the space provides a service)
-
-flavour   — the port's type (e.g. "time-now", "socket-in")
-
-wiring    — how this port connects to the outside; determined by the
-            parent space's wiring declarations (see §8)
-```
-
-### Spaces
-```
-space = (stations, subspaces, ports, wiringRules, defaultTimeout?)
-
-  stations      : name → station
-  subspaces     : name → space
-  ports         : set of port
-  wiringRules   : list of WiringRule     — pattern-based routing (see §8)
-  defaultTimeout: Duration?              — default timeout for wires (see §9.3)
-```
-
-A space is a **definition** — a template for execution. It specifies
-topology (stations and their wiring), subspaces, port structure, and
-wiring rules. It does NOT hold a dialect or space variable values.
-Those belong to the outer space (see Outer Space below).
-
-When the outer application wants to use a space, it creates an outer
-space from the space definition, assigns a base dialect, and
-initializes the space variable store.
-
-Externally, a space is a **reactive automaton** (Mealy machine):
-it accepts ships at in-ports, produces ships at out-ports, and
-maintains internal state (σ) between interactions. The parent
-cannot observe or modify the internal state — only the port
-interface is visible. This external view is coalgebraic:
-`S → (Input → Output × S)`.
-
-However, the transition function is not a pure function — it may
-invoke effectful commands, which produce down-port requests that
-cause the process to wait until a response arrives. Internally,
-each station's block is a program (free monad over effects + state
-monad, as described in Programs above). When a ship docks at a
-station, a process is created to execute the station's block.
-The full picture is: a reactive automaton whose transitions are
-effectful programs, executed one at a time (§7).
-
-A space processes **one ship at a time**. When a ship arrives at
-a busy space, it is queued. Processes (including sub-processes
-from block evaluation) have exclusive access to σ for their
-entire lifetime. See §7 for the full scheduling model.
-
-A space carries its own topology, stations, and state. It depends
-on the parent for:
-  - **Port wiring**: the parent's wiring rules determine how
-    the space's down-port requests are handled (§8)
-
-The dialect is a property of the **outer space**, not of individual
-subspaces. All subspaces inherit the outer space's dialect (as
-intersected with the sender's dialect, if present). Subspace
-restrictions come entirely from wiring: if you don't want a
-subspace to access `db`, don't wire its `db` port. The dialect
-says "these commands exist." The wiring says "these effects are
-connected." Both must be true for an effectful command to work.
-A command in the dialect but with an unwired port sploots.
-
-The space is "self-reliant" — it brings its own programs and
-state. But it is not self-sufficient: without wiring, its effects
-go nowhere.
-
-Spaces can also be serialized as DAML source text and loaded into
-sockets at runtime. Socketed spaces have additional properties
-around loading, transitions, and state ephemerality — see §10.
-
-### Outer Space
-```
-outerSpace = (space, δ, σ, portHandlers)
-  where space        : Space           — the space definition (topology)
-        δ            : Dialect         — the space's base dialect
-        σ            : SVar → Val      — live space variable store
-        portHandlers : port → handler  — wiring of outermost ports to real effects
-```
-
-An outer space is a **live instance** of a space definition. It is
-where effects actually happen. A space definition is inert topology;
-an outer space is that topology wired up to the real world.
-
-The outer application creates an outer space by:
-  1. Choosing a space definition (the topology)
-  2. Assigning a base dialect (what commands are available)
-  3. Initializing the space variable store
-  4. Wiring the outermost ports to effect handlers (DOM, network,
-     database, filesystem, etc.)
-
-This wiring is what makes effects real. Inside the space, an
-effectful command like `{time now}` produces a port request that
-propagates outward. At the outermost boundary, the port handler
-executes the actual effect and returns the response. Without this
-wiring, the request would be unwired and return the default value.
-
-**Multiple outer spaces.** An application can create as many outer
-spaces as it needs. Each is a completely independent universe — no
-shared scheduler, no shared state, no cross-instance communication.
-Different outer spaces may use the same space definition with
-different dialects and different port wiring, or entirely different
-space definitions. The application is responsible for routing data
-between them (via whatever external systems it chooses).
-
-**Senders.** Multiple senders can send ships into the same outer
-space. Each sender carries their own dialect — a restricted subset
-of the space's base dialect. When a ship with a sender docks at a
-station, the process runs under the effective dialect:
-`sender.dialect ∩ outerSpace.dialect`. This intersection is
-computed once at dock time and inherited by all sub-processes.
-
-Daimio does not authenticate senders. The App validates identity
-externally (HMAC, capability tokens, session auth, etc.) and
-passes trusted sender information into the outer space. From
-Daimio's perspective, the sender is metadata — the App is the
-authority on who sent what.
-
-
-# Part III: Formal Model — Block Execution
-
-## 5. Block Execution
+## 11. Block Execution
 
 A process executes a block's segments sequentially. This section
 defines the transition relations for each segment type, pipe
@@ -1494,7 +1940,7 @@ and no fallback defined), the command is not executed. A soft error
 is emitted and the pipeline continues with the empty value.
 
 **Dialect check:** if c ∉ effective_dialect.commands, the command is
-not executed. A soft error is emitted (see §6), and the pipeline
+not executed. A soft error is emitted (see §12), and the pipeline
 value is unchanged.
 
 **Read space variable:**
@@ -1514,7 +1960,7 @@ value (consistent with totality — no errors, just defaults).
   (process, σ) —[WriteSVar(s, path)]→ (process, σ')
 ```
 
-If path is empty, this sets s directly. See §4 Path expressions for
+If path is empty, this sets s directly. See §10 Path expressions for
 full poke semantics: Key creates on keyed/Empty/scalar (affine only),
 Pos only modifies existing, Star only modifies existing children,
 Key on unkeyed lists coerces or soft errors.
@@ -1615,7 +2061,7 @@ to all code, whether built-in or received as data.
 
 ### Atomicity guarantee
 
-A space processes one ship at a time (§7). The active process has
+A space processes one ship at a time (§5). The active process has
 exclusive access to σ for its entire lifetime — not just within a
 synchronous segment, but across async boundaries as well. No other
 process may read or write σ while the active process exists.
@@ -1636,11 +2082,11 @@ pipe     ::= '|' or '||'             — normal pipe or barrier pipe
 ```
 
 
-## 6. Errors
+## 12. Errors
 
 Daimio is total. Commands do not throw exceptions. When something
 goes wrong, the operation **sploots**: it emits a soft error and
-continues with the empty value (see §4 "Splooting").
+continues with the empty value (see §10 "Splooting").
 
 Conditions that sploot:
 
@@ -1664,424 +2110,3 @@ When splooting:
 
 This is analogous to IEEE 754 NaN propagation: errors flow through the
 pipeline as values, rather than interrupting control flow.
-
-
-# Part IV: Formal Model — Space Execution
-
-## 7. Scheduling
-
-### Serial execution per space
-
-Each space processes **one ship at a time**. When a ship arrives at
-a space (via any in-port on any station), it either docks immediately
-(creating a process) or is placed in a FIFO queue. No two processes
-ever execute concurrently within the same space.
-
-This applies regardless of which station the ship targets. A space
-with stations A and B will never process a ship at A and a ship at
-B at the same time. The serialization is per-space, not per-station
-or per-port.
-
-### The queue
-
-Each space maintains a queue of pending ships. A ship is enqueued
-when it arrives at a space that already has an active process.
-
-```
-ARRIVE(space, ship, station):
-  if space.active:
-    space.queue ← space.queue ++ [(ship, station)]    — FIFO append
-    return                                             — ship waits
-  else:
-    space.active ← true
-    DOCK(space, ship, station)                         — create process, run block
-```
-
-When the active process completes (either synchronously or after
-all async round-trips), the space dequeues the next ship:
-
-```
-COMPLETE(space):
-  space.active ← false
-  if space.queue is non-empty:
-    (ship, station) ← space.queue.shift()              — FIFO dequeue
-    space.active ← true
-    DEFER(DOCK(space, ship, station))                  — deferred execution
-```
-
-Both the dequeue and the completing process's output routing are
-**deferred**. The dequeue fires first: queued ships have priority
-over ships produced by the completing process's output routing.
-If station A's `_out` routes a ship back to A's `_in` while other
-ships are queued, those queued ships dock first.
-
-### Process lifecycle
-
-When a ship docks at a station, a process is created to run the
-station's block. If the ship carries a sender, the effective dialect
-is computed: `sender.dialect ∩ outerSpace.dialect`. The process goes
-through these phases:
-
-  1. **Dock**: ship arrives at station's in-port, process is created
-     with the ship's sender (if any) and effective dialect
-  2. **Execute**: process runs the block's segments sequentially
-  3. **Wait** (if effectful command): process waits for a response
-     via a down-port — the space remains busy
-  4. **Resume** (when response arrives): process continues from
-     where it was waiting
-  5. **Complete**: block finishes, final value exits as a ship
-     through the station's `_out` port, process is destroyed,
-     space becomes available for the next queued ship
-
-A process may also send ships to named ports during execution
-(via `>@portname`), and soft errors send ships to the space's
-error port (if wired). All ships produced by the process carry
-the process's sender. All port routing is deferred — the ships
-arrive at their destinations after the current process completes.
-
-A waiting process **holds the space**. While a process waits for
-an async response, no other ships can dock. The process has
-exclusive access to the space's state for its entire lifetime,
-from dock through completion.
-
-### Sub-processes
-
-Commands that accept block parameters (`list map`, `process run`,
-`if then`, etc.) evaluate the block by creating a **sub-process**.
-A sub-process:
-
-  - Runs in the same space, with access to the same σ
-  - Bypasses the queue (it is part of the active process's work)
-  - Executes synchronously and depth-first: the parent process
-    waits for the sub-process to complete before continuing
-  - Can nest to arbitrary depth (sub-sub-processes, etc.)
-
-Sub-processes are nested execution, not concurrent execution.
-
-### Port routing and deferred entry
-
-When a process sends to a space-level port (`>@portname`), the
-port's output routing is **deferred**: the receiving station's
-in-port entry is scheduled asynchronously, not executed inline.
-The sending process continues immediately.
-
-This means `>@portname` does not block the sender's process.
-The routed ship arrives at the target station after the current
-process completes, entering through the normal queue mechanism.
-
-This also applies to the implicit `_out` routing. Ships produced
-by output routing arrive after ships already in the queue — queued
-ships have priority over newly routed ships.
-
-### Other Daimio instances
-
-Other Daimio instances are completely separate. A Daimio instance
-has no knowledge of other instances and no interaction with them.
-Inter-instance communication is entirely the outer application's
-concern.
-
-### Future: concurrent scheduling
-
-The serial model could be relaxed to allow multiple processes to
-execute concurrently within a space, interleaving at segment boundaries.
-This is not currently enabled. See `D2-concurrent-scheduling.md`
-for the aspirational concurrent model and its implications.
-
-
-## 8. Ports, Wiring, and Demand-Creation
-
-### Port resolution
-
-When an effectful command executes, the runtime resolves its port:
-
-```
-resolveOrCreatePort(space, portType)
-  where portType ∈ space.ports = existing port of that type
-
-resolveOrCreatePort(space, portType)
-  where portType ∉ space.ports = (p, space')
-  where p      = new port(portType, Down)
-        wiring = matchRules(space.wiringRules, p)
-        space' = space with ports ∪ {p}, p wired by wiring
-```
-
-Ports are created on demand because:
-  1. Block evaluation can invoke arbitrary effectful commands at
-     runtime — the effect surface isn't known until the block runs
-  2. Serialized spaces loaded into sockets may have unknown effect surfaces
-
-### Wiring rules
-
-Wiring rules are declared in the parent space and pattern-match against
-port properties:
-
-```
-WiringRule = (pattern, target, timeout?)
-
-pattern ::= Match(properties)      — match ports with these properties
-           | OTHER                  — default fallback (everything unmatched)
-
-properties = {
-  handler? : string | !string,  — e.g. user, logic, or !math (NOT math)
-  method?  : string | !string,  — e.g. add, twitterpate, or !remove
-  type?    : Read | Write,      — polarity of the effect
-}
-
-timeout? : Duration        — explicit timeout for this wire
-                             (if absent, inherited from nearest outer
-                             wire with a value, or system default 10s)
-```
-
-Property values can be negated with `!` to mean "anything except this."
-Multiple properties in a single Match are conjunctive (all must hold).
-
-Concrete syntax example:
-```
-S.@[handler:math]                 → match all math commands
-S.@[handler:!user type:read]      → match reads that are NOT user commands
-S.@[handler:math method:fizzbuzz] → you can only fizzbuzz nothing else
-```
-
-Rules are evaluated in order. The first matching rule determines the
-target. OTHER matches anything not matched by a previous rule.
-
-The space's `defaultTimeout` (from the space definition) applies to
-all wiring rules unless individually overridden.
-
-The target of a wiring rule is one of:
-  - A handler function (the actual effect implementation)
-  - An up-port on a sibling subspace (the sibling provides the service)
-  - A down-port on the parent space's own boundary (forwarding the
-    effect outward — the parent's environment must handle it)
-  - Null (/dev/null — the effect is silently swallowed, returns empty)
-
-### Example wiring
-
-```
-Parent space A contains subspace S with a socket-in port.
-A.defaultTimeout = 15s
-
-A's wiring rules for S:
-  S.@[handler:db]                → dbHandler             timeout: 30s
-  S.@[handler:time]              → up-port on sibling T  (inherits 15s)
-  S.@[handler:user type:write]   → dev-null              (no timeout needed)
-  S.@[handler:!user type:!write] → down-port on A        (inherits 15s)
-  OTHER                          → down-port on A        (inherits 15s)
-```
-
-This means: db effects are handled locally with a generous 30s timeout. (The 'db' here is for 'dragon biscuits'. Alice would never give database access to Bob, she's not daft. I mean you know what he's like.) Time effects are served by subspace T with A's default 15s, user writes are suppressed (returns empty immediately, no async), and everything else is forwarded to A's parent environment with the default timeout.
-
-If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes orphaned.
-
-
-## 9. Async Boundaries
-
-An effectful command creates an **async boundary**. The process's
-execution splits into two phases: before the effect (sync) and after
-the response (sync). The process waits for the response; under the
-current serial model (§7), the space remains busy during the wait.
-
-### Down ports return exactly one value
-
-A down-port round trip always produces exactly one response. This is a
-design decision with several consequences:
-
-  1. It aligns with the free monad interpretation: each effect operation
-     waits, receives one value, and continues. Single-shot continuations.
-  2. It keeps the pipeline model simple: the programmer knows that after
-     an effectful command, they get one value and continue. No need to
-     reason about iteration or stream termination.
-  3. If the Outside wants to send multiple values (a stream), it uses
-     an in-port, not a down-port response. The down-port can serve as
-     the trigger ("start streaming") and the in-port carries the data.
-
-This means multi-shot continuations (nondeterminism, backtracking) are
-NOT expressible via down ports. These are exotic for Daimio's use cases
-(app actions, network APIs, and other CRUD are all naturally call-response).
-
-### Effectful command execution
-
-```
-  c ∈ effective_dialect.commands    (command is in the effective dialect)
-  c is Effectful(c, params, portType, _)
-  p = resolveOrCreatePort(space, portType)    — see §8 for port resolution
-  ─────────────────────────────────────────────────
-  (process, σ) —[EffCmd(c, args)]→ WAIT(p, process, continuation)
-```
-
-The process waits. Its pipeline variables and sender are preserved.
-The request (payload + args + sender) is sent out through port p.
-The sender exits with the request, so the outside (App, parent
-space, or handler) knows who originated it. The continuation is the
-remainder of the block after this segment.
-
-### Resumption
-
-When a response arrives for a waiting process:
-
-```
-  resp ∈ Val
-  process' = waiting.process{v := resp}
-  ─────────────────────────────────────────────────
-  RESUME(waiting, resp) → (process', σ_current)
-```
-
-Under the current serial model, σ_current is guaranteed to be
-unchanged from the time of waiting — no other process can modify σ
-while this process holds the space. The "fresh reads" property is
-trivially satisfied (see §1).
-
-### 9.3 Timeouts
-
-Every down-port wire has a **timeout**: the maximum duration the runtime
-will wait for a response before resuming the waiting process with a
-default value.
-
-#### Timeout values
-
-```
-Wire = {
-  pattern   : WiringPattern,
-  target    : WiringTarget,
-  timeout?  : Duration          — explicit timeout, or inherited
-}
-```
-
-A wire's **nominal timeout** is determined by:
-  1. Its own explicit timeout value, if set.
-  2. Otherwise, inherited from the nearest enclosing wire in the
-     chain that has an explicit value.
-  3. If no wire in the chain has an explicit value, the system
-     default of 10 seconds.
-
-Inheritance means: if spaces are nested A > B > C > D, and the
-B-A wire has timeout 30s, and C-B has no explicit timeout, then
-C-B inherits 30s from B-A. If D-C is explicitly set to 20s, it
-stays at 20s.
-
-#### Effective timeout
-
-The **effective timeout** for any down-port round trip is the
-minimum of all nominal timeouts along the chain from the requesting
-process to the handler. This arises naturally from the mechanics:
-
-If D sends a request through C through B to an external handler:
-  - D-C nominal timeout: 20s
-  - C-B nominal timeout: 30s (inherited from B-A)
-
-At 20s, D-C times out. D's process resumes with the default value.
-The request is still in flight from C's perspective. If the response
-arrives at 25s, C receives it but D has already moved on. C fires
-a soft error and drops the response.
-
-The key property: **an outer wire's timeout is authoritative.** No
-inner wire can extend the wait time beyond what the outer wire allows.
-An inner wire CAN shorten the wait by having a tighter timeout.
-
-#### Timeout and orphaned response behavior
-
-When a timeout fires, the waiting process resumes with the effectful
-command's default value, and a soft error is emitted. The request is
-marked completed.
-
-If a response later arrives for an already-completed request (an
-**orphaned response**), it is dropped and a soft error fires in the
-space where the response surfaced — not where the request originated.
-
-#### Unwired ports
-
-If a down port is not wired to any target (no matching wiring rule,
-and no OTHER fallback), the runtime detects this immediately at
-request time — no need to wait for a timeout:
-
-```
-  p has no wiring
-  defaultVal = the effectful command's default value
-  ─────────────────────────────────────────────────
-  (process, σ) —[EffCmd(c, args)]→ (process{v := defaultVal}, σ)
-  emit soft error: {type: "unwired_port", port: p}
-```
-
-This is synchronous — no async boundary is created, the process does
-not wait, no timeout. The pipeline continues immediately.
-
-
-## 10. Sockets and Space Serialization
-
-### Serialized space format
-
-A serialized space is **source DAML**. The DAML syntax already supports:
-  - Station definitions with their pipelines
-  - Subspace definitions (including socketed subspaces)
-  - Space variable declarations with values
-
-```
-serializedSpace = DAML source text
-```
-
-The DAML source is the canonical serialization format. It includes
-current space variable values (the main thing that changes between
-the initial definition and a running snapshot). Socketed subspaces
-are serialized as regular subspace definitions — once loaded, a
-socketed space is just a subspace.
-
-A serialized space does NOT include:
-  - Dialect (the Daimio instance's dialect applies)
-  - Port wiring (wiring comes from the socket's parent)
-
-### Socket-in port
-
-A socket is any space that has a port of flavour "socket-in".
-
-```
-socketSpace = space with at least one port where flavour = "socket-in"
-```
-
-When a serialized space arrives as a ship at a socket-in port:
-
-```
-LOAD(socketSpace, damlSource) = socketSpace'
-  where spaceDef    = parse(damlSource)              — DAML source → space definition
-        subspace    = instantiate(spaceDef)           — build stations, init space vars
-        subspace'   = subspace with ports unresolved  — demand-created on first use
-        socketSpace' = socketSpace with subspaces ∪ {subspace'}
-                       wiringRules applied to subspace' ports on demand
-```
-
-### Socket transitions: overlap
-
-If a previous subspace occupied this socket, the transition uses
-**overlap** semantics:
-
-```
-TRANSITION(socketSpace, old, new) = socketSpace'
-  where socketSpace' routes new ships to new         — new is immediately live
-        old continues processing in-flight ships     — old drains naturally
-        old is collected when inFlight(old) = ∅      — no ships, no pending requests
-        old.σ is lost                                — state does not survive transitions
-```
-
-This is consistent with the outer space model: if you need
-persistent state across socket transitions, it lives Outside. The
-socket is a hot-swappable execution slot, not a state container.
-
-### Cross-boundary space variable access
-
-A subspace that needs to read or write a parent's space variable
-does so through an explicit effectful command and a down port:
-
-```
-{var read name :foo}     — sends a request up through a down port
-{var write name :foo}    — sends a write request up through a down port
-```
-
-The parent space must wire these ports to a handler — typically a
-station that reads or writes the parent's own space variables and
-returns the result. This is deliberately verbose: crossing a space
-boundary to access state is a significant action that should be
-visible in the topology.
-
-Syntactic sugar may be added later, but the underlying mechanism
-is always a down-port round trip. This preserves the property that
-spaces are fully isolated — all cross-boundary communication goes
-through ports.
