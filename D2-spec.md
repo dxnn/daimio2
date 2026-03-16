@@ -1786,16 +1786,53 @@ After positional delete, positions shift: `peek(delete([a,b,c], [#2]),
 
 ### Blocks
 ```
-block = (segments, wiring)
+block = (segments, flow)
   where segments : [Segment]         — the compiled pipeline steps
-        wiring   : key → [key]       — data flow between segments
+        flow     : key → [key]       — the segment flow graph
 ```
 
 A block is a compiled DAML template. It holds an array of segments
-(literal text, commands, variable reads/writes, etc.) and a wiring
-map that describes data flow between them. A station has one block.
-Blocks can also be passed as values to commands (`list map`,
-`process run`, `if then`, etc.) and evaluated later.
+and a **segment flow graph** that describes data dependencies
+between them. A station has one block. Blocks can also be passed
+as values to commands (`list map`, `process run`, `if then`, etc.)
+and evaluated later.
+
+The segment flow graph is distinct from space-level wiring (§6).
+Space wiring connects ports across the topology. The flow graph
+connects segments within a single block — it is the compiled form
+of pipes and pipeline variable references.
+
+### Block compilation
+
+DAML source is compiled into a block through a process that
+resolves data flow into a static segment flow graph:
+
+  1. **Parsing** produces tokens from DAML source text.
+  2. **Munging** resolves each token's data dependencies:
+     - The `|` pipe operator creates an edge from the previous
+       segment's output to the next segment's first unfilled
+       parameter. This is recorded as an entry in the flow graph.
+     - `||` (barrier) breaks the implicit edge. The next segment
+       receives no implicit input from the previous segment.
+     - `__` is **compiled away**: references to `__` are replaced
+       with direct edges to the upstream segment. The `__` segment
+       is eliminated from the final block.
+     - `>x` / `_x` (pipeline variables) are **partially compiled
+       away**: `_x` references are resolved into direct edges to
+       the segment that produced `>x`'s value. The `>x` segment
+       remains (it stores the value for scope inheritance to
+       sub-processes), but the `_x` reads are wired directly.
+     - `>$x` / `$x` (space variables) are **NOT compiled away**:
+       they are runtime reads/writes to shared state.
+  3. **The result** is a block with an array of remaining segments
+     and a flow graph: `{segmentKey: [inputKey1, inputKey2, ...]}`.
+
+At runtime, a process executes each segment in order. Each
+segment's output is stored by key. When a segment executes, its
+inputs are looked up from the flow graph — the keys in the graph
+point to previously stored outputs. The first segment of a
+pipeline has no incoming flow edges (nothing feeds into it
+implicitly).
 
 ### Processes
 ```
@@ -2097,6 +2134,13 @@ If x is unbound or path doesn't match, the result is empty (totality).
 
 Pipeline variable bindings are write-once within a synchronous segment
 (SSA). Rebinding is a compile-time error for _vars within a segment.
+
+**No implicit fill on first segment.** The `|` operator creates
+edges in the segment flow graph (see §10 "Block compilation").
+The first segment of a pipeline has no incoming flow edges —
+nothing is injected into its first unfilled parameter. The
+pipeline's input is accessible explicitly as `__` and `__in`,
+but does not implicitly fill any parameter of the first segment.
 
 **Pipe composition:**
 ```
