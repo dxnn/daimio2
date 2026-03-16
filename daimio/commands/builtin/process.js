@@ -161,6 +161,88 @@ D.import_models({
         },
       },
 
+      dialect: {
+        desc: "Return the current dialect's command catalog",
+        help: 'Returns a structured list of all commands available in the current dialect, including desc, help, params, and examples for each method.',
+        examples: [
+          ['{process dialect | list peek path (:math :methods :add :desc)}', 'What kind of snake is good at math?'],
+        ],
+        params: [],
+        fun: function(prior_starter, process) {
+          var dialect = process.space.dialect || D.DIALECTS.top
+          var commands = dialect.commands || D.Commands
+          var result = {}
+
+          for(var handler_key in commands) {
+            if(!D._hop.call(commands, handler_key)) continue
+            var handler = commands[handler_key]
+
+            // check dialect gating
+            if(dialect.get_handler && !dialect.get_handler(handler_key)) continue
+
+            var handler_out = { desc: handler.desc || '' }
+            if(handler.help) handler_out.help = handler.help
+
+            var methods = handler.methods || {}
+            var methods_out = {}
+
+            for(var method_key in methods) {
+              if(!D._hop.call(methods, method_key)) continue
+
+              // check dialect gating
+              if(dialect.get_method && !dialect.get_method(handler_key, method_key)) continue
+
+              var method = methods[method_key]
+              var method_out = { desc: method.desc || '' }
+
+              if(method.help) method_out.help = method.help
+              if(method.examples) method_out.examples = method.examples
+              if(method.params) {
+                method_out.params = method.params.map(function(p) {
+                  var param_out = { key: p.key }
+                  if(p.desc) param_out.desc = p.desc
+                  if(p.type) param_out.type = p.type
+                  if(p.required) param_out.required = true
+                  return param_out
+                })
+              }
+
+              methods_out[method_key] = method_out
+            }
+
+            handler_out.methods = methods_out
+            result[handler_key] = handler_out
+          }
+
+          return result
+        },
+      },
+
+      aliases: {
+        desc: "Return the current dialect's alias map",
+        help: 'Returns a keyed list mapping alias names to their expansions.',
+        examples: [
+          ['{process aliases | list peek path (:add)}', 'math add value'],
+        ],
+        params: [],
+        fun: function(prior_starter, process) {
+          var dialect = process.space.dialect || D.DIALECTS.top
+          var aliases = dialect.aliases || D.Aliases
+          var result = {}
+
+          for(var key in D.AliasMap) {
+            if(!D._hop.call(D.AliasMap, key)) continue
+
+            // check dialect gating
+            if(dialect.get_alias && !dialect.get_alias(key)) continue
+
+            result[key] = D.AliasMap[key]
+          }
+
+          return result
+        },
+      },
+
       run: {
         desc: "Completely process some Daimio code",
         examples: [
