@@ -16,10 +16,9 @@ D.import_pathfinder('key', {
     if(D.is_banned_key(key))
       return [D.set_error('Illegal key name: ' + key)]
 
-    if(D._hop.call(value, key) && (typeof value[key] == 'object') )
-      return [value[key]]
+    if(!D._hop.call(value, key))
+      value[key] = {}
 
-    value[key] = {}   // THINK: this line creates a swack of undefineds...
     return [value[key]]
   },
   set: function(value, key, new_val, parent) {

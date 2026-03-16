@@ -7,12 +7,12 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 158 spec alignment tests
-node tests/daimio_test.mjs       # ~843 legacy tests (4 known failures)
+node tests/d2_spec_test.mjs     # 197 spec alignment tests
+node tests/daimio_test.mjs       # 843 legacy tests (0 known failures)
 node tests/node_code.mjs         # 68 internal tests
 node tests/security_test.mjs    # 97 security tests (dialect, pollution, regex, actors)
 node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
-node tests/example_test.mjs     # 102 command example tests
+node tests/example_test.mjs     # 104 command example tests
 node tests/perf_test.mjs        # 21 performance regression benchmarks
 ```
 
@@ -199,20 +199,13 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 163/163 pass
-- **daimio_test**: 839/843 (4 known failures in `known_failures` set)
+- **d2_spec_test**: 197/197 pass
+- **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 68/68 pass
 - **security_test**: 97/97 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
-
-Known failures are mostly edge cases in nested poke paths with par combinations.
-
-One test is marked KNOWN PROBLEMATIC: `poke([1,2,3], ["*", :a], 99)` — star expands
-to scalar children, then keyfinder can't create/set on primitives because D.poke doesn't
-track parent references. Fixing requires refactoring D.poke to carry `{parent, key}`
-context for each todo item.
 
 ## Optimization opportunities
 

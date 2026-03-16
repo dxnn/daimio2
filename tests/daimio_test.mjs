@@ -32,10 +32,10 @@ var known_failures = new Set([
   // '{() | list poke path ("*" "*") value 999}',  // FIXED: star never creates
   // '{(1 2 3) | list poke path ("*" "*" "*") value 999}',  // FIXED: star never creates
   // '{(1 2 3) | list poke path ("*" "*" "#2") value 999}',  // FIXED: star never creates
-  '{* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}',  // intermediate create corrupts scalar
-  '{* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}',  // array-to-object can't propagate
-  '{((2 1) (3 4) (4 5)) | list poke path ( ("#1" "#3") ("#2" "#4") ) value 999}',  // listfinder.create is destructive
-  '{"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}',  // position never creates via >$var.path
+  // '{* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}',  // FIXED: D.poke parent tracking refactor
+  // '{* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}',  // FIXED: D.poke parent tracking refactor
+  // '{((2 1) (3 4) (4 5)) | list poke path ( ("#1" "#3") ("#2" "#4") ) value 999}',  // FIXED: D.poke parent tracking refactor
+  // '{"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}',  // FIXED: D.poke parent tracking refactor
   // '{$dlist |  __.*.one | filter block "{_parent.parent.one.1 | eq :3}"}',  // DISABLED: _parent not yet implemented
   // '{(1 2 3 4 5 6) | list group by "{__ | mod 2}"}',  // FIXED: group by always returns object
   // '{( {* (:a 1)} {* (:a 4)} {* (:a 3)} {* (:a 1)} ) | list group by :a}',  // FIXED: group by always returns object
@@ -57,7 +57,7 @@ var known_failures = new Set([
   // '{"2" | is in (2) | then :true else :false}',  // FIXED: added loose equality in is-in
   // '{:ash | >$hash.{"two"}} {$hash}',  // FIXED: >$x.path passthrough
   // '{:ash | >$hash.{"two"}.monkey.flu} {$hash}',  // FIXED: >$x.path passthrough
-  '{:ash | >$hash.{"two"}.monkey.{(:x :y :z)}.flu} {$hash}',
+  // '{:ash | >$hash.{"two"}.monkey.{(:x :y :z)}.flu} {$hash}',  // FIXED: D.poke parent tracking refactor
   // '{123 | >foo || __foo}',  // FIXED: __ fancy handler returns empty string instead of dropping
   // '{5 | >foo | (1 2 3) | map block "{__ | subtract _o}"}',  // FIXED: undefined vars return false (zero)
   // '{5 | >foo | (1 2 3) | map block "{__ | range _o}"}',  // FIXED: undefined vars return false (zero)

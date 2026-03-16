@@ -1222,15 +1222,11 @@ D.peek = function(base, path) {
 }
 
 D.poke = function(base, path, value) {
-  // NOTE: this mutates *in place* and returns the mutated portion (mostly to make our 'list' pathfinder simpler)
-
-  // base = D.shallow_copy(base)
+  // NOTE: this mutates *in place* and returns the mutated base
 
   path = D.to_array(path)
 
   // THINK: no path works like push, because that's a reasonable use case for this...
-  // if(!path.length) // no path does nothing, for consistency (can't mutate base->value in place)
-  //   return base
   if(!path.length)
     path = [base.length]
 
@@ -1238,45 +1234,106 @@ D.poke = function(base, path, value) {
     base = []
 
   var todo = [base]
-    , many_flag = false
+    , parents = [null]
+    , pkeys = [null]
+    , star_seen = false
 
   for(var i=0, l=path.length; i < l; i++) {
     var key = path[i]
-      , new_todo = []
-      , pf
+      , pf, test
 
-    // choose our pathfinder
+    // --- Par: handle directly via recursive D.poke ---
+    if(Array.isArray(key)) {
+      var rest = path.slice(i + 1)
+      for(var p=0; p < key.length; p++) {
+        var sub = key[p]
+          , full_path = (Array.isArray(sub) ? sub : [sub]).concat(rest)
+        for(var j=0; j < todo.length; j++) {
+          var result = D.poke(todo[j], full_path, value)
+          if(result !== todo[j]) {
+            if(parents[j]) parents[j][pkeys[j]] = result
+            if(todo[j] === base) base = result
+            todo[j] = result
+          }
+        }
+      }
+      return base
+    }
+
+    // --- Star: set flag ---
+    if(key === '*') star_seen = true
+
+    // --- choose our pathfinder ---
     for(var j=0, k=D.Pathfinders.length; j < k; j++) {
       pf = D.Pathfinders[j]
-      var test = pf.keymatch(key)
-
-      if(test == 'many')
-        many_flag = true
-
-      if(test)
-        break
+      test = pf.keymatch(key)
+      if(test) break
     }
 
     if(!pf)
       return D.set_error('No matching pathfinder was found')
 
-    // apply chosen pf to each item in todo
-    for(var j=0, k=todo.length; j < k; j++) {
-      if(i < l - 1) { // normal: find or create
-        new_todo = new_todo.concat(pf.create(todo[j], key))
-      }
-      else { // last time: set value
-        if(Array.isArray(todo[j]) && test == 'one' && typeof key == 'string' && !/#-?\d/.test(key)) {
+    if(i < l - 1) {
+      // --- intermediate step: create/traverse ---
+      var new_todo = [], new_parents = [], new_pkeys = []
+
+      for(var j=0, k=todo.length; j < k; j++) {
+        // array-to-object conversion at intermediate step (for string keys on arrays)
+        if(Array.isArray(todo[j]) && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key)) {
           var obj = {}
-          for(var m = 0; m < todo[j].length; m++) obj[m] = todo[j][m]
+          for(var m=0; m < todo[j].length; m++) obj[m] = todo[j][m]
+          if(parents[j]) parents[j][pkeys[j]] = obj
+          if(todo[j] === base) base = obj
+          todo[j] = obj
+        }
+
+        var children = pf.create(todo[j], key)
+
+        // resolve parent keys based on pathfinder type
+        var child_keys
+        if(key === '*') {
+          child_keys = Object.keys(todo[j])
+        } else if(typeof key === 'string' && /^#-?\d/.test(key)) {
+          var vkeys = Object.keys(todo[j])
+            , position = +key.slice(1)
+            , idx = (position < 0) ? (vkeys.length + position) : position - 1
+          child_keys = (idx >= 0 && idx < vkeys.length) ? [vkeys[idx]] : []
+        } else {
+          child_keys = [key]
+        }
+
+        for(var m=0; m < children.length; m++) {
+          var cv = children[m]
+            , ck = child_keys[m]
+          // scalar mid-path: affine → replace with {}; traversal (star_seen) → skip
+          if(cv !== null && cv !== undefined && typeof cv !== 'object') {
+            if(star_seen) continue
+            else { cv = {}; todo[j][ck] = cv }
+          }
+          new_todo.push(cv)
+          new_parents.push(todo[j])
+          new_pkeys.push(ck)
+        }
+      }
+
+      todo = new_todo
+      parents = new_parents
+      pkeys = new_pkeys
+    }
+    else {
+      // --- last step: set value ---
+      for(var j=0, k=todo.length; j < k; j++) {
+        // array-to-object conversion (propagates to parent)
+        if(Array.isArray(todo[j]) && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key)) {
+          var obj = {}
+          for(var m=0; m < todo[j].length; m++) obj[m] = todo[j][m]
+          if(parents[j]) parents[j][pkeys[j]] = obj
           if(todo[j] === base) base = obj
           todo[j] = obj
         }
         pf.set(todo[j], key, value)
       }
     }
-
-    todo = new_todo
   }
 
   return base

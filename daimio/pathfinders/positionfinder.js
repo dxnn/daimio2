@@ -22,9 +22,6 @@ D.import_pathfinder('position', {
     if(index < 0 || index >= vkeys.length)
       return []
 
-    if(typeof value[ vkeys[ index ] ] != 'object')
-      value[ vkeys[ index ] ] = []
-
     return [ value[ vkeys[ index ] ] ]
   },
   set: function(value, key, new_val) {

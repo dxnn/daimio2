@@ -1286,9 +1286,45 @@ test(
   '{"x":42}'
 )
 
+test(
+  'poke Name: deep nested create from empty',
+  '{() | list poke path (:a :b :c) value 42}',
+  '{"a":{"b":{"c":42}}}'
+)
+
+test(
+  'poke Name: key on array converts to object',
+  '{(1 2 3) | list poke path :x value 99}',
+  '{"0":1,"1":2,"2":3,"x":99}'
+)
+
+test(
+  'poke Name: key on array mid-path converts to object',
+  '{(10 20) | list poke path (:x :y) value 99}',
+  '{"0":10,"1":20,"x":{"y":99}}'
+)
+
+test(
+  'poke Name: scalar mid-path affine replaces with empty',
+  '{* (:a 42) | list poke path (:a :b) value 99}',
+  '{"a":{"b":99}}'
+)
+
+test(
+  'poke Name: scalar mid-path traversal skips',
+  '{* (:a 42 :b 7) | list poke path ("*" :x) value 99}',
+  '{"a":42,"b":7}'
+)
+
+test(
+  'poke Name: scalar mid-path traversal with objects skips scalars',
+  '{* (:a {* (:z 1)} :b 7) | list poke path ("*" :x) value 99}',
+  '{"a":{"z":1,"x":99},"b":7}'
+)
+
 
 // =====================================================
-// §1 Poke: Pos selector — extends if missing
+// §1 Poke: Pos selector — modifies existing only
 // =====================================================
 
 test(
@@ -1313,6 +1349,36 @@ test(
   'poke Pos: nested position path',
   '{((1 2) (3 4)) | list poke path ("#2" "#1") value 99}',
   '[[1,2],[99,4]]'
+)
+
+test(
+  'poke Pos: keyed list by insertion order',
+  '{* (:a 10 :b 20 :c 30) | list poke path "#2" value 99}',
+  '{"a":10,"b":99,"c":30}'
+)
+
+test(
+  'poke Pos: negative position from end',
+  '{(10 20 30) | list poke path "#-1" value 99}',
+  '[10,20,99]'
+)
+
+test(
+  'poke Pos: negative position second from end',
+  '{(10 20 30) | list poke path "#-2" value 99}',
+  '[10,99,30]'
+)
+
+test(
+  'poke Pos: mid-path in bounds traverses child',
+  '{((1 2) (3 4) (5 6)) | list poke path ("#2" "#2") value 99}',
+  '[[1,2],[3,99],[5,6]]'
+)
+
+test(
+  'poke Pos: mid-path out of bounds is no-op',
+  '{((1 2) (3 4)) | list poke path ("#5" "#1") value 99}',
+  '[[1,2],[3,4]]'
 )
 
 
@@ -1344,16 +1410,13 @@ test(
   '[[99,2],[99,4]]'
 )
 
-// PROBLEMATIC: star expands to scalar children, then Name tries to create/set
-// on a number, which crashes in strict mode. Fixing this properly requires
-// D.poke to track parent references so scalars can be replaced in-place.
-// The spec says poke(scalar, Name :: rest, new) = poke(Empty, Name :: rest, new),
-// so the correct result is [{"a":99},{"a":99},{"a":99}], but the current
-// architecture can't do this without a significant D.poke refactor.
+// Spec: star on scalar children is traversal → skip scalars (not replace).
+// poke([1,2,3], ["*", :a], 99) → [1,2,3] because 1,2,3 are scalars
+// and traversal (through Star) skips scalars.
 test(
-  'poke Star: star on scalars with further Name (KNOWN PROBLEMATIC)',
+  'poke Star: star on scalars with further Name skips (traversal rule)',
   '{(1 2 3) | list poke path ("*" :a) value 99}',
-  ''
+  '[1,2,3]'
 )
 
 test(
@@ -1378,6 +1441,36 @@ test(
   'poke Star: star into empty nested is no-op',
   '{() | list poke path ("*" "*") value 99}',
   '[]'
+)
+
+test(
+  'poke Star: star then key on objects sets key on each',
+  '{({* (:x 1)} {* (:x 2)}) | list poke path ("*" :y) value 99}',
+  '[{"x":1,"y":99},{"x":2,"y":99}]'
+)
+
+test(
+  'poke Star: star on single scalar element skips',
+  '{(42) | list poke path ("*" :a) value 99}',
+  '[42]'
+)
+
+test(
+  'poke Star: star on mixed scalars and objects skips scalars',
+  '{(1 {* (:a 2)} 3) | list poke path ("*" :x) value 99}',
+  '[1,{"a":2,"x":99},3]'
+)
+
+test(
+  'poke Star: key then star sets all nested children',
+  '{* (:a (1 2 3)) | list poke path (:a "*") value 0}',
+  '{"a":[0,0,0]}'
+)
+
+test(
+  'poke Star: star-star-star on nested collections',
+  '{(((1 2) (3 4)) ((5 6))) | list poke path ("*" "*" "*") value 0}',
+  '[[[0,0],[0,0]],[[0,0]]]'
 )
 
 
@@ -1430,6 +1523,124 @@ test(
   'poke Par: multiple existing positions',
   '{(10 20 30 40) | list poke path (("#1" "#3")) value 99}',
   '[99,20,99,40]'
+)
+
+test(
+  'poke Par: mixed key and position',
+  '{* (:a 1 :b 2 :c 3) | list poke path ((:a "#3")) value 99}',
+  '{"a":99,"b":2,"c":99}'
+)
+
+// Par is sequential: first sub-path sets #1 to 99, second sets #2 to 99
+// Verify via peek that both positions were set
+test(
+  'poke Par: sequential left-to-right',
+  '{(10 20 30) | list poke path (("#1" "#2")) value 99}',
+  '[99,99,30]'
+)
+
+test(
+  'poke Par: some out-of-bounds positions still set in-bounds',
+  '{* (:a 1 :b 2 :c 3) | list poke path ((:b "#6" "#4")) value 999}',
+  '{"a":1,"b":999,"c":3}'
+)
+
+test(
+  'poke Par: mid-path then key on each',
+  '{* (:a {* (:x 1)} :b {* (:x 2)}) | list poke path ((:a :b) :x) value 99}',
+  '{"a":{"x":99},"b":{"x":99}}'
+)
+
+test(
+  'poke Par: nested Par (Par then Par)',
+  '{* (:a {* (:x 1 :y 2)} :b {* (:x 3 :y 4)}) | list poke path ((:a :b) (:x :y)) value 0}',
+  '{"a":{"x":0,"y":0},"b":{"x":0,"y":0}}'
+)
+
+test(
+  'poke Par: Par then star',
+  '{* (:a (1 2) :b (3 4)) | list poke path ((:a :b) "*") value 0}',
+  '{"a":[0,0],"b":[0,0]}'
+)
+
+test(
+  'poke Par: star then Par',
+  '{({* (:a 1 :b 2)} {* (:a 3 :b 4)}) | list poke path ("*" (:a :b)) value 0}',
+  '[{"a":0,"b":0},{"a":0,"b":0}]'
+)
+
+test(
+  'poke Par: empty Par is no-op',
+  '{(1 2 3) | list poke path (()) value 99}',
+  '[1,2,3]'
+)
+
+test(
+  'poke Par: single-element Par same as plain key',
+  '{* (:a 1 :b 2) | list poke path ((:a)) value 99}',
+  '{"a":99,"b":2}'
+)
+
+test(
+  'poke Par: duplicate sub-paths (idempotent)',
+  '{* (:a 1 :b 2) | list poke path ((:a :a)) value 99}',
+  '{"a":99,"b":2}'
+)
+
+test(
+  'poke Par: position on array then Par keys creates structure',
+  '{* (:a 1 :b 2 :c 3) | list poke path ("#2" (:d :e)) value 999}',
+  '{"a":1,"b":{"d":999,"e":999},"c":3}'
+)
+
+test(
+  'poke Par: nested Par on arrays',
+  '{((2 1) (3 4) (4 5)) | list poke path (("#1" "#3") ("#2" "#4")) value 999}',
+  '[[2,999],[3,4],[4,999]]'
+)
+
+
+// =====================================================
+// §1 Poke: combinations and edge cases
+// =====================================================
+
+test(
+  'poke Combo: key then position',
+  '{* (:a (10 20 30)) | list poke path (:a "#2") value 99}',
+  '{"a":[10,99,30]}'
+)
+
+test(
+  'poke Combo: position then key',
+  '{({* (:x 1)} {* (:x 2)}) | list poke path ("#1" :x) value 99}',
+  '[{"x":99},{"x":2}]'
+)
+
+test(
+  'poke Combo: key then star',
+  '{* (:a (1 2 3)) | list poke path (:a "*") value 0}',
+  '{"a":[0,0,0]}'
+)
+
+test(
+  'poke Combo: deeply nested 4-level path',
+  '{* (:a {* (:b {* (:c (1 2))})}) | list poke path (:a :b :c "#1") value 99}',
+  '{"a":{"b":{"c":[99,2]}}}'
+)
+
+// >$xxx.#3 desugars to: save pipe, list poke data $xxx path ("#3") value pipe, >$xxx, restore pipe
+// "{:foo}x" is a block → list coerces to [] → poke at #3 on empty → out of bounds → no-op → $xxx = []
+test(
+  'poke Combo: >$var.path block base with position out of bounds is no-op',
+  '{"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}',
+  '[]'
+)
+
+// Same but with a plain string: list coerces "hello" to ["hello"] → #3 out of bounds → no-op
+test(
+  'poke Combo: >$var.path string base with position out of bounds is no-op',
+  '{:hello | >$yyy || 123 | >$yyy.#3 | $yyy}',
+  '["hello"]'
 )
 
 

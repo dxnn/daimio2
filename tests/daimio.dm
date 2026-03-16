@@ -1186,9 +1186,9 @@
     the second set should override the first one (DATA BUG)
       {"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}
         {"y":123}
-    it works this way
+    position out of bounds on block-coerced-to-empty -- no-op
       {"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}
-        [[],[],123]
+        []
 
 
   by position:
@@ -1267,18 +1267,18 @@
     {((2 1) (3 4) (4 5)) | list poke path ("*" ("#2" "#4") ) value 999}
       [[2,999],[3,999],[4,999]]
 
-    poke through scalar into par positions -- all out of bounds on the converted-to-empty container (DATA BUG: intermediate create corrupts the scalar)
+    poke through scalar into par positions -- all out of bounds on the converted-to-empty container
       {* (:a 1 :b 2 :c 3) | list poke path ( "#2" ("#2" "#6" "#4") ) value 999}
-        {"a":1,"b":[],"c":3}
+        {"a":1,"b":{},"c":3}
 
       {* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}
         {"a":1,"b":{},"c":3}
 
-    poke through scalar into par keys -- array-to-object conversion can't propagate back (DATA BUG: needs parent tracking in D.poke)
+    poke through scalar into par keys -- array-to-object conversion propagates via parent tracking
       {* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}
         {"a":1,"b":{"d":999,"e":999},"c":3}
 
-    par positions at two levels -- listfinder.create destructively replaces with [] (DATA BUG: listfinder.create should be non-destructive)
+    par positions at two levels -- recursive Par handling in D.poke
       {((2 1) (3 4) (4 5)) | list poke path ( ("#1" "#3") ("#2" "#4") ) value 999}
         [[2,999],[3,4],[4,999]]
 
@@ -3058,7 +3058,7 @@ BASIC SYNTAX TESTS
         ash {"x":1,"two":{"monkey":{"flu":"ash"}}}
 
       {:ash | >$hash.{"two"}.monkey.{(:x :y :z)}.flu} {$hash}
-        ash {"x":1,"two":{"monkey":{"x":{"flu":"ash"},"y":{"flu":"ash"},"z":{"flu":"ash"}}}}
+        ash {"x":1,"two":{"monkey":{"flu":"ash","x":{"flu":"ash"},"y":{"flu":"ash"},"z":{"flu":"ash"}}}}
 
     Double pipe leaks values if next segment is an error
       {123 | >foo || __foo}
