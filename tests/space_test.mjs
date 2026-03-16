@@ -734,6 +734,369 @@ multi_space_test(
   }
 )
 
+// ── Looping topologies ───────────────────────────────────────────────
+
+console.log('--- looping topology tests ---')
+
+// Simple loop: station output routes back to itself until condition met
+space_test(
+  'loop: station feeds back to itself',
+  `outer
+    $count 0
+    @init from-js
+    @out  collect
+    stepper {__ | add 1 | >$count}
+    check   {$count | less than 5 | then "{$count | >@loop}" else "{$count | >@done}" | run}
+    @init -> stepper -> check
+    check.loop -> stepper
+    check.done -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    assert_eq('loop: station feeds back to itself', collected.out[0], '5')
+  }
+)
+
+// Loop with accumulator: build up a list via union
+space_test(
+  'loop: accumulator builds list',
+  `outer
+    $items ()
+    @init from-js
+    @out  collect
+    adder  {__ | >v || $items | list union data _v | >$items}
+    check  {$items | count | less than 4 | then "{$items | count | add 1 | >@again}" else "{$items | >@done}" | run}
+    @init -> adder -> check
+    check.again -> adder
+    check.done  -> @out`,
+  [{port: 'init', value: 1}],
+  1,
+  function(collected) {
+    assert_eq('loop: accumulator builds list', collected.out[0], '[1,2,3,4]')
+  }
+)
+
+// Loop in subspace: subspace loops internally, parent sees final result
+space_test(
+  'loop: subspace loops internally',
+  `
+  looper
+    $n 0
+    @in
+    @out
+    step  {__ | add $n | >$n}
+    check {$n | less than 10 | then "{1 | >@again}" else "{$n | >@done}" | run}
+    @in -> step -> check
+    check.again -> step
+    check.done  -> @out
+  outer
+    @init from-js
+    @out  collect
+    @init -> looper.in
+    looper.out -> @out`,
+  [{port: 'init', value: 1}],
+  1,
+  function(collected) {
+    // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+    assert_eq('loop: subspace loops internally', collected.out[0], '10')
+  }
+)
+
+// Two concurrent loops in different spaces
+multi_space_test(
+  'loop: two spaces looping concurrently',
+  [
+    { name: 'A', seedlike: `
+      outer
+        $n 0
+        @init from-js
+        @out  collect
+        step  {$n | add 1 | >$n}
+        check {$n | less than 3 | then "{__ | >@again}" else "{$n | >@done}" | run}
+        @init -> step -> check
+        check.again -> step
+        check.done  -> @out` },
+    { name: 'B', seedlike: `
+      outer
+        $n 0
+        @init from-js
+        @out  collect
+        step  {$n | add 10 | >$n}
+        check {$n | less than 30 | then "{__ | >@again}" else "{$n | >@done}" | run}
+        @init -> step -> check
+        check.again -> step
+        check.done  -> @out` },
+  ],
+  function(spaces, done) {
+    var got = 0
+    on_collect(spaces.A, 'out', function(ship) {
+      got++
+      assert_eq('loop A counts to 3', ship, '3')
+      if(got === 2) done()
+    })
+    on_collect(spaces.B, 'out', function(ship) {
+      got++
+      assert_eq('loop B counts to 30', ship, '30')
+      if(got === 2) done()
+    })
+    D.send_value_to_js_port(spaces.A, 'init', 'go')
+    D.send_value_to_js_port(spaces.B, 'init', 'go')
+  }
+)
+
+// ── Conditional routing via named out ports ──────────────────────────
+
+console.log('--- conditional routing tests ---')
+
+// Station sends to different named ports based on condition
+space_test(
+  'conditional: route to different ports by value',
+  `outer
+    @init from-js
+    @out  collect
+    router {__ | mod 2 | then "{__ | >@odd}" else "{__ | >@even}" | run}
+    @init -> router
+    router.odd  -> {(__ :ODD) | string join}  -> @out
+    router.even -> {(__ :EVEN) | string join} -> @out`,
+  [{port: 'init', value: 7}],
+  1,
+  function(collected) {
+    assert_eq('conditional: odd routed correctly', collected.out[0], '7ODD')
+  }
+)
+
+// Same topology, even number
+space_test(
+  'conditional: even number routes to even port',
+  `outer
+    @init from-js
+    @out  collect
+    router {__ | mod 2 | then "{__ | >@odd}" else "{__ | >@even}" | run}
+    @init -> router
+    router.odd  -> {(__ :ODD) | string join}  -> @out
+    router.even -> {(__ :EVEN) | string join} -> @out`,
+  [{port: 'init', value: 6}],
+  1,
+  function(collected) {
+    assert_eq('conditional: even routed correctly', collected.out[0], '6EVEN')
+  }
+)
+
+// Multiple ships, each routes to different port
+space_test(
+  'conditional: multiple ships route independently',
+  `outer
+    @init from-js
+    @out  collect
+    router {__ | mod 2 | then "{__ | >@odd}" else "{__ | >@even}" | run}
+    @init -> router
+    router.odd  -> {(__ :ODD) | string join}  -> @out
+    router.even -> {(__ :EVEN) | string join} -> @out`,
+  [
+    {port: 'init', value: 3},
+    {port: 'init', value: 4},
+    {port: 'init', value: 5},
+  ],
+  3,
+  function(collected) {
+    var sorted = collected.out.sort()
+    assert_eq('conditional: ship 3', sorted[0], '3ODD')
+    assert_eq('conditional: ship 4', sorted[1], '4EVEN')
+    assert_eq('conditional: ship 5', sorted[2], '5ODD')
+  }
+)
+
+// Fizzbuzz-style: three-way conditional routing (inspired by station_break.html)
+// Uses mod + then/else: 0 is falsy (divisible), non-zero is truthy (not divisible)
+space_test(
+  'conditional: fizzbuzz three-way routing',
+  `outer
+    @init from-js
+    @out  collect
+    check15 {__in | mod 15 | then "{__in | >@no}" else "{:FizzBuzz | >@yes}" | run}
+    check3  {__in | mod 3  | then "{__in | >@no}" else "{:Fizz | >@yes}" | run}
+    check5  {__in | mod 5  | then "{__in | >@no}" else "{:Buzz | >@yes}" | run}
+    passthru {__}
+    @init -> check15
+    check15.yes -> @out
+    check15.no  -> check3
+    check3.yes  -> @out
+    check3.no   -> check5
+    check5.yes  -> @out
+    check5.no   -> passthru -> @out`,
+  [
+    {port: 'init', value: 3},
+    {port: 'init', value: 5},
+    {port: 'init', value: 15},
+    {port: 'init', value: 7},
+  ],
+  4,
+  function(collected) {
+    var sorted = collected.out.sort()
+    assert_eq('fizzbuzz: 7 passes through', sorted[0], '7')
+    assert_eq('fizzbuzz: 5 is Buzz', sorted[1], 'Buzz')
+    assert_eq('fizzbuzz: 3 is Fizz', sorted[2], 'Fizz')
+    assert_eq('fizzbuzz: 15 is FizzBuzz', sorted[3], 'FizzBuzz')
+  }
+)
+
+// Conditional routing in subspace, parent collects
+space_test(
+  'conditional: subspace routes, parent collects',
+  `
+  classifier
+    @in
+    @big out
+    @small out
+    check {__ | less than 10 | then "{__ | >@sm}" else "{__ | >@bg}" | run}
+    @in -> check
+    check.sm -> @small
+    check.bg -> @big
+  outer
+    @init from-js
+    @out  collect
+    @init -> classifier.in
+    classifier.big   -> {(__ :BIG) | string join}   -> @out
+    classifier.small -> {(__ :SMALL) | string join} -> @out`,
+  [
+    {port: 'init', value: 3},
+    {port: 'init', value: 50},
+  ],
+  2,
+  function(collected) {
+    var sorted = collected.out.sort()
+    assert_eq('classifier: 3 is small', sorted[0], '3SMALL')
+    assert_eq('classifier: 50 is big', sorted[1], '50BIG')
+  }
+)
+
+// ── State mutation across ships ──────────────────────────────────────
+
+console.log('--- state mutation tests ---')
+
+// §9: Serial execution guarantees each ship sees previous ship's state changes
+space_test(
+  'state: sequential ships see accumulated state',
+  `outer
+    $total 0
+    @init from-js
+    @out  collect
+    @init -> {__ | add $total | >$total || $total} -> @out`,
+  [
+    {port: 'init', value: 1},
+    {port: 'init', value: 2},
+    {port: 'init', value: 3},
+    {port: 'init', value: 4},
+  ],
+  4,
+  function(collected) {
+    // Running totals: 1, 3, 6, 10
+    var vals = collected.out.map(Number)
+    assert_eq('state: after ship 1', vals[0], 1)
+    assert_eq('state: after ship 2', vals[1], 3)
+    assert_eq('state: after ship 3', vals[2], 6)
+    assert_eq('state: after ship 4', vals[3], 10)
+  }
+)
+
+// State mutation with conditional branching: different paths mutate same var
+space_test(
+  'state: different paths mutate same variable',
+  `outer
+    $count 0
+    @init from-js
+    @out  collect
+    router {__ | mod 2 | then "{__ | >@odd}" else "{__ | >@even}" | run}
+    @init -> router
+    router.odd  -> {$count | add 1  | >$count || $count} -> @out
+    router.even -> {$count | add 10 | >$count || $count} -> @out`,
+  [
+    {port: 'init', value: 1},   // odd:  count 0+1=1
+    {port: 'init', value: 2},   // even: count 1+10=11
+    {port: 'init', value: 3},   // odd:  count 11+1=12
+    {port: 'init', value: 4},   // even: count 12+10=22
+  ],
+  4,
+  function(collected) {
+    var vals = collected.out.map(Number)
+    assert_eq('state: odd adds 1', vals[0], 1)
+    assert_eq('state: even adds 10', vals[1], 11)
+    assert_eq('state: odd again', vals[2], 12)
+    assert_eq('state: even again', vals[3], 22)
+  }
+)
+
+// State persists across ships entering different ports
+space_test(
+  'state: mutations from different entry ports accumulate',
+  `outer
+    $log ()
+    @a from-js
+    @b from-js
+    @out collect
+    @a -> {(__ :A) | string join | >v || $log | list union data _v | >$log || $log} -> @out
+    @b -> {(__ :B) | string join | >v || $log | list union data _v | >$log || $log} -> @out`,
+  [
+    {port: 'a', value: 1},
+    {port: 'b', value: 2},
+    {port: 'a', value: 3},
+  ],
+  3,
+  function(collected) {
+    // $log accumulates: ["1A"], ["1A","2B"], ["1A","2B","3A"]
+    assert_eq('state: final log', collected.out[2], '["1A","2B","3A"]')
+  }
+)
+
+// State mutation in subspace doesn't affect parent
+space_test(
+  'state: subspace mutation isolated from parent',
+  `
+  child
+    $x 0
+    @in
+    @out
+    @in -> {__ | add $x | >$x || $x} -> @out
+  outer
+    $x 100
+    @init from-js
+    @out  collect
+    @init -> child.in
+    child.out -> {$x} -> @out`,
+  [{port: 'init', value: 5}],
+  1,
+  function(collected) {
+    // child sets its own $x to 5, sends 5 out
+    // parent receives 5 at child.out, anon station reads parent's $x (should be 100)
+    assert_eq('state: parent $x unchanged', collected.out[0], '100')
+  }
+)
+
+// Dead-end wiring: ship enters station with no outs, space stays healthy
+space_test(
+  'dead end: station with no outs, space survives',
+  `outer
+    $flag 0
+    @init from-js
+    @out  collect
+    dead-end {__ | >$flag}
+    reporter {$flag | >@done}
+    @init -> dead-end
+    @init -> reporter
+    reporter.done -> @out`,
+  [
+    {port: 'init', value: 42},
+    {port: 'init', value: 99},
+  ],
+  2,
+  function(collected) {
+    // dead-end sets $flag but produces no output routing
+    // reporter runs independently from @init, reads $flag
+    // Second ship should see $flag=42 from first dead-end
+    assert_eq('dead end: space still works', collected.out.length, 2)
+  }
+)
+
 // ── Known-failing spec tests ────────────────────────────────────────
 // Tests for spec behaviors not yet implemented. All labels must be
 // in the known_failures set above so the suite still passes.
