@@ -13,9 +13,10 @@ node tests/node_code.mjs         # 68 internal tests
 node tests/security_test.mjs    # 97 security tests (dialect, pollution, regex, actors)
 node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
 node tests/example_test.mjs     # 102 command example tests
+node tests/perf_test.mjs        # 9 performance regression benchmarks
 ```
 
-All six test suites must pass before any change is considered complete.
+All seven test suites must pass before any change is considered complete.
 
 ## Language overview
 
@@ -204,6 +205,7 @@ Part IV — Space Execution:
 - **security_test**: 97/97 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
+- **perf_test**: 9/9 benchmarks pass
 
 Known failures are mostly edge cases in nested poke paths with par combinations.
 
