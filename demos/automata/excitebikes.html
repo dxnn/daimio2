@@ -102,24 +102,14 @@
 
 
 
-  <script>
-    // NOTE: this has to be set before emmet is loaded
-    emmetKeymap = {
-  		'Ctrl-E': 'expand_abbreviation',
-  		'Shift-Ctrl-D': 'match_pair_outward',
-    }
-  </script>
-
-  <link rel="stylesheet" href="../../codemirror/lib/codemirror.css">
-  <script src="../../codemirror/lib/codemirror.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/display/placeholder.min.js"></script>
   <script src="../../codemirror/mode/daimio/daimio.js"></script>
-
-  <link rel="stylesheet" href="../../codemirror/addon/hint/show-hint.css">
-  <script src="../../codemirror/addon/hint/show-hint.js"></script>
   <script src="../../codemirror/addon/hint/daimio-hint.js"></script>
-
-  <script src="../../codemirror/addon/display/placeholder.js"></script>
-  <script src="../../codemirror/addon/emmet/emmet.js"></script>
 
   <script type="module">
     document.addEventListener('DOMContentLoaded', function() {
