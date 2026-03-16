@@ -29,8 +29,8 @@
       solver
         { __ | mandelbrot iterate | >ship
         | _ship.#6
-        | then "{__ | >@again}"
-        | run with _ship }
+        | then "{_ship | >@again}"
+        | run }
 
       solver.again -> solver
       solver.again -> @display

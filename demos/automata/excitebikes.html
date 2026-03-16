@@ -34,7 +34,7 @@
       // LOOP
       process
         { $cells | map block "{
-            __ | map with {* (:row _key)} block "{
+            _key | >row || __in | map block "{
               __ | switch (
                 0 { $cells.{_row | add -1 | range 3}.{_key | add -1 | range 3}
                   | math max | >max | _max | less than 3 | then 0 else _max}
@@ -63,8 +63,8 @@
         <table border="0" cellspacing="0" cellpadding="0">
           {begin row | map data $cells | join}
             <tr>
-              {begin item | map data __in with {* (:row _key)} | join}
-                <td class="touch" data-value="{_row}x{_key}" style="width:20px;height:20px;background-color:{$colors.{__}}"></td>
+              {_key | >$row || ""}{begin item | map data __in | join}
+                <td class="touch" data-value="{$row}x{_key}" style="width:20px;height:20px;background-color:{$colors.{__}}"></td>
               {end item}
           	</tr>
         	{end row}

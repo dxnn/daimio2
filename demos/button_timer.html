@@ -48,7 +48,7 @@
       @button  dom-on-submit
 
       inc    {__ | add $count | >$count}
-      block  {$count | then "" else "{1 | >@start}" | run with 1}
+      block  {$count | then "" else "{1 | >@start}" | run}
 
       @button -> block
       block.start -> inc -> @counter
@@ -105,7 +105,7 @@
       @button  dom-on-submit
 
       inc    {__ | add $count | >$count}
-      block  {$count | then "" else "{1 | >@start}" | run with 1}
+      block  {$count | then "" else "{1 | >@start}" | run}
 
       @button -> block
       block.start -> inc -> @counter

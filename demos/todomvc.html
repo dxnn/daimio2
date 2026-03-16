@@ -97,7 +97,6 @@
                      | then {* (:title     __in.title
                                 :completed {1 | subtract __in.completed})}
                        else __in}"
-          with {* (:thekey _thekey)}
         | >$ideas}
       @toggle -> completer -> changed
 
@@ -128,7 +127,6 @@
                                 :completed __in.completed
                                 :editing   1)}
                        else __in}"
-          with {* (:thekey _thekey)}
         | >$ideas}
 
       changer
@@ -137,7 +135,6 @@
                      | then {* (:title     $theval
                                 :completed __in.completed)}
                        else __in}"
-          with {* (:theval __in)}
         | >$ideas}
 
       @blurme   -> blurred -> changed

@@ -41,7 +41,7 @@
 
 // CODE
 @whatever dom-on-submit
-@whatever -&gt; {__.code | unquote | run with {* (:seq $seq)}} -&gt; saver
+@whatever -&gt; {$seq | >seq || __in.code | unquote | run} -&gt; saver
 
 </pre>
 
@@ -66,7 +66,7 @@
 
       // CODE
       @whatever dom-on-submit
-      @whatever -> {__.code | unquote | run with {* (:seq $seq)}} -> saver
+      @whatever -> {$seq | >seq || __in.code | unquote | run} -> saver
 
       // SHOW
       @seq dom-set-text

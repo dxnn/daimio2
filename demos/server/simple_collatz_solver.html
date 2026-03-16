@@ -33,18 +33,18 @@
           else "{__.#1 | divide by 2}"       | run
         | (__ __in.#2 {__in.#3 | add 1})     | >new-tuple
         | __.#1 | less than 2
-        | then "{__ | >@done}"
-          else "{__ | >@again}"
-        | run with _new-tuple }
+        | then "{_new-tuple | >@done}"
+          else "{_new-tuple | >@again}"
+        | run }
 
       solver2
         { __
         | times -1
         | >val
         | less than 0
-        | then "{__ | >@again}"
-          else "{__ | >@done}"
-        | run with _val }
+        | then "{_val | >@again}"
+          else "{_val | >@done}"
+        | run }
 
       solver.again -> solver
 

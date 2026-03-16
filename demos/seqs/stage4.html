@@ -49,7 +49,7 @@
 safespace
   @in
   @out
-  boxed {__.code | unquote | run with {* (:seq __in.seq)}}
+  boxed {__in.seq | >seq || __in.code | unquote | run}
   @in -&gt; boxed -&gt; @out
 
 outer
@@ -65,7 +65,7 @@ outer
     safespace
       @in
       @out
-      boxed {__.code | unquote | run with {* (:seq __in.seq)}}
+      boxed {__in.seq | >seq || __in.code | unquote | run}
       @in -> boxed -> @out
 
     outer
@@ -86,7 +86,7 @@ outer
 
       // CODE
       @whatever dom-on-submit
-      @whatever -> {__.code | unquote | run with {* (:seq $seq)}} -> saver
+      @whatever -> {$seq | >seq || __in.code | unquote | run} -> saver
 
       // SAFEWAY
       @safeway dom-on-submit

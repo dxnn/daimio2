@@ -120,15 +120,15 @@
       process
         { () | >$mods | 0 | >$max
         | $cells | map block "{
-            __ | map with {* (:row _key)} block "{
+            _key | >row || __in | map block "{
               __ | mod 2
                  | switch
                    ( 0 "{ __ | mod $magic-modulus
                         | then "{ __ | divide by 2}"
                           else "{ $mods | poke (_row _key $add-to-neighbors) | >$mods | $self-transform}"
-                        | run with {* (:row _row :key _key "__in" __in)} }"
+                        | run }"
                      1 "{ __ | times 3 | add 1}")
-                 | run with {* (:row _row :key _key "__in" __in)}
+                 | run
                  | else 1 | >result
                  | max $max | >$max | _result | add 0}"}"
         | >$cells
@@ -200,8 +200,8 @@
         <table id="celltable" border="0" cellspacing="0" cellpadding="3">
           {begin row | map data $cells | join}
             <tr>
-              {begin item | map data __in with {* (:row _key)} | join}
-                <td class="touch" data-value="{_row}x{_key}"
+              {_key | >$row || ""}{begin item | map data __in | join}
+                <td class="touch" data-value="{$row}x{_key}"
                     style="background-color:{$colors.{__ | divide by $max | math pow exp 0.1
                                                          | times 10 | math round}}">{__}</td>
               {end item}

@@ -34,12 +34,13 @@
         | _ship.#2 | times _ship.#2  | times -1 | >bsqr
        || add (_asqr _bsqr _ship.#3) | >newx
         | _ship.#1 | times _ship.#2  | times 2 | add _ship.#4 | >newy
-        | times _newy | add {_newx | times _newx}
+        | (_newx _newy _ship.#3 _ship.#4 {_ship.#5 | add 1}) | >next
+       || _newy | times _newy | add {_newx | times _newx}
         | less than 7
         | and {_ship.#5 | less than 13}
-        | then "{__ | >@again}"
-          else "{__ | >@done }"
-        | run with (_newx _newy _ship.#3 _ship.#4 {_ship.#5 | add 1}) }
+        | then "{_next | >@again}"
+          else "{_next | >@done }"
+        | run }
 
       solver.again -> solver
       solver.again -> update-display -> @display

@@ -36,8 +36,8 @@
 
       // LOOP
       process
-        { __ | map with {* (:cells __in)} block "{
-            __ | map with {* (:row _key :cells _cells)} block "{
+        { __ | >cells | map block "{
+            _key | >row || __in | map block "{
               __ | switch (
                 0 { _cells.{_row | add -1 | range 3}.{_key | add -1 | range 3}
                   | math max | >max | _max | less than 3 | then 0 else _max}
@@ -50,10 +50,10 @@
       try-change
         { __ | >cells
         | if $change
-          then "{ "" | >$change | _cells
+          then "{ $change | >change || "" | >$change | _cells
                 | list poke path (_change.row _change.col) value _change.val}"
           else _cells
-        | run with {* (:cells _cells :change $change)} }
+        | run }
 
       initializer -> process -> changed
       process -> {__ | process sleep for $time} -> try-change -> process
@@ -73,8 +73,8 @@
         <table border="0" cellspacing="0" cellpadding="0">
           {begin row | map data __in | join}
             <tr>
-              {begin item | map data __in with {* (:row _key)} | join}
-                <td class="touch" data-value="{_row}x{_key}" style="width:20px;height:20px;background-color:{$colors.{__}}"></td>
+              {_key | >$row || ""}{begin item | map data __in | join}
+                <td class="touch" data-value="{$row}x{_key}" style="width:20px;height:20px;background-color:{$colors.{__}}"></td>
               {end item}
           	</tr>
         	{end row}
