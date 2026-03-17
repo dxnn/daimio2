@@ -119,7 +119,7 @@ D.import_models({
             prior_starter(value)
           }
 
-          port.exit(value, callback, process) // yuck: process is only here for 'exec' ports :(
+          port.exit(value, callback, process)
 
           return NaN
         },

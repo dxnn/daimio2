@@ -103,6 +103,8 @@ Clickable examples:</pre>
       code-runner
         {__ | process unquote | process run}
       @codein -> code-runner
+      code-runner.forward -> @forward
+      code-runner.turn -> @turn
 
     outer
       $turtles {}
@@ -138,7 +140,7 @@ Clickable examples:</pre>
 
       turn-fix
         { process sender | >user
-        | $turtles.{_user}.angle | add __ | >new_angle
+        | $turtles.{_user}.angle | add __in | >new_angle
         | >$turtles.{_user}.angle
         | * ( :angle  _new_angle
               :thing  {(:turtle _user) | join} ) }

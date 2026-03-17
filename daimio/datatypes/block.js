@@ -21,10 +21,6 @@ D.import_type('block', function(value) {
       for(var key in scope)                                  // caller scope overrides
         inherited[key] = scope[key]
 
-      if(process && process.state && process.state.secret) { // FIXME: this seems really quite silly
-        inherited.parent_process = process
-        inherited.secret = process.state.secret
-      }
       return space.real_execute(D.BLOCKS[value.value.id], inherited, prior_starter, station_id, process && process.sender)
     }
   }

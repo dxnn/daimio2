@@ -20,11 +20,7 @@ D.SegmentTypes.PortSend = {
     // TODO: check not only this station but outer stations as well, so we can send to ports from within inner blocks. but first think about how this affects safety and whatnot
 
     if(port) {
-      if(my_station === undefined) { // HACK
-        port.enter(inputs[0], process) // weird hack for exec spaces
-      } else {
-        port.exit(inputs[0], process)
-      }
+      port.exit(inputs[0], process)
     }
     else {
       D.set_error('Invalid port "' + to + '" detected')

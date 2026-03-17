@@ -60,16 +60,4 @@ D.import_port_flavour('down', {
   }
 })
 
-D.import_port_flavour('exec', {
-  dir: 'in',
-  unsafe: true,
-  exit: function(ship) {
-    if(!this.space)
-      return false
-
-    // this.space.secret = ship
-    this.space.execute(D.Parser.string_to_block_segment(ship.code), {secret: ship}) // TODO: ensure this is a block, not a string
-  }
-})
-
 
