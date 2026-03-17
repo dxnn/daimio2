@@ -114,10 +114,10 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (158 tests)
+  d2_spec_test.mjs     — spec alignment tests (217 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
   node_code.mjs        — internal JS-level tests (68 tests)
-  example_test.mjs     — command example tests (102 tests, auto-discovered)
+  example_test.mjs     — command example tests (104 tests, auto-discovered)
   daimio.dm            — test definitions (text format)
 D2-spec.md             — formal execution model specification
 extra/
@@ -201,13 +201,37 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 197/197 pass
+- **d2_spec_test**: 217/217 pass
 - **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 68/68 pass
-- **security_test**: 155/155 pass
+- **security_test**: 158/158 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
+
+## Demo status
+
+Most demos have been updated to work with the current codebase:
+
+**Completed:**
+- Removed all `with` param usage from DAML (replaced with scope inheritance / pipeline vars)
+- Fixed strict-mode errors in all `<script type="module">` blocks (`var`/`window.` declarations)
+- CodeMirror updated to CM5 from CDN (cdnjs 5.65.18) — custom daimio mode + hint stay local
+- Working: button_local, button_two, button_timer, turtle_solo, seqs/*, coderetreat, todomvc
+- tests/daimio.html: REPL converted to module script, var scoping fixed
+
+**Needs investigation:**
+- excitebikes.html: DAML is correct (verified in Node), but grid interaction not working in browser — needs browser console debugging
+- excitebikes2.html: same issue likely
+- sans-collatz.html: same pattern, plus missing `collate` station type
+- mandelbrot demos: `mandelbrot iterate` command only defined in canvas_ships_faster.html, not the other two
+- turtle_net, turtle_net_temp: load daimio from remote `http://daimio.org/`, need socket.io
+- server demos: need socket.io backend
+
+**Pattern reference for `with` removal:**
+- `run with _var` → blocks reference `_var` directly (scope inheritance)
+- `map with {* (:name val)}` → set pipeline var before map: `val | >name || ... | map block "..."`
+- Named blocks can't set pipeline vars before `{begin}` → use `{_key | >$row || ""}` with space var
 
 ## Optimization opportunities
 
@@ -249,5 +273,7 @@ node repl.mjs -f file.dm   # run a .dm file as DAML, print result, exit
 - Type Daimio expressions at the `>` prompt, hit Enter on a blank line to execute
 - Supports multiline paste (buffered until blank line)
 - Soft errors display in red; `-e` and `-f` modes print errors to stderr
+- Tab completion: handlers/aliases after `{`, methods after handler, params after method
+- History persists across sessions in `~/.daimio_history` (up-arrow to recall)
 - Named blocks use pipe on `{begin}`, not `{end}`:
   `{begin foo | >$foo ||}{body}{end foo}`

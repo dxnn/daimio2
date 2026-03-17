@@ -1,5 +1,7 @@
 import D from './daimio/daimio.js'
-import { readFileSync } from 'fs'
+import { readFileSync, appendFileSync, existsSync } from 'fs'
+import { homedir } from 'os'
+import { join } from 'path'
 
 const errors = []
 D.on_error = function(command, error) {
@@ -98,7 +100,11 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
     return [hits, partial]
   }
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout, completer })
+  const history_path = join(homedir(), '.daimio_history')
+  var history = []
+  try { history = readFileSync(history_path, 'utf8').split('\n').filter(Boolean).reverse() } catch(e) {}
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout, completer, history })
   let buf = ''
 
   function prompt() {
@@ -106,6 +112,7 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
       if (line === '' && buf.trim()) {
         const input = buf
         buf = ''
+        appendFileSync(history_path, input + '\n')
         return D.run(input, value => {
           flush_errors(process.stderr)
           console.log(value)
