@@ -351,6 +351,8 @@ D.import_models({
           else if(also) values = [also, data]
           else values = D.to_array(data)
 
+          if(!Array.isArray(values[0])) return []
+
           return values[0].map(function(item, key) {
             return values.map(function(list) {
               return list[key]
