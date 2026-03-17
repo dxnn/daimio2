@@ -87,11 +87,9 @@ Every command returns a value. Every port access either succeeds or
 sploots (emits a soft error and continues with the empty value). No
 pipeline ever crashes or diverges (assuming commands are total, which
 is a requirement on command definitions). The empty value coerces to
-"", 0, or [] as needed, so it always flows cleanly through subsequent
+`""`, `0`, or `[]` as needed, so it always flows cleanly through subsequent
 commands. See §10 "Splooting" for the definition.
 
-TODO: think about `[]` vs `()` for empty value
-TODO: the smart quote rendering makes "" look dumb, turn that off
 
 ### Copy semantics
 Values flowing through pipelines are functionally pure from the
@@ -351,8 +349,6 @@ state affects which parameter receives the implicit value.
 
 Rationale for decisions that aren't obvious from the spec itself.
 
-TODO: examine "request tagging" -- that seems weird
-TODO: let's not call requests orphans that's just sad
 
 ### Why single-response effects?
 The alternative is multi-shot continuations (streaming responses via
@@ -1173,7 +1169,7 @@ A's wiring rules for S:
 
 This means: db effects are handled locally with a generous 30s timeout. (The 'db' here is for 'dragon biscuits'. Alice would never give database access to Bob, she's not daft. I mean you know what he's like.) Time effects are served by subspace T with A's default 15s, user writes are suppressed (returns empty immediately, no async), and everything else is forwarded to A's parent environment with the default timeout.
 
-If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes orphaned.
+If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes a ghost.
 
 
 ## 7. Async Boundaries
@@ -1280,14 +1276,14 @@ The key property: **an outer wire's timeout is authoritative.** No
 inner wire can extend the wait time beyond what the outer wire allows.
 An inner wire CAN shorten the wait by having a tighter timeout.
 
-#### Timeout and orphaned response behavior
+#### Timeout and ghost response behavior
 
 When a timeout fires, the waiting process resumes with the effectful
 command's default value, and a soft error is emitted. The request is
 marked completed.
 
 If a response later arrives for an already-completed request (an
-**orphaned response**), it is dropped and a soft error fires in the
+**ghost response**), it is dropped and a soft error fires in the
 space where the response surfaced — not where the request originated.
 
 #### Unwired ports
@@ -1343,30 +1339,38 @@ socketSpace = space with at least one port where flavour = "socket-in"
 
 When a serialized space arrives as a ship at a socket-in port:
 
-```
-LOAD(socketSpace, sourceText) = socketSpace'
-  where spaceDef    = parse(sourceText)              — space syntax → space definition
-        subspace    = instantiate(spaceDef)           — build stations, init space vars
-        subspace'   = subspace with ports unresolved  — demand-created on first use
-        socketSpace' = socketSpace with subspaces ∪ {subspace'}
-                       wiringRules applied to subspace' ports on demand
-```
+  1. **Parse** the source text (space syntax) into a space
+     definition.
+  2. **Compile** the definition into a spaceseed (content-addressed,
+     stored in the global table).
+  3. **Instantiate** the spaceseed into a live subspace (with its
+     own σ, queue, and recursively instantiated sub-subspaces).
+     Ports are left unresolved — they are demand-created on first
+     use.
+  4. **Add** the new subspace to the socket space. The parent's
+     wiring rules apply to the new subspace's ports on demand.
+  5. If a previous subspace occupied this socket, **overlap**
+     semantics apply (see below).
 
 ### Socket transitions: overlap
 
 If a previous subspace occupied this socket, the transition uses
-**overlap** semantics:
+**overlap** semantics. Both subspaces are live simultaneously
+until the old one finishes its work:
 
-```
-TRANSITION(socketSpace, old, new) = socketSpace'
-  where socketSpace' routes new ships to new         — new is immediately live
-        old continues processing in-flight ships     — old drains naturally
-        old is collected when inFlight(old) = ∅      — no ships, no pending requests
-        old.σ is lost                                — state does not survive transitions
-```
+  1. **New subspace goes live immediately.** All newly arriving
+     ships route to the new subspace.
+  2. **Old subspace keeps running.** It finishes its active
+     process, then processes every ship remaining in its queue,
+     one at a time, in FIFO order. No new ships enter the old
+     subspace — only its existing queue drains.
+  3. **Old subspace is collected** when its queue is empty and
+     no process is active. Its state (σ) is discarded.
 
-This is consistent with the outer space model: if you need
-persistent state across socket transitions, it lives Outside. The
+No ships are lost. The old subspace's queued work completes
+before the subspace is removed. But state does not survive the
+transition — if you need persistent state across socket swaps,
+it lives outside the space (via ports to external storage). The
 socket is a hot-swappable execution slot, not a state container.
 
 ### Cross-boundary space variable access
@@ -1472,14 +1476,19 @@ svar_read  ::= '$' name path?           — e.g. $count, $user.name
 
 port_send  ::= '>@' name                — send to a named space-level port
 
-path       ::= ('.' selector)*          - NB paths can also be expressed as lists
-selector   ::= name                     — Key: a key: .foo, 12
+path       ::= ('.' selector)*          — paths can also be expressed as lists
+selector   ::= name                     — Key: a literal key: .foo, .12
              | '#' integer              — Pos: a positional (1-based) index: .#1, .#-1
-             | '*'                      — star: all children
-             | '(' path+ ')'            — par: multiple paths gathered
+             | '*'                      — Star: all children
+             | command                  — evaluated: .{math add value 1 to 2}
 ```
 
-TODO: right now, inside a dot-path Par only works in curlies.
+Dot-path selectors are either **literal** (`name`, `#N`, `*`) or
+**evaluated** (`{...}`). An evaluated selector is a command whose
+result becomes the selector value. This is how Par works in
+dot-paths: `$foo.{(:a :b)}` evaluates the list `(:a :b)`, which
+becomes a Par selector. There is no bare `()` in dot-path syntax
+— Par requires evaluation, so it uses curlies.
 
 ### No escape sequences
 
@@ -1854,25 +1863,16 @@ result of the first. For Par-delete, overlapping sub-paths are
 resolved from the original structure — if both sub-paths target
 the same entry, it is removed once.
 
-#### Path command signatures
+#### Path operations as commands
+
+The four path operations are invoked as `list` commands:
 
 ```
 list peek   — params: data, path
 list poke   — params: data, path, value
 list map    — params: data, path (default "*"), block
 list delete — params: data, path
-list append — params: data, value
-list values — params: data                    (keyed → unkeyed)
-list rekey  — params: data                    (unkeyed → keyed)
 ```
-
-TODO: add other `list` methods? why just these?
-TODO: these are mostly other places do we need this table?
-
-TODO: I think the paragraph below is repeated elsewhere:
-`list map` with path omitted defaults to `("*")` (current behavior:
-map over all children). `list append` replaces the old empty-path
-poke behavior; empty path in poke means "replace entirely."
 
 #### Laws
 
@@ -2250,9 +2250,6 @@ reads params declared in its definition. Supplied names that don't
 match any declared param are compiled but never consumed — the
 command executes as if they weren't there.
 
-**Param constraints:** a command definition may include `allow`
-or `deny` lists on a param. If the value doesn't satisfy the
-constraint, the command sploots.
 
 **Dialect check:** if c ∉ effective_dialect.commands, the command is
 not executed. A soft error is emitted (see §12), and the pipeline
@@ -2265,8 +2262,10 @@ value is unchanged.
   (process, σ) —[ReadSVar(s, path)]→ (process{v := v'}, σ)
 ```
 
-If s is unbound in σ, or path doesn't match, the result is the empty
-value (consistent with totality — no errors, just defaults).
+If s is unbound in σ, or path doesn't match, the result sploots
+(empty value + soft error to error port). This aids debugging —
+a typo in a variable name produces an observable error — while
+the pipeline continues normally with the empty value.
 
 **Write space variable:**
 ```
@@ -2298,6 +2297,18 @@ If x is unbound or path doesn't match, the result is empty (totality).
 
 Pipeline variable bindings are write-once within a synchronous segment
 (SSA). Rebinding is a compile-time error for _vars within a segment.
+
+**Port send:**
+```
+  ─────────────────────────────────────────────────
+  (process, σ) —[PortSend(portname)]→ (process, σ)
+  schedule deferred: ship(process.v, process.sender) → portname
+```
+
+The pipeline value is unchanged — PortSend passes it through.
+The actual ship send is **deferred**: it is scheduled to execute
+after the current process completes (see §5 "Port routing and
+deferred entry"). The deferred ship carries the process's sender.
 
 **No implicit fill on first segment.** The `|` operator creates
 edges in the segment flow graph (see §10 "Block compilation").
@@ -2397,6 +2408,7 @@ seg ::= PureCmd(c, args)           — invoke a pure command
       | WriteSVar(s, path)         — write pipeline value to space variable
       | ReadPVar(x, path)          — read a pipeline variable (with optional path)
       | WritePVar(x)               — bind pipeline value to pipeline variable
+      | PortSend(portname)         — send pipeline value to a space-level port
       | Literal(v)                 — a literal value
       | Block(daml)                — a quoted DAML string as a value
 
@@ -2415,11 +2427,11 @@ Conditions that sploot:
 
 ```
   - command not in effective dialect
-  - effectful command with unwired port (returns default, no async)
-  - timeout on down-port response (returns default after elapsed time)
-  - orphaned response (response arrives for already-completed request)
+  - effectful command with unwired port (returns empty, no async)
+  - timeout on down-port response (returns empty after elapsed time)
+  - ghost response (response arrives for already-completed request)
   - unbound space variable read (returns empty)
-  - type mismatch in command params (returns default value)
+  - required param missing (no value from naming, pipe fill, or fallback)
   - key coercion failure (non-numeric string key on unkeyed list)
   - Key poke on unkeyed list (no promotion, returns unchanged)
 ```
@@ -2429,7 +2441,7 @@ When splooting:
      (if wired). The error ship carries the process's sender.
   2. The pipeline is NOT halted.
   3. The pipeline continues with the empty value (which coerces to
-     "", 0, or [] depending on context).
+     `""`, `0`, or `[]` depending on context).
 
 This is analogous to IEEE 754 NaN propagation: errors flow through the
 pipeline as values, rather than interrupting control flow.
