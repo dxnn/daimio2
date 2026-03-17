@@ -347,6 +347,304 @@ test('closed space allows execution with actor', closed_result2 === 3)
 // Open space (default) still works without actor
 test('open space works without actor', run('{math add value 1 to 2}') === '3')
 
+// ── Sender Tests ──────────────────────────────────────────────────────────────
+// These test sender preservation and confinement from the outside, the way an
+// App using Daimio would: pass a ship with an actor into a space, and when ships
+// come back out through ports, verify the actor survived the whole journey.
+
+// Actor-check port flavour: captures {ship, actor} from exiting ships
+var actor_check_results = []
+
+D.import_port_flavour('actor-check', {
+  dir: 'out',
+  outside_exit: function(ship, actor) {
+    actor_check_results.push({ship: ship, actor: actor})
+  }
+})
+
+function dedent(s) {
+  var lines = s.split('\n')
+  while(lines.length && !lines[0].trim()) lines.shift()
+  var min = Infinity
+  lines.forEach(function(line) {
+    if(!line.trim()) return
+    var indent = line.search(/\S/)
+    if(indent < min) min = indent
+  })
+  if(min === Infinity) min = 0
+  return lines.map(function(line) { return line.slice(min) }).join('\n')
+}
+
+// Helper: create space, send ship with actor, collect results asynchronously
+function sender_test(label, seedlike, actor, sends, expected_count, check) {
+  return new Promise(function(resolve) {
+    seedlike = dedent(seedlike)
+    actor_check_results = []
+    var seed_id = D.make_some_space(seedlike)
+    var space = new D.Space(seed_id)
+
+    // Wait for async port routing to complete
+    var timer = setTimeout(function() {
+      check(actor_check_results)
+      resolve()
+    }, 200)
+
+    sends.forEach(function(send) {
+      D.send_value_to_js_port(space, send.port, send.value, send.flavour, actor)
+    })
+  })
+}
+
+var sender_actor = new D.Actor('alice', {dialect: D.DIALECTS.top})
+
+console.log('\n=== Sender Preservation ===')
+
+// 1. Simple passthrough: ship enters station, exits. Actor preserved.
+await sender_test(
+  'passthrough',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    work {__ | add 1}
+    @init -> work -> @out`,
+  sender_actor,
+  [{port: 'init', value: 5}],
+  1,
+  function(results) {
+    test('sender passthrough: ship exits', results.length >= 1)
+    test('sender passthrough: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender passthrough: value correct', results.length >= 1 && results[0].ship == 6)
+  }
+)
+
+// 2. Block evaluation: station runs list map. Actor preserved through sub-process.
+await sender_test(
+  'block eval',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    mapper {(1 2 3) | map block "{__ | add __in}" | >@done}
+    @init -> mapper
+    mapper.done -> @out`,
+  sender_actor,
+  [{port: 'init', value: 10}],
+  1,
+  function(results) {
+    test('sender block eval: ship exits', results.length >= 1)
+    test('sender block eval: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+  }
+)
+
+// 3. Subspace crossing: ship routes through inner subspace. Actor preserved.
+await sender_test(
+  'subspace crossing',
+  `
+  inner
+    @in
+    @out
+    transform {__ | multiply 2}
+    @in -> transform -> @out
+  outer
+    @init from-js
+    @out  actor-check
+    @init -> inner.in
+    inner.out -> @out`,
+  sender_actor,
+  [{port: 'init', value: 7}],
+  1,
+  function(results) {
+    test('sender subspace crossing: ship exits', results.length >= 1)
+    test('sender subspace crossing: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender subspace crossing: value correct', results.length >= 1 && results[0].ship == 14)
+  }
+)
+
+// 4. Port send (>@name): station sends to named port. Actor preserved.
+await sender_test(
+  'port send',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    sender {__ | add 100 | >@done}
+    @init -> sender
+    sender.done -> @out`,
+  sender_actor,
+  [{port: 'init', value: 1}],
+  1,
+  function(results) {
+    test('sender port send: ship exits', results.length >= 1)
+    test('sender port send: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+  }
+)
+
+// 5. Error routing: station triggers soft error. Error ship carries actor.
+await sender_test(
+  'error routing',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    @err  actor-check
+    badmath {__ | math divide by 0 | >@done}
+    @init -> badmath
+    badmath.done -> @out`,
+  sender_actor,
+  [{port: 'init', value: 42}],
+  1,
+  function(results) {
+    // The error ship goes to @err (actor-check), the main result may also exit
+    var has_actor_on_any = results.some(function(r) { return r.actor === sender_actor })
+    test('sender error routing: some ship exits', results.length >= 1)
+    test('sender error routing: actor preserved on error ship', has_actor_on_any)
+  }
+)
+
+// 6. Multi-hop: ship traverses 3+ stations. Actor preserved at every hop.
+await sender_test(
+  'multi-hop',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    step1 {__ | add 1}
+    step2 {__ | multiply 2}
+    step3 {__ | add 100}
+    @init -> step1 -> step2 -> step3 -> @out`,
+  sender_actor,
+  [{port: 'init', value: 0}],
+  1,
+  function(results) {
+    test('sender multi-hop: ship exits', results.length >= 1)
+    test('sender multi-hop: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender multi-hop: value correct ((0+1)*2+100=102)', results.length >= 1 && results[0].ship == 102)
+  }
+)
+
+console.log('\n=== Sender Confinement ===')
+
+// Actor with restricted dialect that blocks math.add
+var restricted_actor = new D.Actor('restricted-bob', {
+  dialect: D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
+})
+
+// 1. Blocked command sploots
+await sender_test(
+  'blocked command',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    work {__ | math add value 10}
+    @init -> work -> @out`,
+  restricted_actor,
+  [{port: 'init', value: 5}],
+  1,
+  function(results) {
+    test('confinement blocked command: ship exits', results.length >= 1)
+    // math.add should sploot — result is empty, not 15
+    test('confinement blocked command: math.add splooted', results.length >= 1 && results[0].ship !== '15')
+  }
+)
+
+// Actor that blocks process.unquote
+var no_unquote_actor = new D.Actor('no-unquote', {
+  dialect: D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'process': ['unquote']}})
+})
+
+// 2. Confinement through block eval
+await sender_test(
+  'confinement in block eval',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    work {(1 2 3) | map block "{__ | add 1}" | count | >@done}
+    @init -> work
+    work.done -> @out`,
+  no_unquote_actor,
+  [{port: 'init', value: 0}],
+  1,
+  function(results) {
+    // map should still work (add is allowed), but actor is preserved
+    test('confinement in block eval: ship exits', results.length >= 1)
+    test('confinement in block eval: actor preserved', results.length >= 1 && results[0].actor === no_unquote_actor)
+  }
+)
+
+// 3. Confinement through subspace
+await sender_test(
+  'confinement in subspace',
+  `
+  inner
+    @in
+    @out
+    work {__ | math add value 10}
+    @in -> work -> @out
+  outer
+    @init from-js
+    @out  actor-check
+    @init -> inner.in
+    inner.out -> @out`,
+  restricted_actor,
+  [{port: 'init', value: 5}],
+  1,
+  function(results) {
+    test('confinement in subspace: ship exits', results.length >= 1)
+    // math.add is blocked even inside the subspace
+    test('confinement in subspace: math.add splooted', results.length >= 1 && results[0].ship !== '15')
+    test('confinement in subspace: actor preserved', results.length >= 1 && results[0].actor === restricted_actor)
+  }
+)
+
+// 4. process.dialect reflects effective dialect
+await sender_test(
+  'process.dialect confinement',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    work {process dialect | list peek path (:math :methods :add) | >@done}
+    @init -> work
+    work.done -> @out`,
+  restricted_actor,
+  [{port: 'init', value: 0}],
+  1,
+  function(results) {
+    test('process.dialect confinement: ship exits', results.length >= 1)
+    // Under restricted_actor, math.add should NOT appear in process dialect output
+    var val = results.length >= 1 ? results[0].ship : 'MISSING'
+    test('process.dialect confinement: math.add excluded', !val || val === '' || val === 'false')
+  }
+)
+
+console.log('\n=== Subspace Dialect Lockout ===')
+// Subspaces must inherit parent dialect, even if seed.dialect_instance is set
+var custom_dialect = new D.Dialect(null, null, {custom_flag: true})
+var lockout_seed = D.spaceseed_add({
+  dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}
+})
+// Set dialect_instance on the seed after spaceseed_add (it strips unknown props)
+D.SPACESEEDS[lockout_seed].dialect_instance = custom_dialect
+// As outer space (no parent), dialect_instance should be used
+var lockout_outer = new D.Space(lockout_seed)
+test('outer space uses dialect_instance', lockout_outer.dialect === custom_dialect)
+
+// As subspace (has parent), dialect_instance should be ignored
+var lockout_seed2 = D.spaceseed_add({
+  dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}
+})
+D.SPACESEEDS[lockout_seed2].dialect_instance = custom_dialect
+var parent_seed = D.spaceseed_add({
+  dialect: {}, stations: [], subspaces: [lockout_seed2], ports: [], routes: [], state: {}
+})
+var parent_space = new D.Space(parent_seed)
+var child_space = parent_space.subspaces[0]
+test('subspace ignores dialect_instance', child_space.dialect !== custom_dialect)
+test('subspace inherits parent dialect', child_space.dialect === parent_space.dialect)
+
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')
 if(fail) process.exit(1)

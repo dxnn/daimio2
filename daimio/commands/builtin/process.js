@@ -169,7 +169,7 @@ D.import_models({
         ],
         params: [],
         fun: function(prior_starter, process) {
-          var dialect = process.space.dialect || D.DIALECTS.top
+          var dialect = process.effective_dialect || process.space.dialect || D.DIALECTS.top
           var commands = dialect.commands || D.Commands
           var result = {}
 
@@ -226,7 +226,7 @@ D.import_models({
         ],
         params: [],
         fun: function(prior_starter, process) {
-          var dialect = process.space.dialect || D.DIALECTS.top
+          var dialect = process.effective_dialect || process.space.dialect || D.DIALECTS.top
           var aliases = dialect.aliases || D.Aliases
           var result = {}
 

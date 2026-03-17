@@ -103,7 +103,7 @@ D.on_error = function(command, error) {
     for(var i = 0, l = space.ports.length; i < l; i++) {
       var port = space.ports[i]
       if(port.flavour === 'err' && !port.station) {
-        port.enter(error || command)                       // enter → pair.exit → outside_exit
+        port.enter(error || command, D.Etc.active_process || null)  // enter → pair.exit → outside_exit
         break
       }
     }
@@ -780,13 +780,13 @@ D.default_scrub = function(event, target) {
       || true
 }
 
-D.send_value_to_js_port = function(space, port_name, value, port_flavour) {
+D.send_value_to_js_port = function(space, port_name, value, port_flavour, actor) {
   port_flavour = port_flavour || 'from-js'
 
   for ( var i=0, l=space.ports.length; i < l; i++)
     if( space.ports[i].name == port_name
      && space.ports[i].flavour == port_flavour )
-      { space.ports[i].pair.enter(value)
+      { space.ports[i].pair.enter(value, actor ? {actor: actor} : undefined)
         return true }
 
   return false
@@ -808,7 +808,7 @@ D.port_standard_exit = function(ship, process) {
       // outs.forEach(function(port) { port.enter(ship) })
     })
   else
-    this.outside_exit(ship) // ORLY? No delay?
+    this.outside_exit(ship, process && process.actor) // ORLY? No delay?
 }
 
 D.port_standard_pairup = function(port) {
@@ -822,13 +822,15 @@ D.port_standard_enter = function(ship, process) {
     ship = D.clone(process.state.secret)
   }
 
+  var actor = process && process.actor
+
   if(this.pair)
-    return this.pair.exit(ship)
+    return this.pair.exit(ship, actor ? {actor: actor} : undefined)
 
   if(!this.station)
     return D.set_error('Every port must have a pair or a station')
 
-  this.space.dock(ship, this.station, process && process.actor) // THINK: always async...?
+  this.space.dock(ship, this.station, actor) // THINK: always async...?
 }
 
 D.port_standard_sync = function(ship, callback) {
@@ -2128,6 +2130,42 @@ D.make_actor_dialect = function(base_dialect, options) {
   return dialect
 }
 
+D._dialect_intersection_cache = {}
+
+D.intersect_dialects = function(d1, d2) {
+  if(!d1 || !d2) return d1 || d2
+  if(d1 === d2) return d1
+
+  var cache_key = d1.did + ':' + d2.did
+  if(D._dialect_intersection_cache[cache_key])
+    return D._dialect_intersection_cache[cache_key]
+
+  var policy = {}
+  if(d1.policy.restrict_unsafe_ports || d2.policy.restrict_unsafe_ports)
+    policy.restrict_unsafe_ports = true
+  if(d1.policy.no_user_regex || d2.policy.no_user_regex)
+    policy.no_user_regex = true
+
+  var dialect = new D.Dialect(null, null, policy)
+
+  dialect.get_handler = function(handler) {
+    return d1.get_handler(handler) && d2.get_handler(handler)
+  }
+
+  dialect.get_method = function(handler, method) {
+    return d1.get_method(handler, method) && d2.get_method(handler, method)
+  }
+
+  dialect.get_alias = function(name) {
+    var a1 = d1.get_alias ? d1.get_alias(name) : (d1.aliases ? d1.aliases[name] : false)
+    var a2 = d2.get_alias ? d2.get_alias(name) : (d2.aliases ? d2.aliases[name] : false)
+    return a1 && a2 ? a1 : false
+  }
+
+  D._dialect_intersection_cache[cache_key] = dialect
+  return dialect
+}
+
 D.Actor = function(id, options) {
   options = options || {}
   this.id      = id
@@ -2242,9 +2280,10 @@ D.Space = function(seed_id, parent) {
   this.parent = parent || false // false is outer
 
   // set dialect before ports so port whitelist check works
-  this.dialect = seed.dialect_instance
-              || (parent && parent.dialect)
-              || D.DIALECTS.top
+  // subspaces inherit parent dialect (I2: dialect monotonicity)
+  this.dialect = parent
+    ? parent.dialect
+    : (seed.dialect_instance || D.DIALECTS.top)
 
 // NOTE: DON'T DELETE THIS YET -- decide what you're doing with dialects first.
 //  if(this.parent) {
@@ -2739,6 +2778,9 @@ D.Process = function(space, block, scope, prior_starter, station_id, actor) {
 
   this.pid = D.Etc.process_counter++
   this.actor = actor || null
+  this.effective_dialect = actor && actor.dialect
+    ? D.intersect_dialects(actor.dialect, space.dialect)
+    : space.dialect
   this.starttime = Date.now()
   this.current = 0
   this.space = space
@@ -2794,11 +2836,12 @@ D.Process.prototype.run = function() {
   var value = ""
   var segs  = this.block.segments
   var wires = this.block.wiring
-  var dialect = (this.actor && this.actor.dialect) || this.space.dialect
+  var dialect = this.effective_dialect
   var current = this.current
   var segment = segs[current]
 
   D.Etc.active_space = this.space
+  D.Etc.active_process = this
 
   while(segment) {
     value = this.next(segment, current, wires, dialect)             // TODO: this is not a trampoline
