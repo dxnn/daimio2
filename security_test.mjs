@@ -284,7 +284,7 @@ function find_command_seg(code) {
 }
 
 var seg = find_command_seg('{math add value 1 to 2}')
-var fake_p = {space: D.ExecutionSpace, station_id: undefined, actor: null}
+var fake_p = {space: D.ExecutionSpace, station_id: undefined, sender: null}
 
 // Run under blocking dialect first
 var r1 = D.SegmentTypes.Command.execute(seg, [1, 2], no_math, function(){}, fake_p)
@@ -301,29 +301,29 @@ test('top dialect executes math.add = 15', r3 === 15)
 var r4 = D.SegmentTypes.Command.execute(seg2, [5, 10], no_math, function(){}, fake_p)
 test('blocking dialect blocks after top cached', r4 === '')
 
-console.log('\n=== Actor ===')
-test('D.Actor exists', typeof D.Actor === 'function')
-var actor_a = new D.Actor('alice')
-test('Actor has id', actor_a.id === 'alice')
-test('Actor dialect is null by default', actor_a.dialect === null)
+console.log('\n=== Sender ===')
+test('D.Sender exists', typeof D.Sender === 'function')
+var sender_a = new D.Sender('alice')
+test('Sender has id', sender_a.id === 'alice')
+test('Sender dialect is null by default', sender_a.dialect === null)
 
-var actor_b = new D.Actor('bob', {dialect: D.DIALECTS.restricted})
-test('Actor accepts dialect option', actor_b.dialect === D.DIALECTS.restricted)
+var sender_b = new D.Sender('bob', {dialect: D.DIALECTS.restricted})
+test('Sender accepts dialect option', sender_b.dialect === D.DIALECTS.restricted)
 
-console.log('\n=== make_actor_dialect ===')
-test('D.make_actor_dialect exists', typeof D.make_actor_dialect === 'function')
+console.log('\n=== make_sender_dialect ===')
+test('D.make_sender_dialect exists', typeof D.make_sender_dialect === 'function')
 var app_dialect = D.DIALECTS.top
-var bob_dialect = D.make_actor_dialect(app_dialect, {blocked_methods: {'string': ['grep']}})
-test('actor dialect blocks denied method', !bob_dialect.get_method('string', 'grep'))
-test('actor dialect allows other methods', !!bob_dialect.get_method('math', 'add'))
-test('actor dialect allows same handler other methods', !!bob_dialect.get_method('string', 'join'))
+var bob_dialect = D.make_sender_dialect(app_dialect, {blocked_methods: {'string': ['grep']}})
+test('sender dialect blocks denied method', !bob_dialect.get_method('string', 'grep'))
+test('sender dialect allows other methods', !!bob_dialect.get_method('math', 'add'))
+test('sender dialect allows same handler other methods', !!bob_dialect.get_method('string', 'join'))
 
-// Chain: actor dialect on top of already-restricted base
+// Chain: sender dialect on top of already-restricted base
 var strict_base = D.make_restricted_dialect({blocked_methods: {'process': ['unquote']}})
-var strict_actor = D.make_actor_dialect(strict_base, {blocked_methods: {'math': ['add']}})
-test('chained dialect blocks base restriction', !strict_actor.get_method('process', 'unquote'))
-test('chained dialect blocks actor restriction', !strict_actor.get_method('math', 'add'))
-test('chained dialect allows unrestricted', !!strict_actor.get_method('list', 'map'))
+var strict_sender = D.make_sender_dialect(strict_base, {blocked_methods: {'math': ['add']}})
+test('chained dialect blocks base restriction', !strict_sender.get_method('process', 'unquote'))
+test('chained dialect blocks sender restriction', !strict_sender.get_method('math', 'add'))
+test('chained dialect allows unrestricted', !!strict_sender.get_method('list', 'map'))
 
 console.log('\n=== Closed Space ===')
 var closed_seed = D.spaceseed_add({
@@ -332,20 +332,20 @@ var closed_seed = D.spaceseed_add({
 var closed_space = new D.Space(closed_seed)
 test('closed space has closed flag', closed_space.closed === true)
 
-// Execute without actor in closed space -> should fail
+// Execute without sender in closed space -> should fail
 var closed_result = closed_space.execute(
   D.Parser.string_to_block_segment('{math add value 1 to 2}'))
-test('closed space rejects execution without actor', closed_result === '')
+test('closed space rejects execution without sender', closed_result === '')
 
-// Execute with actor in closed space -> should work
-var actor_for_closed = new D.Actor('testuser', {dialect: D.DIALECTS.top})
+// Execute with sender in closed space -> should work
+var sender_for_closed = new D.Sender('testuser', {dialect: D.DIALECTS.top})
 var closed_result2 = closed_space.execute(
   D.Parser.string_to_block_segment('{math add value 1 to 2}'),
-  null, null, null, actor_for_closed)
-test('closed space allows execution with actor', closed_result2 === 3)
+  null, null, null, sender_for_closed)
+test('closed space allows execution with sender', closed_result2 === 3)
 
-// Open space (default) still works without actor
-test('open space works without actor', run('{math add value 1 to 2}') === '3')
+// Open space (default) still works without sender
+test('open space works without sender', run('{math add value 1 to 2}') === '3')
 
 // =====================
 // MILESTONE 2 TESTS
@@ -399,8 +399,8 @@ test('App has participants', typeof app1.participants === 'object')
 test('App room space is closed', app1.room.space.closed === true)
 
 // Participation
-var alice = new D.Actor('alice')
-var bob = new D.Actor('bob')
+var alice = new D.Sender('alice')
+var bob = new D.Sender('bob')
 app1.join(alice)
 test('App.join adds participant', app1.has('alice'))
 test('App.has returns false for missing', !app1.has('bob'))
@@ -425,11 +425,11 @@ var alice_d3 = app1.effective_dialect('alice')
 test('effective_dialect cache invalidates', alice_d3 !== alice_d)
 test('new restrictions take effect', !alice_d3.get_method('math', 'add'))
 
-// Unrestricted actor gets base dialect
+// Unrestricted sender gets base dialect
 var app2 = new D.App()
-var charlie = new D.Actor('charlie')
+var charlie = new D.Sender('charlie')
 app2.join(charlie)
-test('unrestricted actor gets base dialect', app2.effective_dialect('charlie') === app2.dialect)
+test('unrestricted sender gets base dialect', app2.effective_dialect('charlie') === app2.dialect)
 
 // App.send executes in room space
 var send_result
@@ -437,13 +437,13 @@ app2.send('{math add value 1 to 2}', charlie, function(v) { send_result = v })
 test('App.send executes in room space', send_result === '3')
 
 // App.send rejects non-participant
-var stranger = new D.Actor('stranger')
+var stranger = new D.Sender('stranger')
 var stranger_result = app2.send('{math add value 1 to 2}', stranger)
 test('App.send rejects non-participant', stranger_result === '')
 
 // App.send with restrictions
 var app3 = new D.App()
-var dave = new D.Actor('dave')
+var dave = new D.Sender('dave')
 app3.join(dave)
 app3.set_restrictions('dave', {blocked_methods: {'math': ['add']}})
 var dave_dialect = app3.effective_dialect('dave')
@@ -456,18 +456,18 @@ var be_exec_result
 app2.backend_execute('{math add value 10 to 20}', charlie, function(v) { be_exec_result = v })
 test('App.backend_execute works', be_exec_result === '30')
 
-// Two actors, different restrictions
+// Two senders, different restrictions
 var app4 = new D.App()
-var eve = new D.Actor('eve')
-var frank = new D.Actor('frank')
+var eve = new D.Sender('eve')
+var frank = new D.Sender('frank')
 app4.join(eve)
 app4.join(frank)
 app4.set_restrictions('frank', {blocked_methods: {'math': ['add']}})
 var eve_result, frank_result
 app4.send('{math add value 2 to 3}', eve, function(v) { eve_result = v })
 app4.send('{math add value 2 to 3}', frank, function(v) { frank_result = v })
-test('unrestricted actor can add', eve_result === '5')
-test('restricted actor cannot add', frank_result === '')
+test('unrestricted sender can add', eve_result === '5')
+test('restricted sender cannot add', frank_result === '')
 
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')

@@ -25,7 +25,7 @@ D.import_type('block', function(value) {
         inherited.parent_process = process
         inherited.secret = process.state.secret
       }
-      return space.real_execute(D.BLOCKS[value.value.id], inherited, prior_starter, station_id, process && process.actor)
+      return space.real_execute(D.BLOCKS[value.value.id], inherited, prior_starter, station_id, process && process.sender)
     }
   }
   else {

@@ -284,7 +284,7 @@ function find_command_seg(code) {
 }
 
 var seg = find_command_seg('{math add value 1 to 2}')
-var fake_p = {space: D.ExecutionSpace, station_id: undefined, actor: null}
+var fake_p = {space: D.ExecutionSpace, station_id: undefined, sender: null}
 
 // Run under blocking dialect first
 var r1 = D.SegmentTypes.Command.execute(seg, [1, 2], no_math, function(){}, fake_p)
@@ -301,28 +301,28 @@ test('top dialect executes math.add = 15', r3 === 15)
 var r4 = D.SegmentTypes.Command.execute(seg2, [5, 10], no_math, function(){}, fake_p)
 test('blocking dialect blocks after top cached', r4 === '')
 
-console.log('\n=== Actor ===')
-test('D.Actor exists', typeof D.Actor === 'function')
-var actor_a = new D.Actor('alice')
-test('Actor has id', actor_a.id === 'alice')
-test('Actor dialect is null by default', actor_a.dialect === null)
+console.log('\n=== Sender ===')
+test('D.Sender exists', typeof D.Sender === 'function')
+var sender_a = new D.Sender('alice')
+test('Sender has id', sender_a.id === 'alice')
+test('Sender dialect is null by default', sender_a.dialect === null)
 
-var actor_b = new D.Actor('bob', {dialect: D.DIALECTS.restricted})
-test('Actor accepts dialect option', actor_b.dialect === D.DIALECTS.restricted)
+var sender_b = new D.Sender('bob', {dialect: D.DIALECTS.restricted})
+test('Sender accepts dialect option', sender_b.dialect === D.DIALECTS.restricted)
 
-console.log('\n=== make_actor_dialect ===')
-test('D.make_actor_dialect exists', typeof D.make_actor_dialect === 'function')
+console.log('\n=== make_sender_dialect ===')
+test('D.make_sender_dialect exists', typeof D.make_sender_dialect === 'function')
 var app_dialect = D.DIALECTS.top
-var bob_dialect = D.make_actor_dialect(app_dialect, {blocked_methods: {'string': ['grep']}})
-test('actor dialect blocks denied method', !bob_dialect.get_method('string', 'grep'))
-test('actor dialect allows other methods', !!bob_dialect.get_method('math', 'add'))
-test('actor dialect allows same handler other methods', !!bob_dialect.get_method('string', 'join'))
+var bob_dialect = D.make_sender_dialect(app_dialect, {blocked_methods: {'string': ['grep']}})
+test('sender dialect blocks denied method', !bob_dialect.get_method('string', 'grep'))
+test('sender dialect allows other methods', !!bob_dialect.get_method('math', 'add'))
+test('sender dialect allows same handler other methods', !!bob_dialect.get_method('string', 'join'))
 
-// Chain: actor dialect on top of already-restricted base
+// Chain: sender dialect on top of already-restricted base
 var strict_base = D.make_restricted_dialect({blocked_methods: {'process': ['unquote']}})
-var strict_actor = D.make_actor_dialect(strict_base, {blocked_methods: {'math': ['add']}})
+var strict_actor = D.make_sender_dialect(strict_base, {blocked_methods: {'math': ['add']}})
 test('chained dialect blocks base restriction', !strict_actor.get_method('process', 'unquote'))
-test('chained dialect blocks actor restriction', !strict_actor.get_method('math', 'add'))
+test('chained dialect blocks sender restriction', !strict_actor.get_method('math', 'add'))
 test('chained dialect allows unrestricted', !!strict_actor.get_method('list', 'map'))
 
 console.log('\n=== Closed Space ===')
@@ -332,33 +332,33 @@ var closed_seed = D.spaceseed_add({
 var closed_space = new D.Space(closed_seed)
 test('closed space has closed flag', closed_space.closed === true)
 
-// Execute without actor in closed space -> should fail
+// Execute without sender in closed space -> should fail
 var closed_result = closed_space.execute(
   D.Parser.string_to_block_segment('{math add value 1 to 2}'))
-test('closed space rejects execution without actor', closed_result === '')
+test('closed space rejects execution without sender', closed_result === '')
 
-// Execute with actor in closed space -> should work
-var actor_for_closed = new D.Actor('testuser', {dialect: D.DIALECTS.top})
+// Execute with sender in closed space -> should work
+var sender_for_closed = new D.Sender('testuser', {dialect: D.DIALECTS.top})
 var closed_result2 = closed_space.execute(
   D.Parser.string_to_block_segment('{math add value 1 to 2}'),
-  null, null, null, actor_for_closed)
-test('closed space allows execution with actor', closed_result2 === 3)
+  null, null, null, sender_for_closed)
+test('closed space allows execution with sender', closed_result2 === 3)
 
-// Open space (default) still works without actor
-test('open space works without actor', run('{math add value 1 to 2}') === '3')
+// Open space (default) still works without sender
+test('open space works without sender', run('{math add value 1 to 2}') === '3')
 
 // ── Sender Tests ──────────────────────────────────────────────────────────────
 // These test sender preservation and confinement from the outside, the way an
-// App using Daimio would: pass a ship with an actor into a space, and when ships
-// come back out through ports, verify the actor survived the whole journey.
+// App using Daimio would: pass a ship with a sender into a space, and when ships
+// come back out through ports, verify the sender survived the whole journey.
 
-// Actor-check port flavour: captures {ship, actor} from exiting ships
-var actor_check_results = []
+// Sender-check port flavour: captures {ship, sender} from exiting ships
+var sender_check_results = []
 
-D.import_port_flavour('actor-check', {
+D.import_port_flavour('sender-check', {
   dir: 'out',
-  outside_exit: function(ship, actor) {
-    actor_check_results.push({ship: ship, actor: actor})
+  outside_exit: function(ship, sender) {
+    sender_check_results.push({ship: ship, sender: sender})
   }
 })
 
@@ -375,37 +375,37 @@ function dedent(s) {
   return lines.map(function(line) { return line.slice(min) }).join('\n')
 }
 
-// Helper: create space, send ship with actor, collect results asynchronously
-function sender_test(label, seedlike, actor, sends, expected_count, check) {
+// Helper: create space, send ship with sender, collect results asynchronously
+function sender_test(label, seedlike, sender, sends, expected_count, check) {
   return new Promise(function(resolve) {
     seedlike = dedent(seedlike)
-    actor_check_results = []
+    sender_check_results = []
     var seed_id = D.make_some_space(seedlike)
     var space = new D.Space(seed_id)
 
     // Wait for async port routing to complete
     var timer = setTimeout(function() {
-      check(actor_check_results)
+      check(sender_check_results)
       resolve()
     }, 200)
 
     sends.forEach(function(send) {
-      D.send_value_to_js_port(space, send.port, send.value, send.flavour, actor)
+      D.send_value_to_js_port(space, send.port, send.value, send.flavour, sender)
     })
   })
 }
 
-var sender_actor = new D.Actor('alice', {dialect: D.DIALECTS.top})
+var sender_actor = new D.Sender('alice', {dialect: D.DIALECTS.top})
 
 console.log('\n=== Sender Preservation ===')
 
-// 1. Simple passthrough: ship enters station, exits. Actor preserved.
+// 1. Simple passthrough: ship enters station, exits. Sender preserved.
 await sender_test(
   'passthrough',
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     work {__ | add 1}
     @init -> work -> @out`,
   sender_actor,
@@ -413,18 +413,18 @@ await sender_test(
   1,
   function(results) {
     test('sender passthrough: ship exits', results.length >= 1)
-    test('sender passthrough: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender passthrough: sender preserved', results.length >= 1 && results[0].sender === sender_actor)
     test('sender passthrough: value correct', results.length >= 1 && results[0].ship == 6)
   }
 )
 
-// 2. Block evaluation: station runs list map. Actor preserved through sub-process.
+// 2. Block evaluation: station runs list map. Sender preserved through sub-process.
 await sender_test(
   'block eval',
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     mapper {(1 2 3) | map block "{__ | add __in}" | >@done}
     @init -> mapper
     mapper.done -> @out`,
@@ -433,11 +433,11 @@ await sender_test(
   1,
   function(results) {
     test('sender block eval: ship exits', results.length >= 1)
-    test('sender block eval: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender block eval: sender preserved', results.length >= 1 && results[0].sender === sender_actor)
   }
 )
 
-// 3. Subspace crossing: ship routes through inner subspace. Actor preserved.
+// 3. Subspace crossing: ship routes through inner subspace. Sender preserved.
 await sender_test(
   'subspace crossing',
   `
@@ -448,7 +448,7 @@ await sender_test(
     @in -> transform -> @out
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     @init -> inner.in
     inner.out -> @out`,
   sender_actor,
@@ -456,18 +456,18 @@ await sender_test(
   1,
   function(results) {
     test('sender subspace crossing: ship exits', results.length >= 1)
-    test('sender subspace crossing: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender subspace crossing: sender preserved', results.length >= 1 && results[0].sender === sender_actor)
     test('sender subspace crossing: value correct', results.length >= 1 && results[0].ship == 14)
   }
 )
 
-// 4. Port send (>@name): station sends to named port. Actor preserved.
+// 4. Port send (>@name): station sends to named port. Sender preserved.
 await sender_test(
   'port send',
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     sender {__ | add 100 | >@done}
     @init -> sender
     sender.done -> @out`,
@@ -476,18 +476,18 @@ await sender_test(
   1,
   function(results) {
     test('sender port send: ship exits', results.length >= 1)
-    test('sender port send: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender port send: sender preserved', results.length >= 1 && results[0].sender === sender_actor)
   }
 )
 
-// 5. Error routing: station triggers soft error. Error ship carries actor.
+// 5. Error routing: station triggers soft error. Error ship carries sender.
 await sender_test(
   'error routing',
   `
   outer
     @init from-js
-    @out  actor-check
-    @err  actor-check
+    @out  sender-check
+    @err  sender-check
     badmath {__ | math divide by 0 | >@done}
     @init -> badmath
     badmath.done -> @out`,
@@ -495,20 +495,20 @@ await sender_test(
   [{port: 'init', value: 42}],
   1,
   function(results) {
-    // The error ship goes to @err (actor-check), the main result may also exit
-    var has_actor_on_any = results.some(function(r) { return r.actor === sender_actor })
+    // The error ship goes to @err (sender-check), the main result may also exit
+    var has_sender_on_any = results.some(function(r) { return r.sender === sender_actor })
     test('sender error routing: some ship exits', results.length >= 1)
-    test('sender error routing: actor preserved on error ship', has_actor_on_any)
+    test('sender error routing: sender preserved on error ship', has_sender_on_any)
   }
 )
 
-// 6. Multi-hop: ship traverses 3+ stations. Actor preserved at every hop.
+// 6. Multi-hop: ship traverses 3+ stations. Sender preserved at every hop.
 await sender_test(
   'multi-hop',
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     step1 {__ | add 1}
     step2 {__ | multiply 2}
     step3 {__ | add 100}
@@ -518,12 +518,12 @@ await sender_test(
   1,
   function(results) {
     test('sender multi-hop: ship exits', results.length >= 1)
-    test('sender multi-hop: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender multi-hop: sender preserved', results.length >= 1 && results[0].sender === sender_actor)
     test('sender multi-hop: value correct ((0+1)*2+100=102)', results.length >= 1 && results[0].ship == 102)
   }
 )
 
-// 7. Nested subspace crossing (2+ levels deep): actor survives multiple boundaries
+// 7. Nested subspace crossing (2+ levels deep): sender survives multiple boundaries
 await sender_test(
   'nested subspace crossing',
   `
@@ -539,7 +539,7 @@ await sender_test(
     deep.out -> @out
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     @init -> mid.in
     mid.out -> @out`,
   sender_actor,
@@ -547,55 +547,55 @@ await sender_test(
   1,
   function(results) {
     test('sender nested subspace: ship exits', results.length >= 1)
-    test('sender nested subspace: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender nested subspace: sender preserved', results.length >= 1 && results[0].sender === sender_actor)
     test('sender nested subspace: value correct (0+1=1)', results.length >= 1 && results[0].ship == 1)
   }
 )
 
-// 8. No-dialect actor: actor with null dialect should use space dialect unchanged
-var no_dialect_actor = new D.Actor('plain-jane')
+// 8. No-dialect sender: sender with null dialect should use space dialect unchanged
+var no_dialect_actor = new D.Sender('plain-jane')
 await sender_test(
-  'no-dialect actor',
+  'no-dialect sender',
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     work {__ | add 10}
     @init -> work -> @out`,
   no_dialect_actor,
   [{port: 'init', value: 5}],
   1,
   function(results) {
-    test('no-dialect actor: ship exits', results.length >= 1)
-    test('no-dialect actor: actor preserved', results.length >= 1 && results[0].actor === no_dialect_actor)
-    test('no-dialect actor: value correct (full dialect works)', results.length >= 1 && results[0].ship == 15)
+    test('no-dialect sender: ship exits', results.length >= 1)
+    test('no-dialect sender: sender preserved', results.length >= 1 && results[0].sender === no_dialect_actor)
+    test('no-dialect sender: value correct (full dialect works)', results.length >= 1 && results[0].ship == 15)
   }
 )
 
-// 9. No actor at all: ships without sender still work (regression)
+// 9. No sender at all: ships without sender still work (regression)
 await sender_test(
-  'no actor',
+  'no sender',
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     work {__ | add 10}
     @init -> work -> @out`,
   null,
   [{port: 'init', value: 5}],
   1,
   function(results) {
-    test('no actor: ship exits', results.length >= 1)
-    test('no actor: actor is absent', results.length >= 1 && !results[0].actor)
-    test('no actor: value correct', results.length >= 1 && results[0].ship == 15)
+    test('no sender: ship exits', results.length >= 1)
+    test('no sender: sender is absent', results.length >= 1 && !results[0].sender)
+    test('no sender: value correct', results.length >= 1 && results[0].ship == 15)
   }
 )
 
 console.log('\n=== Sender Confinement ===')
 
-// Actor with restricted dialect that blocks math.add
-var restricted_actor = new D.Actor('restricted-bob', {
-  dialect: D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
+// Sender with restricted dialect that blocks math.add
+var restricted_actor = new D.Sender('restricted-bob', {
+  dialect: D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
 })
 
 // 1. Blocked command sploots — verify the result IS empty
@@ -604,7 +604,7 @@ await sender_test(
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     work {__ | math add value 10}
     @init -> work -> @out`,
   restricted_actor,
@@ -614,7 +614,7 @@ await sender_test(
     test('confinement blocked command: ship exits', results.length >= 1)
     // math.add should sploot — result is empty string (the splooted value)
     test('confinement blocked command: math.add splooted to empty', results.length >= 1 && results[0].ship === '')
-    test('confinement blocked command: actor preserved', results.length >= 1 && results[0].actor === restricted_actor)
+    test('confinement blocked command: sender preserved', results.length >= 1 && results[0].sender === restricted_actor)
   }
 )
 
@@ -624,7 +624,7 @@ await sender_test(
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     work {(1 2 3) | map block "{__ | math add value 10}" | >@done}
     @init -> work
     work.done -> @out`,
@@ -637,7 +637,7 @@ await sender_test(
     var val = results.length >= 1 ? results[0].ship : null
     var is_all_empty = Array.isArray(val) && val.length === 3 && val.every(function(v) { return v === '' })
     test('confinement inside block eval: all splooted', is_all_empty)
-    test('confinement inside block eval: actor preserved', results.length >= 1 && results[0].actor === restricted_actor)
+    test('confinement inside block eval: sender preserved', results.length >= 1 && results[0].sender === restricted_actor)
   }
 )
 
@@ -652,7 +652,7 @@ await sender_test(
     @in -> work -> @out
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     @init -> inner.in
     inner.out -> @out`,
   restricted_actor,
@@ -661,15 +661,15 @@ await sender_test(
   function(results) {
     test('confinement in subspace: ship exits', results.length >= 1)
     test('confinement in subspace: math.add splooted to empty', results.length >= 1 && results[0].ship === '')
-    test('confinement in subspace: actor preserved', results.length >= 1 && results[0].actor === restricted_actor)
+    test('confinement in subspace: sender preserved', results.length >= 1 && results[0].sender === restricted_actor)
   }
 )
 
-// 4. Bidirectional intersection — actor blocks one thing, space dialect blocks another
+// 4. Bidirectional intersection — sender blocks one thing, space dialect blocks another
 // Both restrictions must apply simultaneously
 var space_restricts_unquote = D.make_restricted_dialect({blocked_methods: {'process': ['unquote']}})
-var actor_restricts_add = new D.Actor('bidirectional', {
-  dialect: D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
+var sender_restricts_add = new D.Sender('bidirectional', {
+  dialect: D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
 })
 // Create a space with restricted dialect
 await (function() {
@@ -680,18 +680,18 @@ await (function() {
     D.SPACESEEDS[seed_id].dialect_instance = space_restricts_unquote
     var space = new D.Space(seed_id)
 
-    // Run code that tests both restrictions via D.run with actor
+    // Run code that tests both restrictions via D.run with sender
     D.run('{math add value 1 to 2}', space, null, function(result) {
-      test('bidirectional: actor-blocked math.add sploots', result === '')
+      test('bidirectional: sender-blocked math.add sploots', result === '')
       D.run('{process unquote value "hello"}', space, null, function(result2) {
         test('bidirectional: space-blocked process.unquote sploots', result2 === '')
         // Non-blocked command still works
         D.run('{math multiply value 3 by 4}', space, null, function(result3) {
           test('bidirectional: non-blocked multiply works', result3 === '12')
           resolve()
-        }, actor_restricts_add)
-      }, actor_restricts_add)
-    }, actor_restricts_add)
+        }, sender_restricts_add)
+      }, sender_restricts_add)
+    }, sender_restricts_add)
   })
 })()
 
@@ -701,7 +701,7 @@ await sender_test(
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     work {process dialect | list peek path (:math :methods :add) | >@done}
     @init -> work
     work.done -> @out`,
@@ -716,8 +716,8 @@ await sender_test(
 )
 
 // 6. process.aliases respects effective dialect
-var no_unquote_actor = new D.Actor('no-unquote', {
-  dialect: D.make_actor_dialect(D.DIALECTS.top, {
+var no_unquote_actor = new D.Sender('no-unquote', {
+  dialect: D.make_sender_dialect(D.DIALECTS.top, {
     blocked_methods: {'process': ['unquote']},
     blocked_aliases: ['unquote']
   })
@@ -727,7 +727,7 @@ await sender_test(
   `
   outer
     @init from-js
-    @out  actor-check
+    @out  sender-check
     work {process aliases | list peek path (:unquote) | >@done}
     @init -> work
     work.done -> @out`,
@@ -741,13 +741,13 @@ await sender_test(
   }
 )
 
-// 7. D.run with actor — direct entry point test
+// 7. D.run with sender — direct entry point test
 await (function() {
   return new Promise(function(resolve) {
     D.run('{math add value 5 to 10}', D.ExecutionSpace, null, function(result) {
-      test('D.run with restricted actor: math.add sploots', result === '')
+      test('D.run with restricted sender: math.add sploots', result === '')
       D.run('{math multiply value 3 by 4}', D.ExecutionSpace, null, function(result2) {
-        test('D.run with restricted actor: multiply still works', result2 === '12')
+        test('D.run with restricted sender: multiply still works', result2 === '12')
         resolve()
       }, restricted_actor)
     }, restricted_actor)
@@ -771,8 +771,8 @@ var int2 = D.intersect_dialects(D.DIALECTS.top, D.DIALECTS.restricted)
 test('intersection is cached (same object)', int1 === int2)
 
 // Intersection of two different restrictions blocks BOTH
-var blocks_add = D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
-var blocks_multiply = D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['multiply']}})
+var blocks_add = D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
+var blocks_multiply = D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['multiply']}})
 var both_blocked = D.intersect_dialects(blocks_add, blocks_multiply)
 test('bidirectional intersection blocks add', !both_blocked.get_method('math', 'add'))
 test('bidirectional intersection blocks multiply', !both_blocked.get_method('math', 'multiply'))

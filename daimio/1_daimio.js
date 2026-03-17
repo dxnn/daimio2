@@ -545,7 +545,7 @@ D.filter_ports = function(ports, station, name) {
   }
 }
 
-D.run = function(daimio, space, scope, ultimate_callback, actor) {
+D.run = function(daimio, space, scope, ultimate_callback, sender) {
   // This is *always* async, so provide a callback.
   if(daimio == null) return ""
 
@@ -580,7 +580,7 @@ D.run = function(daimio, space, scope, ultimate_callback, actor) {
       ultimate_callback(result)
   }
 
-  var result = space.execute(D.Parser.string_to_block_segment(daimio), scope, prior_starter, null, actor)
+  var result = space.execute(D.Parser.string_to_block_segment(daimio), scope, prior_starter, null, sender)
   if(result === result)
     prior_starter(result)
 
@@ -780,13 +780,13 @@ D.default_scrub = function(event, target) {
       || true
 }
 
-D.send_value_to_js_port = function(space, port_name, value, port_flavour, actor) {
+D.send_value_to_js_port = function(space, port_name, value, port_flavour, sender) {
   port_flavour = port_flavour || 'from-js'
 
   for ( var i=0, l=space.ports.length; i < l; i++)
     if( space.ports[i].name == port_name
      && space.ports[i].flavour == port_flavour )
-      { space.ports[i].pair.enter(value, actor ? {actor: actor} : undefined)
+      { space.ports[i].pair.enter(value, sender ? {sender: sender} : undefined)
         return true }
 
   return false
@@ -808,7 +808,7 @@ D.port_standard_exit = function(ship, process) {
       // outs.forEach(function(port) { port.enter(ship) })
     })
   else
-    this.outside_exit(ship, process && process.actor) // ORLY? No delay?
+    this.outside_exit(ship, process && process.sender) // ORLY? No delay?
 }
 
 D.port_standard_pairup = function(port) {
@@ -822,15 +822,15 @@ D.port_standard_enter = function(ship, process) {
     ship = D.clone(process.state.secret)
   }
 
-  var actor = process && process.actor
+  var sender = process && process.sender
 
   if(this.pair)
-    return this.pair.exit(ship, actor ? {actor: actor} : undefined)
+    return this.pair.exit(ship, sender ? {sender: sender} : undefined)
 
   if(!this.station)
     return D.set_error('Every port must have a pair or a station')
 
-  this.space.dock(ship, this.station, actor) // THINK: always async...?
+  this.space.dock(ship, this.station, sender) // THINK: always async...?
 }
 
 D.port_standard_sync = function(ship, callback) {
@@ -2103,7 +2103,7 @@ D.make_restricted_dialect = function(options) {
   return dialect
 }
 
-D.make_actor_dialect = function(base_dialect, options) {
+D.make_sender_dialect = function(base_dialect, options) {
   options = options || {}
   var blocked_methods = options.blocked_methods || {}
   var blocked_aliases = options.blocked_aliases || []
@@ -2166,7 +2166,7 @@ D.intersect_dialects = function(d1, d2) {
   return dialect
 }
 
-D.Actor = function(id, options) {
+D.Sender = function(id, options) {
   options = options || {}
   this.id      = id
   this.dialect = options.dialect || null
@@ -2455,7 +2455,7 @@ D.Space.prototype.loadSubspace = function(daml) {
   return subspace
 }
 
-D.Space.prototype.dock = function(ship, station_id, actor) {
+D.Space.prototype.dock = function(ship, station_id, sender) {
   var block_id = this.seed.stations[station_id - 1]
   var block    = D.BLOCKS[block_id]
   var out_port = D.filter_ports(this.ports, station_id, '_out')
@@ -2464,9 +2464,9 @@ D.Space.prototype.dock = function(ship, station_id, actor) {
     return D.set_error('That out port is unavailable')
 
   var prior_starter =                                               // THINK: we're jumping straight to exit here.
-        function(value) {out_port.exit(value, {actor: actor})}      // also do it for implicit station output ports...
+        function(value) {out_port.exit(value, {sender: sender})}      // also do it for implicit station output ports...
   var scope = {"__in": ship}                                        // TODO: find something better...
-  var value = this.execute(block, scope, prior_starter, station_id, actor)
+  var value = this.execute(block, scope, prior_starter, station_id, sender)
 
   if(value === value)
     prior_starter(value)
@@ -2626,12 +2626,12 @@ D.Space.prototype.change_seed = function(seed_id) {
 
 // TODO: move this all into a Process, instead of doing it here.
 // THINK: there's no protection in here again executing multiple processes concurrently in the same space -- which is bad. find a way to bake that in. [except for those cases of desired in-pipeline parallelism, of course]
-D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, station_id, actor) {
+D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, station_id, sender) {
   var self = this
     , block = D.get_block(ablock_or_segment)
 
-  if(this.closed && !actor) {
-    D.set_error('Closed space requires an actor')
+  if(this.closed && !sender) {
+    D.set_error('Closed space requires a sender')
     return ""
   }
 
@@ -2644,14 +2644,14 @@ D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, st
 
   if(this.processes.length && this.only_one_process) {
     // Queue the work: execute when current process completes
-    this.queue.push({block: block, scope: scope, prior_starter: prior_starter, station_id: station_id, actor: actor})
+    this.queue.push({block: block, scope: scope, prior_starter: prior_starter, station_id: station_id, sender: sender})
     return NaN
   }
 
-  return self.real_execute(block, scope, prior_starter, station_id, actor)
+  return self.real_execute(block, scope, prior_starter, station_id, sender)
 }
 
-D.Space.prototype.real_execute = function(block, scope, prior_starter, station_id, actor) {
+D.Space.prototype.real_execute = function(block, scope, prior_starter, station_id, sender) {
   var self = this
     , process
     , block = D.try_optimize(block)
@@ -2673,7 +2673,7 @@ D.Space.prototype.real_execute = function(block, scope, prior_starter, station_i
     prior_starter(value)
   }
 
-  process = new D.Process(this, block, scope, my_starter, station_id, actor)
+  process = new D.Process(this, block, scope, my_starter, station_id, sender)
   this.processes.push(process)
 
   var result = this.try_execute(process)
@@ -2705,7 +2705,7 @@ D.Space.prototype.run_queue = function() {
   var item = this.queue.shift()
 
   D.setImmediate(function() {
-    var result = self.real_execute(item.block, item.scope, item.prior_starter, item.station_id, item.actor)
+    var result = self.real_execute(item.block, item.scope, item.prior_starter, item.station_id, item.sender)
     if(result === result)
       item.prior_starter(result)                             // was queued (async from caller's perspective) but completed sync
   })
@@ -2767,7 +2767,7 @@ D.import_optimizer = function(name, priority, fun) {
   o888o        o888o  o888o  `Y8bood8P'   `Y8bood8P'  o888ooooood8 8""88888P'  8""88888*/
 
 
-D.Process = function(space, block, scope, prior_starter, station_id, actor) {
+D.Process = function(space, block, scope, prior_starter, station_id, sender) {
 
   /*
       A Process executes a single Block from start to finish, executing each segment in turn and handling the wiring.
@@ -2777,9 +2777,9 @@ D.Process = function(space, block, scope, prior_starter, station_id, actor) {
   */
 
   this.pid = D.Etc.process_counter++
-  this.actor = actor || null
-  this.effective_dialect = actor && actor.dialect
-    ? D.intersect_dialects(actor.dialect, space.dialect)
+  this.sender = sender || null
+  this.effective_dialect = sender && sender.dialect
+    ? D.intersect_dialects(sender.dialect, space.dialect)
     : space.dialect
   this.starttime = Date.now()
   this.current = 0
