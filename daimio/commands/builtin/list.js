@@ -144,6 +144,7 @@ D.import_models({
           var scope = {}
 
           // THINK: this manual fiddling is weird. should we just accept a starting element to get it over with?
+          if(!Array.isArray(data)) data = D.to_array(data)
           data = data.slice() // avoid mutating input
           if(!data.length)
             return []
@@ -611,7 +612,7 @@ D.import_models({
 
           // quick check for all arrays
           for(var key in values) {
-            if(typeof values[key]!= 'object')
+            if(values[key] == null || typeof values[key]!= 'object')
               values[key] = [values[key]]
             if(!Array.isArray(values[key]))
               all_arrays = false
@@ -932,43 +933,43 @@ D.import_models({
       },
 
 
-      extend: {
-        desc: "Add values to a list",
-        help: "To add a single element to a list that is itself a list, wrap it in another list: {list extend data ((1 2)) with ((3 4))} --> ((1 2) (3 4))",
-        params: [
-          {
-            key: 'data',
-            desc: 'A list',
-            type: 'list'
-          },
-          {
-            key: 'with',
-            desc: 'An item or list of items',
-            type: 'anything'
-          },
-        ],
-        fun: function(data, _with) {
-          // THINK: this is only different from union because... it does a recursive merge over like-keyed values for keyed lists but not for unkeyed lists that is pretty weird so maybe we don't need it?
-
-
-          // TODO: make this not change in-place -- all commands should change a copy
-          // TODO: use 'data' as the primary parameter for operational data
-          /*
-            THINK: come up with language that distinguishes between lists, hashes, and *either* --> in Daimio, a list and a hash are the *same* data object, which is just a mutable hash keyed by strings or consecutive integers or non-consecutive integers: we don't really care.
-            In JS, the two fundamental data structures (lists and hashes) are optimized differently under the hood. We want to take advantage of that within the Daimio core and handlers, while still respecting the fact that they're the same data structure in Daimio. So every operation that takes a listhash has to handle it as either a list or a hash, whichever it maps to in JS.
-            It's really just a matter of a slight type mismatch between JS and Daimio -- we just need good language to disambiguate. 'list' is nice, because it isn't used in JS proper, but it *really* implies an array and not a hash. 'hash' has the opposite problem.
-            The Daimio data structure is also *always* ordered, independent of keys, which is another difference.
-            We could call it an 'association list', but: no good abbr., it's a concrete data structure (which we wouldn't use), it's not concise.
-            'data'? container. 'stash? (for list-hash). stash is nice. it's a portmanteau. it means 'place to stick things'. it slightly implies array-like behavior, but that's compensated for by also being short for mustache.
-
-            WE'RE GOING TO STICK WITH 'LIST'. An indexed or keyed list is very similar to this data structure.
-
-          */
-
-          // THINK: remap shortcuts for server vs client, e.g. 'log' could mean different things different places. This way you can still directly invoke the underlying command if you want that behavior, or use the shortcut for maximum flexibility.
-
-        },
-      },
+      // extend: {
+      //   desc: "Add values to a list",
+      //   help: "To add a single element to a list that is itself a list, wrap it in another list: {list extend data ((1 2)) with ((3 4))} --> ((1 2) (3 4))",
+      //   params: [
+      //     {
+      //       key: 'data',
+      //       desc: 'A list',
+      //       type: 'list'
+      //     },
+      //     {
+      //       key: 'with',
+      //       desc: 'An item or list of items',
+      //       type: 'anything'
+      //     },
+      //   ],
+      //   fun: function(data, _with) {
+      //     // THINK: this is only different from union because... it does a recursive merge over like-keyed values for keyed lists but not for unkeyed lists that is pretty weird so maybe we don't need it?
+      //
+      //
+      //     // TODO: make this not change in-place -- all commands should change a copy
+      //     // TODO: use 'data' as the primary parameter for operational data
+      //     /*
+      //       THINK: come up with language that distinguishes between lists, hashes, and *either* --> in Daimio, a list and a hash are the *same* data object, which is just a mutable hash keyed by strings or consecutive integers or non-consecutive integers: we don't really care.
+      //       In JS, the two fundamental data structures (lists and hashes) are optimized differently under the hood. We want to take advantage of that within the Daimio core and handlers, while still respecting the fact that they're the same data structure in Daimio. So every operation that takes a listhash has to handle it as either a list or a hash, whichever it maps to in JS.
+      //       It's really just a matter of a slight type mismatch between JS and Daimio -- we just need good language to disambiguate. 'list' is nice, because it isn't used in JS proper, but it *really* implies an array and not a hash. 'hash' has the opposite problem.
+      //       The Daimio data structure is also *always* ordered, independent of keys, which is another difference.
+      //       We could call it an 'association list', but: no good abbr., it's a concrete data structure (which we wouldn't use), it's not concise.
+      //       'data'? container. 'stash? (for list-hash). stash is nice. it's a portmanteau. it means 'place to stick things'. it slightly implies array-like behavior, but that's compensated for by also being short for mustache.
+      //
+      //       WE'RE GOING TO STICK WITH 'LIST'. An indexed or keyed list is very similar to this data structure.
+      //
+      //     */
+      //
+      //     // THINK: remap shortcuts for server vs client, e.g. 'log' could mean different things different places. This way you can still directly invoke the underlying command if you want that behavior, or use the shortcut for maximum flexibility.
+      //
+      //   },
+      // },
 
       filter: {
         desc: "Select matching items from a list",

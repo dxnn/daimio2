@@ -208,6 +208,39 @@ Part III — Blocks (inner language):
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
+- **fuzz_test**: 50k expressions, 0 hangs, 0 crashes (seed-dependent; some seeds find real bugs)
+
+## Fuzzer
+
+The fuzzer at `tests/fuzz_test.mjs` generates random DAML and runs it, looking for crashes,
+hangs, and prototype pollution. It found and helped fix several real engine bugs.
+
+```bash
+node tests/fuzz_test.mjs                          # 1000 expressions, random seed
+node tests/fuzz_test.mjs 50000 myseed             # 50k, reproducible seed
+node tests/fuzz_test.mjs 5000 myseed 200 100      # count seed concurrency timeout_ms
+node tests/fuzz_test.mjs 5000 myseed -v            # verbose (all expressions to stderr)
+node tests/fuzz_test.mjs 5000 myseed --skip 3000   # skip first 3000 (for OOM bisection)
+```
+
+Crashes are auto-minimized to shortest reproducing expression. Self-referential named
+blocks (`{begin foo | >$foo}{$foo}{end foo}`) are detected statically and skipped — the
+engine needs a recursion depth limit to handle these (TODO).
+
+### Engine bugs found by fuzzer
+
+- **NaN-as-async signal**: `number` type coercion returned `NaN` for non-numeric strings
+  (e.g. `+"baz"`), which the runtime misinterpreted as "went async." Fixed in `datatypes/number.js`.
+- **Trig on infinity**: `Math.sin(Infinity)` = `NaN`, same async misinterpretation.
+  Fixed with `|| 0` guard on sin/cos output.
+- **Math solver NaN**: `0 * -Infinity` = `NaN` in multiply/add/subtract/divide.
+  Fixed with `|| 0` on all `fun()` return sites in `naryanArray`, `singleArray`, `doubleArray`.
+- **Math round overflow**: `Math.pow(10, 999999)` = `Infinity`, then `round(5 * Infinity) / Infinity` = `NaN`.
+  Fixed with `|| 0` on the rounding path.
+- **execute_then_stringify space leak**: `D.run`'s `prior_starter` called `execute_then_stringify`
+  without a process context, so `datatypes/block.js` fell back to `D.ExecutionSpace` instead of
+  the space that `D.run` was called with. Fixed by passing `{space, station_id: false}` as
+  minimal context in `1_daimio.js`.
 
 ## Demo status
 

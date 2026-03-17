@@ -2534,6 +2534,79 @@ test('map: no mutation with path',
 
 
 // =====================================================
+// list reduce: non-array data (totality)
+// =====================================================
+
+// normal array — existing behavior
+test('reduce: sum array',
+  '{(1 2 3 4) | list reduce block "{_total | add _value}"}',
+  '10'
+)
+
+test('reduce: two elements',
+  '{(10 5) | list reduce block "{_total | add _value}"}',
+  '15'
+)
+
+// single element — returned as-is, no block invocation
+test('reduce: single element array',
+  '{(42) | list reduce block "{_total | add _value}"}',
+  '42'
+)
+
+// empty list — returns empty list
+test('reduce: empty list',
+  '{() | list reduce block "{_total | add _value}"}',
+  '[]'
+)
+
+// scalar data — list coercion wraps in array, single element returned
+test('reduce: scalar number',
+  '{99 | list reduce block "{_total | add _value}"}',
+  '99'
+)
+
+test('reduce: scalar string',
+  '{:hello | list reduce block "{_total | add _value}"}',
+  'hello'
+)
+
+// keyed list (object) — values extracted and reduced
+test('reduce: keyed list sums values',
+  '{(:a 1 :b 2 :c 3) | * | list reduce block "{_total | add _value}"}',
+  '6'
+)
+
+test('reduce: two-element keyed list',
+  '{(:x 10 :y 20) | * | list reduce block "{_total | add _value}"}',
+  '30'
+)
+
+// keyed list with string values
+test('reduce: keyed list string concat',
+  '{(:a :foo :b :bar) | * | list reduce block "{(_total _value) | string join}"}',
+  'foobar'
+)
+
+// reduce via pipeline var holding object
+test('reduce: object from pipeline var',
+  '{(:p 5 :q 3) | * | >obj || _obj | list reduce block "{_total | add _value}"}',
+  '8'
+)
+
+// object from effectful command (the original crash pattern)
+test('reduce: object piped into reduce does not crash',
+  '{:x | time stampwrap | list reduce block "{_total | add _value}" | logic is value __ like "/^[0-9]+$/" | logic if then :yes else :no}',
+  'yes'
+)
+
+// reduce preserves order of array
+test('reduce: subtraction is order-dependent',
+  '{(100 30 20 10) | list reduce block "{_total | math subtract value _value}"}',
+  '40'
+)
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

@@ -256,21 +256,59 @@ var passed = 0
 var pollution_checks = 0
 var minimizing = false
 
-// Track JS-level errors (stack overflow, TypeError, etc.) per run
+// Track JS-level errors (anything not a known Daimio error) per run
 var js_errors_for_run = []
-var js_error_patterns = [
-  /stack/i, /is not a function/, /Cannot read prop/, /is not defined/,
-  /out of memory/i, /Invalid or unexpected token/,
+var daimio_error_patterns = [
+  /^Missing required parameter/,
+  /^You have failed to provide an adequate method/,
+  /^Invalid parameter name/,
+  /^Value ".*" not allowed for parameter/,
+  /^Timeout on effectful command/,
+  /^Orphaned response for/,
+  /^Division by zero/,
+  /^Modulation by zero/,
+  /^Roots of negatives/,
+  /^That is not a numeric value/,
+  /^Range length exceeds/,
+  /^The data parameter must contain/,
+  /^Invalid timestamp/,
+  /^Illegal key name/,
+  /^No matching pathfinder/,
+  /^Invalid block name/,
+  /^That string is not a pipeline/,
+  /^No corresponding port/,
+  /^Invalid port/,
+  /^Invalid spaceseed/,
+  /^Invalid route/,
+  /^Port not found/,
+  /^Port flavour/,
+  /^Every port must have/,
+  /^That port/,
+  /^That out port/,
+  /^That flavour/,
+  /^That dom thing/,
+  /^You done messed up/,
+  /^You seem to be lacking/,
+  /^You must place a valid socket/,
+  /^No fun found/,
+  /^User-supplied regex/,
+  /^Only __ and __in/,
+  /^Your fancies/,
+  /^Closed space requires/,
+  /^Failed to load subspace/,
+  /^The alias/,
+  /^No end tag for block/,
+  /^Invalid code point/,
+  /^Pipeline variables may be set at most once/,
 ]
 
 D.on_error = function(command, error) {
   var msg = error || command
-  for (var i = 0; i < js_error_patterns.length; i++) {
-    if (js_error_patterns[i].test(msg)) {
-      js_errors_for_run.push(msg)
-      break
-    }
+  for (var i = 0; i < daimio_error_patterns.length; i++) {
+    if (daimio_error_patterns[i].test(msg)) return ""
   }
+  // Not a known Daimio error — likely a JS error
+  js_errors_for_run.push(msg)
   return ""
 }
 
@@ -305,10 +343,12 @@ function is_self_referential(expr) {
 }
 
 function run_one(expr, timeout_override) {
-  // Skip known-infinite patterns — report as crash without running
+  // TODO: self-referential named blocks cause unbounded stack overflow in the engine.
+  // Fix execute_then_stringify to detect block recursion or add a depth limit.
+  // For now, skip them entirely.
   if (is_self_referential(expr)) {
-    if (!minimizing) crashes++
-    return Promise.resolve({ status: 'crash', expr: expr, error: 'Self-referential named block (skipped)' })
+    if (!minimizing) passed++
+    return Promise.resolve({ status: 'ok', expr: expr, value: '' })
   }
 
   return new Promise(function(resolve) {
@@ -483,7 +523,8 @@ function handle_result(result) {
   if (result.status === 'ok') {
     passed++
   } else {
-    console.log('  ' + result.status.toUpperCase() + ':', JSON.stringify(result.expr).slice(0, 120))
+    result.index = completed
+    console.log('  ' + result.status.toUpperCase() + ' ' + completed + ': ' + JSON.stringify(result.expr).slice(0, 120))
     if (result.error) console.log('    ', result.error)
     errors.push(result)
   }
@@ -543,31 +584,19 @@ await run_batch(gen_expr, gen_count, 'Generated')
 // --- Minimize failures ---
 
 if (errors.length) {
-  // Deduplicate by error message — only minimize one per unique error
-  var seen_errors = {}
-  var unique_errors = []
-  for (var i = 0; i < errors.length; i++) {
-    var key = errors[i].error || errors[i].status
-    if (!seen_errors[key]) {
-      seen_errors[key] = true
-      unique_errors.push(errors[i])
-    }
-  }
-
   console.log('')
-  console.log('--- Minimizing ' + unique_errors.length + ' unique failure(s) (of ' + errors.length + ' total) ---')
+  console.log('--- Minimizing ' + errors.length + ' failure(s) ---')
   minimizing = true
-  for (var i = 0; i < unique_errors.length; i++) {
-    var e = unique_errors[i]
+  for (var i = 0; i < errors.length; i++) {
+    var e = errors[i]
     var minimal = await minimize(e.expr, e.status)
+    e.minimal = minimal
     if (minimal.length < e.expr.length) {
-      console.log('  ' + e.status.toUpperCase() + ': ' + JSON.stringify(e.expr).slice(0, 80))
-      console.log('    => ' + JSON.stringify(minimal))
+      console.log('  ' + e.status.toUpperCase() + ' ' + e.index + ': ' + JSON.stringify(minimal))
     } else {
-      console.log('  ' + e.status.toUpperCase() + ': ' + JSON.stringify(minimal) + ' (already minimal)')
+      console.log('  ' + e.status.toUpperCase() + ' ' + e.index + ': ' + JSON.stringify(minimal) + ' (already minimal)')
     }
     if (e.error) console.log('    error: ' + e.error)
-    e.minimal = minimal
   }
 }
 

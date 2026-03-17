@@ -53,8 +53,8 @@ D.SegmentTypes.OPT_simple_math = {
 
     if(typeof val == 'number')
       return svop == 'add'
-           ? sval + val
-           : sval * val
+           ? ((sval + val)||0)
+           : ((sval * val)||0)
 
     val = D.Types.anything(val)
 
