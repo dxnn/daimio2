@@ -24,12 +24,14 @@
       xhr.send(null)
     }
 
+    // these globals are kind of a hack...
+    var lines, starttime, win, lose, html, mode, block_name, code_value, code_string
+
     xhr_get('daimio.dm', function(data) {
-      // these globals are kind of a hack...
-      var lines = data.split(/\n/).reverse()
-      var starttime = new Date().getTime()
-      var win=0, lose=0, html='', mode='text'
-      var block_name='', code_value='', code_string=''
+      lines = data.split(/\n/).reverse()
+      starttime = new Date().getTime()
+      win=0; lose=0; html=''; mode='text'
+      block_name=''; code_value=''; code_string=''
 
       D.data_trampoline(lines, eat_line, D.string_concat, function() {}, done)
     })

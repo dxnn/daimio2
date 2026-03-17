@@ -243,6 +243,14 @@ D.import_models({
         },
       },
 
+      sender: {
+        desc: "Return the current sender's id, or empty if there is no sender",
+        params: [],
+        fun: function(prior_starter, process) {
+          return process.sender && process.sender.id ? process.sender.id : ""
+        },
+      },
+
       run: {
         desc: "Completely process some Daimio code",
         examples: [

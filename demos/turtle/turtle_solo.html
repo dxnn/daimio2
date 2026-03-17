@@ -97,9 +97,12 @@ Clickable examples:</pre>
   <script type="text/daimio" class="spaceseeds">
     execspace
       {"minus": {}}
-      @execport exec
+      @codein in
       @forward out
       @turn out
+      code-runner
+        {__ | process unquote | process run}
+      @codein -> code-runner
 
     outer
       $turtles {}
@@ -113,7 +116,7 @@ Clickable examples:</pre>
         , "steelblue", "teal", "tomato", "turquoise", "violet" ]
 
       // INIT
-      @codeform dom-on-submit
+      @codein from-js
       @init from-js
 
       turtle-fix
@@ -124,7 +127,7 @@ Clickable examples:</pre>
         | _ship | list poke path :color value _color}
 
       @init -> {* (:user 1)} -> turtle-fix -> @turtle-add
-      @codeform -> {__ | list poke path :user value 1} -> execspace.execport
+      @codein -> execspace.codein
 
 
       // MOVEMENT
@@ -134,24 +137,24 @@ Clickable examples:</pre>
       @turtle-add
 
       turn-fix
-        { __ | >ship
-        | $turtles.{_ship.user}.angle | add _ship.result | >new_angle
-        | >$turtles.{_ship.user}.angle
+        { process sender | >user
+        | $turtles.{_user}.angle | add __ | >new_angle
+        | >$turtles.{_user}.angle
         | * ( :angle  _new_angle
-              :thing  {("turtle" _ship.user) | join} ) }
+              :thing  {(:turtle _user) | join} ) }
 
       forward-fix
-        { __ | >ship | $turtles.{_ship.user} | >turtle
+        { process sender | >user | $turtles.{_user} | >turtle
 
-        | _turtle.angle | add 90 | math cos | times _ship.result
+        | _turtle.angle | add 90 | math cos | times __in
         | add _turtle.x | max 0 | min 750 | >newx
-        | >$turtles.{_ship.user}.x
+        | >$turtles.{_user}.x
 
-        | _turtle.angle | add 90 | math sin | times _ship.result
+        | _turtle.angle | add 90 | math sin | times __in
         | add _turtle.y | max 0 | min 450 | >newy
-        | >$turtles.{_ship.user}.y
+        | >$turtles.{_user}.y
 
-        | * (:y _newy :x _newx :thing {("turtlebox" _ship.user) | join})
+        | * (:y _newy :x _newx :thing {(:turtlebox _user) | join})
         | >@svg-move
 
         | * ( :x1 {_turtle.x | add 15}
@@ -214,6 +217,7 @@ Clickable examples:</pre>
 
       window.OuterSpace = D.make_me_a_space_as_fast_as_you_can() // published for debug
 
+      var user_sender = new D.Sender(1, {dialect: D.DIALECTS.top})
       D.send_value_to_js_port(OuterSpace, 'init', 1) // activate init
 
       var codenodes = document.getElementsByTagName('code')
@@ -257,6 +261,12 @@ Clickable examples:</pre>
 
       editor.setOption('extraKeys', {
         "Tab": false,
+      })
+
+      ge('codeform').addEventListener('submit', function(e) {
+        e.preventDefault()
+        var code = editor.getValue()
+        if(code) D.send_value_to_js_port(OuterSpace, 'codein', code, 'from-js', user_sender)
       })
 
     })

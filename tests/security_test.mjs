@@ -808,6 +808,67 @@ var child_space = parent_space.subspaces[0]
 test('subspace ignores dialect_instance', child_space.dialect !== custom_dialect)
 test('subspace inherits parent dialect', child_space.dialect === parent_space.dialect)
 
+console.log('\n=== process sender command ===')
+
+// process sender returns sender id when sender is present
+await sender_test(
+  'process sender with sender',
+  `
+  outer
+    @init from-js
+    @out  sender-check
+    work {process sender | >@done}
+    @init -> work
+    work.done -> @out`,
+  sender_actor,
+  [{port: 'init', value: 0}],
+  1,
+  function(results) {
+    test('process sender: returns sender id', results.length >= 1 && results[0].ship === 'alice')
+  }
+)
+
+// process sender returns empty when no sender
+await sender_test(
+  'process sender without sender',
+  `
+  outer
+    @init from-js
+    @out  sender-check
+    work {process sender | >@done}
+    @init -> work
+    work.done -> @out`,
+  null,
+  [{port: 'init', value: 0}],
+  1,
+  function(results) {
+    test('process sender: returns empty without sender', results.length >= 1 && results[0].ship === '')
+  }
+)
+
+// process sender preserved through subspace crossing
+await sender_test(
+  'process sender in subspace',
+  `
+  inner
+    @in
+    @out
+    work {process sender | >@done}
+    @in -> work
+    work.done -> @out
+  outer
+    @init from-js
+    @out  sender-check
+    @init -> inner.in
+    inner.out -> @out`,
+  sender_actor,
+  [{port: 'init', value: 0}],
+  1,
+  function(results) {
+    test('process sender in subspace: returns sender id', results.length >= 1 && results[0].ship === 'alice')
+  }
+)
+
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')
 if(fail) process.exit(1)
