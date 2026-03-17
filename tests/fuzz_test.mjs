@@ -1,10 +1,14 @@
 // DAML fuzzer — generates random DAML expressions and runs them through D.run
 // Looking for: crashes, hangs, uncaught exceptions, prototype pollution
-// Run with: node tests/fuzz_test.mjs [count] [seed]
+// Run with: node tests/fuzz_test.mjs [count] [seed] [concurrency] [timeout] [-v] [--skip N]
 //
 // Based on repl.mjs for D.run usage pattern.
 
 var D = (await import('../daimio/daimio.js')).default
+
+var verbose = process.argv.includes('-v')
+var skip_idx = process.argv.indexOf('--skip')
+var skip = skip_idx !== -1 ? parseInt(process.argv[skip_idx + 1]) || 0 : 0
 
 // Catch async errors from setTimeout callbacks etc.
 var async_errors = []
@@ -78,20 +82,26 @@ function gen_named_block(depth) {
   var name = pick(block_names)
   var begin = '{begin ' + name
   // Sometimes add a pipeline on the begin tag
-  if (rng() < 0.5) begin += ' | ' + gen_pipeline(depth + 1)
+  if (rng() < 0.5) {
+    if (rng() < 0.15) begin += ' | >$' + name
+    else begin += ' | ' + gen_pipeline(depth + 1)
+  }
   begin += '}'
-  // Body: mix of literal text and commands
-  var body = gen_body(depth + 1)
+  // Body: mix of literal text and commands, sometimes referencing $name
+  var body = gen_body(depth + 1, name)
   var end = '{end ' + name + '}'
   return begin + body + end
 }
 
-function gen_body(depth) {
+function gen_body(depth, block_name) {
   var n = rand_int(0, 3)
   var parts = []
   for (var i = 0; i < n; i++) {
     if (rng() < 0.3) {
       parts.push(pick(['hello ', 'text ', '', '--- ', 'body ']))
+    } else if (block_name && rng() < 0.15) {
+      // Reference the enclosing block's name as a space var
+      parts.push('{$' + block_name + '}')
     } else {
       parts.push('{' + gen_pipeline(depth) + '}')
     }
@@ -233,10 +243,6 @@ function gen_edge_case() {
     '{1 || 2 || 3 || 4 || 5}',
     // Variable stress
     ...Array.from({length: 10}, (_, i) => `{${i} | >$v${i}}`),
-    // Self-referential named blocks
-    '{begin foo | >$foo} {$foo} {end foo}',
-    '{begin foo | >$foo}{$foo}{end foo}',
-    '{begin x | >$x}{$x | >$x}{end x}',
   ])
 }
 
@@ -250,8 +256,21 @@ var passed = 0
 var pollution_checks = 0
 var minimizing = false
 
+// Track JS-level errors (stack overflow, TypeError, etc.) per run
+var js_errors_for_run = []
+var js_error_patterns = [
+  /stack/i, /is not a function/, /Cannot read prop/, /is not defined/,
+  /out of memory/i, /Invalid or unexpected token/,
+]
+
 D.on_error = function(command, error) {
-  // Soft errors are expected — Daimio is total
+  var msg = error || command
+  for (var i = 0; i < js_error_patterns.length; i++) {
+    if (js_error_patterns[i].test(msg)) {
+      js_errors_for_run.push(msg)
+      break
+    }
+  }
   return ""
 }
 
@@ -272,7 +291,26 @@ function cleanup_space(space) {
   delete D.SPACESEEDS[space._fuzz_seed_id]
 }
 
-function run_one(expr) {
+// Detect self-referential named blocks that will stack overflow
+function is_self_referential(expr) {
+  var m = expr.match(/\{begin (\w+)[^}]*\| >?\$\1/)
+  if (!m) return false
+  var name = m[1]
+  var body_start = expr.indexOf('}', m.index) + 1
+  var end_tag = '{end ' + name + '}'
+  var body_end = expr.indexOf(end_tag, body_start)
+  if (body_end === -1) return false
+  var body = expr.slice(body_start, body_end)
+  return body.indexOf('$' + name) !== -1
+}
+
+function run_one(expr, timeout_override) {
+  // Skip known-infinite patterns — report as crash without running
+  if (is_self_referential(expr)) {
+    if (!minimizing) crashes++
+    return Promise.resolve({ status: 'crash', expr: expr, error: 'Self-referential named block (skipped)' })
+  }
+
   return new Promise(function(resolve) {
     var done = false
     var space = make_fresh_space()
@@ -284,9 +322,11 @@ function run_one(expr) {
         cleanup_space(space)
         resolve({ status: 'hang', expr: expr })
       }
-    }, timeout_ms)
+    }, timeout_override || timeout_ms)
 
     try {
+      js_errors_for_run = []
+      if (verbose && !minimizing) process.stderr.write(completed + ': ' + expr.slice(0, 200) + '\n')
       hush()
       D.run(expr, space, null, function(value) {
         unhush()
@@ -299,6 +339,13 @@ function run_one(expr) {
         if (({}).polluted !== undefined || ({}).bad !== undefined) {
           if (!minimizing) pollution_checks++
           resolve({ status: 'pollution', expr: expr, detail: 'Object.prototype polluted!' })
+          return
+        }
+
+        // Check for JS-level errors that were caught as soft errors
+        if (js_errors_for_run.length) {
+          if (!minimizing) crashes++
+          resolve({ status: 'crash', expr: expr, error: js_errors_for_run[0] })
           return
         }
 
@@ -368,16 +415,20 @@ function check_status(result, target) {
 }
 
 async function minimize(expr, target_status) {
+  var deadline = Date.now() + 2000  // 2s budget per expression
+  function expired() { return Date.now() > deadline }
+
   // Phase 1: remove whole chunks
   var chunks = split_chunks(expr)
   if (chunks.length > 1) {
     var changed = true
-    while (changed) {
+    while (changed && !expired()) {
       changed = false
       for (var i = 0; i < chunks.length; i++) {
+        if (expired()) break
         var candidate = chunks.slice(0, i).concat(chunks.slice(i + 1)).join('')
         if (!candidate.trim()) continue
-        var result = await run_one(candidate)
+        var result = await run_one(candidate, 5)
         if (check_status(result, target_status)) {
           chunks.splice(i, 1)
           changed = true
@@ -389,38 +440,32 @@ async function minimize(expr, target_status) {
   expr = chunks.join('')
 
   // Phase 2: remove pipe segments within each command
-  chunks = split_chunks(expr)
-  for (var ci = 0; ci < chunks.length; ci++) {
-    var segs = split_pipes(chunks[ci])
-    if (!segs || segs.length <= 1) continue
-    var changed = true
-    while (changed) {
-      changed = false
-      for (var si = 0; si < segs.length; si++) {
-        if (segs.length <= 1) break
-        var try_segs = segs.slice(0, si).concat(segs.slice(si + 1))
-        var candidate = chunks.slice(0, ci).join('') +
-          '{' + try_segs.join('|') + '}' +
-          chunks.slice(ci + 1).join('')
-        if (!candidate.trim()) continue
-        var result = await run_one(candidate)
-        if (check_status(result, target_status)) {
-          segs.splice(si, 1)
-          chunks[ci] = '{' + segs.join('|') + '}'
-          changed = true
-          break
+  if (!expired()) {
+    chunks = split_chunks(expr)
+    for (var ci = 0; ci < chunks.length && !expired(); ci++) {
+      var segs = split_pipes(chunks[ci])
+      if (!segs || segs.length <= 1) continue
+      var changed = true
+      while (changed && !expired()) {
+        changed = false
+        for (var si = 0; si < segs.length; si++) {
+          if (expired() || segs.length <= 1) break
+          var try_segs = segs.slice(0, si).concat(segs.slice(si + 1))
+          var candidate = chunks.slice(0, ci).join('') +
+            '{' + try_segs.join('|') + '}' +
+            chunks.slice(ci + 1).join('')
+          if (!candidate.trim()) continue
+          var result = await run_one(candidate, 5)
+          if (check_status(result, target_status)) {
+            segs.splice(si, 1)
+            chunks[ci] = '{' + segs.join('|') + '}'
+            changed = true
+            break
+          }
         }
       }
     }
-  }
-  expr = chunks.join('')
-
-  // Phase 3: try trimming whitespace and obvious no-ops
-  for (var attempt of [expr.trim(), expr.replace(/\s+/g, ' ')]) {
-    if (attempt !== expr && attempt.trim()) {
-      var result = await run_one(attempt)
-      if (check_status(result, target_status)) expr = attempt
-    }
+    expr = chunks.join('')
   }
 
   return expr
@@ -449,6 +494,17 @@ function handle_result(result) {
 }
 
 async function run_batch(gen_fn, total, label) {
+  var skipping = skip > 0
+  var to_skip = Math.min(skip, total)
+  if (skipping) {
+    console.log('--- ' + label + ' (skipping ' + to_skip + '/' + total + ') ---')
+    for (var i = 0; i < to_skip; i++) gen_fn()  // burn RNG but don't eval
+    skip -= to_skip
+    total -= to_skip
+    completed += to_skip
+    passed += to_skip
+  }
+  if (total <= 0) { if (!skipping) console.log('--- ' + label + ' (0) ---'); return }
   console.log('--- ' + label + ' (' + total + ') ---')
   var active = 0
   var next = 0
@@ -466,15 +522,15 @@ async function run_batch(gen_fn, total, label) {
         })
       }
     }
-    if (total === 0) resolve()
-    else launch()
+    launch()
   })
 }
 
 // --- Main ---
 
 console.log('DAML Fuzzer')
-console.log('Count:', count, ' Seed:', seed, ' Concurrency:', concurrency)
+console.log('Count:', count, ' Seed:', seed, ' Concurrency:', concurrency,
+  verbose ? ' Verbose' : '', skip > 0 ? ' Skip: ' + skip : '')
 console.log('Handlers:', handlers.length, ' Aliases:', aliases.length)
 console.log('')
 
@@ -487,11 +543,22 @@ await run_batch(gen_expr, gen_count, 'Generated')
 // --- Minimize failures ---
 
 if (errors.length) {
-  console.log('')
-  console.log('--- Minimizing ' + errors.length + ' failure(s) ---')
-  minimizing = true
+  // Deduplicate by error message — only minimize one per unique error
+  var seen_errors = {}
+  var unique_errors = []
   for (var i = 0; i < errors.length; i++) {
-    var e = errors[i]
+    var key = errors[i].error || errors[i].status
+    if (!seen_errors[key]) {
+      seen_errors[key] = true
+      unique_errors.push(errors[i])
+    }
+  }
+
+  console.log('')
+  console.log('--- Minimizing ' + unique_errors.length + ' unique failure(s) (of ' + errors.length + ' total) ---')
+  minimizing = true
+  for (var i = 0; i < unique_errors.length; i++) {
+    var e = unique_errors[i]
     var minimal = await minimize(e.expr, e.status)
     if (minimal.length < e.expr.length) {
       console.log('  ' + e.status.toUpperCase() + ': ' + JSON.stringify(e.expr).slice(0, 80))
@@ -499,6 +566,7 @@ if (errors.length) {
     } else {
       console.log('  ' + e.status.toUpperCase() + ': ' + JSON.stringify(minimal) + ' (already minimal)')
     }
+    if (e.error) console.log('    error: ' + e.error)
     e.minimal = minimal
   }
 }
