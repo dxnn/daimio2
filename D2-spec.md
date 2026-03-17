@@ -223,8 +223,8 @@ where changes can flow through the graph like merging branches.
 No process waits forever. Every down-port request has a finite
 timeout (explicit, inherited, or the 10s system default). When the
 timeout fires, the process resumes with a default value. Unwired
-ports return the default immediately with no async boundary at all.
-This guarantees that every process eventually completes its block,
+ports sploot immediately with no async boundary at all. This
+guarantees that every process eventually completes its block,
 modulo the totality of the block's pure computation.
 
 ### Timeout compositionality
@@ -628,14 +628,16 @@ happens, and the expanded form must be valid under the same dialect.
 ### Commands
 ```
 A command definition is either:
-  Pure(c, params, fun)         — a pure command with a handler function
-  Effectful(c, params, portType, defaultHandler)  — an effectful command
+  Pure(c, params, fun)                        — a pure command
+  Effectful(c, params, portType)              — an effectful command
 ```
 
 Pure commands are total functions from params to Val.
-Effectful commands have no fun; they have a port type and a default handler.
-The port type names the kind of port that will be created on demand.
-The default handler is an implementation that the environment may override.
+
+Effectful commands have no fun — they have a port type. When
+invoked, the request is sent through a port of that type. If the
+port is wired, the process waits for the response. If the port is
+not wired, the command sploots. No effects without wiring.
 
 ### Programs
 
@@ -1291,19 +1293,19 @@ space where the response surfaced — not where the request originated.
 #### Unwired ports
 
 If a down port is not wired to any target (no matching wiring rule,
-and no OTHER fallback), the runtime detects this immediately at
-request time — no need to wait for a timeout:
+and no OTHER fallback), the command sploots immediately — no async
+boundary, no timeout:
 
 ```
   p has no wiring
-  defaultVal = the effectful command's default value
   ─────────────────────────────────────────────────
-  (process, σ) —[EffCmd(c, args)]→ (process{v := defaultVal}, σ)
+  (process, σ) —[EffCmd(c, args)]→ (process{v := empty}, σ)
   emit soft error: {type: "unwired_port", port: p}
 ```
 
-This is synchronous — no async boundary is created, the process does
-not wait, no timeout. The pipeline continues immediately.
+This is synchronous — the process does not wait. The pipeline
+continues immediately with the empty value. No effects without
+wiring.
 
 
 ## 8. Sockets and Space Serialization
