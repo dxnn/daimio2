@@ -307,7 +307,7 @@ D.import_models({
           },
         ],
         fun: function(value) {
-          return Math.sin(Math.PI * value / 180)
+          return Math.sin(Math.PI * value / 180) || 0
         },
       },
 
@@ -324,7 +324,7 @@ D.import_models({
           },
         ],
         fun: function(value) {
-          return Math.cos(Math.PI * value / 180)
+          return Math.cos(Math.PI * value / 180) || 0
         },
       },
 
@@ -353,7 +353,7 @@ D.import_models({
           if(!to) return Math.round(value)
 
           var power = Math.pow(10, to)
-          return Math.round(value * power) / power
+          return Math.round(value * power) / power || 0
         },
       },
 
@@ -433,7 +433,6 @@ D.Etc.Math.solver = function(value, to, fun) {
   // are these arrays or numbers?
   var arrays = Array.isArray(value) + Array.isArray(to)
 
-  // THINK: maybe wrap these with D.to_numeric to keep out NaNs
   if(arrays == 2) return D.Etc.Math.doubleArray(value, to, fun);
   if(arrays == 1) return D.Etc.Math.singleArray(value, to, fun);
   if(arrays == 0) return D.Etc.Math.naryanArray(value, to, fun);
@@ -441,7 +440,7 @@ D.Etc.Math.solver = function(value, to, fun) {
 
 D.Etc.Math.doubleArray = function(value, to, fun) {
   return value.map(function(val, key) {
-    return fun(D.to_numeric(val), D.to_numeric(to[key]));
+    return fun(D.to_numeric(val), D.to_numeric(to[key])) || 0;
   });
 };
 
@@ -455,7 +454,7 @@ D.Etc.Math.singleArray = function(value, to, fun) {
   if(to === false || to === null) to = 0                             // false/null mean zero (e.g. undefined var)
   if(D.is_numeric(to)) {
     return value.map(function(val) {
-      return fun(D.to_numeric(val), D.to_numeric(to));
+      return fun(D.to_numeric(val), D.to_numeric(to)) || 0;
     });
   }
 
@@ -465,7 +464,7 @@ D.Etc.Math.singleArray = function(value, to, fun) {
   for(var i=0, l=value.length; i < l; i++) {
     // NOTE: this essentially bypasses identity concerns -- total=0 poisons *, total=1 taints +. it means subtraction and division are relative to the first value in the array, but that's ok.
     if(total === false) total = D.to_numeric(value[i]);
-    else total = fun(total, D.to_numeric(value[i]));
+    else total = fun(total, D.to_numeric(value[i])) || 0;
   }
   return total;
 };
@@ -480,5 +479,5 @@ D.Etc.Math.naryanArray = function(value, to, fun) {
     // D.to_numeric(value)
     to = 0
   }
-  return fun(D.to_numeric(value), D.to_numeric(to));
+  return fun(D.to_numeric(value), D.to_numeric(to)) || 0;
 };

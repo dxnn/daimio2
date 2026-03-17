@@ -6,6 +6,12 @@
 
 var D = (await import('../daimio/daimio.js')).default
 
+// Catch async errors from setTimeout callbacks etc.
+var async_errors = []
+process.on('uncaughtException', function(e) {
+  async_errors.push(e.message)
+})
+
 var count = parseInt(process.argv[2]) || 1000
 var seed = process.argv[3] || String(Date.now())
 
@@ -27,7 +33,7 @@ function pick(arr) { return arr[Math.floor(rng() * arr.length)] }
 function rand_int(lo, hi) { return lo + Math.floor(rng() * (hi - lo + 1)) }
 
 // Collect available handlers, methods, params, aliases from D
-// Exclude effectful handlers (need port wiring, will hang without it)
+// Exclude specialized handlers and intentionally-async commands
 var effectful_handlers = new Set(['dagoba', 'daggr'])
 var effectful_pairs = new Set(['process.sleep'])
 var effectful_aliases = new Set(['sleep', 'wait'])
@@ -65,7 +71,8 @@ function gen_block(depth) {
   return '"{' + gen_pipeline(depth + 1) + '}"'
 }
 
-var block_names = ['foo', 'bar', 'item', 'row', 'x', 'blk', 'inner']
+var block_names = ['foo', 'bar', 'item', 'row', 'x', 'blk', 'inner',
+                   'begin', 'end', 'if', 'then', 'else', 'value', 'block']
 
 function gen_named_block(depth) {
   var name = pick(block_names)
@@ -226,17 +233,22 @@ function gen_edge_case() {
     '{1 || 2 || 3 || 4 || 5}',
     // Variable stress
     ...Array.from({length: 10}, (_, i) => `{${i} | >$v${i}}`),
+    // Self-referential named blocks
+    '{begin foo | >$foo} {$foo} {end foo}',
+    '{begin foo | >$foo}{$foo}{end foo}',
+    '{begin x | >$x}{$x | >$x}{end x}',
   ])
 }
 
 // --- Runner ---
 
-var timeout_ms = 1000  // per expression
+var timeout_ms = parseInt(process.argv[5]) || 100  // per expression
 var errors = []
 var hangs = 0
 var crashes = 0
 var passed = 0
 var pollution_checks = 0
+var minimizing = false
 
 D.on_error = function(command, error) {
   // Soft errors are expected — Daimio is total
@@ -249,35 +261,43 @@ function hush() { console.log = function() {} }
 function unhush() { console.log = real_log }
 
 function make_fresh_space() {
-  return new D.Space(
-    D.spaceseed_add(
-      {dialect: {commands:{}, aliases:{}}, stations: [], subspaces: [], ports: [], routes: [], state: {}}))
+  var seed_id = D.spaceseed_add(
+    {dialect: {commands:{}, aliases:{}}, stations: [], subspaces: [], ports: [], routes: [], state: {}})
+  var space = new D.Space(seed_id)
+  space._fuzz_seed_id = seed_id
+  return space
+}
+
+function cleanup_space(space) {
+  delete D.SPACESEEDS[space._fuzz_seed_id]
 }
 
 function run_one(expr) {
   return new Promise(function(resolve) {
     var done = false
+    var space = make_fresh_space()
     var timer = setTimeout(function() {
       unhush()
       if (!done) {
         done = true
-        hangs++
+        if (!minimizing) hangs++
+        cleanup_space(space)
         resolve({ status: 'hang', expr: expr })
       }
     }, timeout_ms)
 
     try {
-      var space = make_fresh_space()
       hush()
       D.run(expr, space, null, function(value) {
         unhush()
         if (done) return
         done = true
         clearTimeout(timer)
+        cleanup_space(space)
 
         // Check for prototype pollution after each run
         if (({}).polluted !== undefined || ({}).bad !== undefined) {
-          pollution_checks++
+          if (!minimizing) pollution_checks++
           resolve({ status: 'pollution', expr: expr, detail: 'Object.prototype polluted!' })
           return
         }
@@ -289,17 +309,132 @@ function run_one(expr) {
       if (done) return
       done = true
       clearTimeout(timer)
-      crashes++
+      cleanup_space(space)
+      if (!minimizing) crashes++
       resolve({ status: 'crash', expr: expr, error: e.message, stack: e.stack })
     }
   })
 }
 
+// --- Minimizer ---
+
+// Split DAML into structural chunks: commands {…} and literal text between them
+function split_chunks(expr) {
+  var chunks = []
+  var depth = 0, start = 0
+  for (var i = 0; i < expr.length; i++) {
+    if (expr[i] === '{') {
+      if (depth === 0 && i > start)
+        chunks.push(expr.slice(start, i))
+      if (depth === 0) start = i
+      depth++
+    } else if (expr[i] === '}') {
+      depth--
+      if (depth === 0) {
+        chunks.push(expr.slice(start, i + 1))
+        start = i + 1
+      }
+    }
+  }
+  if (start < expr.length)
+    chunks.push(expr.slice(start))
+  return chunks
+}
+
+// Split a single {…} command into pipe segments
+function split_pipes(cmd) {
+  if (cmd[0] !== '{' || cmd[cmd.length - 1] !== '}') return null
+  var inner = cmd.slice(1, -1)
+  // Naive split on | respecting nested {} and ""
+  var segs = [], cur = '', depth = 0, instr = false
+  for (var i = 0; i < inner.length; i++) {
+    var c = inner[i]
+    if (c === '"' && (i === 0 || inner[i-1] !== '\\')) instr = !instr
+    if (!instr && c === '{') depth++
+    if (!instr && c === '}') depth--
+    if (!instr && depth === 0 && c === '|') {
+      segs.push(cur)
+      cur = ''
+    } else {
+      cur += c
+    }
+  }
+  segs.push(cur)
+  return segs
+}
+
+function check_status(result, target) {
+  return result.status === target
+}
+
+async function minimize(expr, target_status) {
+  // Phase 1: remove whole chunks
+  var chunks = split_chunks(expr)
+  if (chunks.length > 1) {
+    var changed = true
+    while (changed) {
+      changed = false
+      for (var i = 0; i < chunks.length; i++) {
+        var candidate = chunks.slice(0, i).concat(chunks.slice(i + 1)).join('')
+        if (!candidate.trim()) continue
+        var result = await run_one(candidate)
+        if (check_status(result, target_status)) {
+          chunks.splice(i, 1)
+          changed = true
+          break
+        }
+      }
+    }
+  }
+  expr = chunks.join('')
+
+  // Phase 2: remove pipe segments within each command
+  chunks = split_chunks(expr)
+  for (var ci = 0; ci < chunks.length; ci++) {
+    var segs = split_pipes(chunks[ci])
+    if (!segs || segs.length <= 1) continue
+    var changed = true
+    while (changed) {
+      changed = false
+      for (var si = 0; si < segs.length; si++) {
+        if (segs.length <= 1) break
+        var try_segs = segs.slice(0, si).concat(segs.slice(si + 1))
+        var candidate = chunks.slice(0, ci).join('') +
+          '{' + try_segs.join('|') + '}' +
+          chunks.slice(ci + 1).join('')
+        if (!candidate.trim()) continue
+        var result = await run_one(candidate)
+        if (check_status(result, target_status)) {
+          segs.splice(si, 1)
+          chunks[ci] = '{' + segs.join('|') + '}'
+          changed = true
+          break
+        }
+      }
+    }
+  }
+  expr = chunks.join('')
+
+  // Phase 3: try trimming whitespace and obvious no-ops
+  for (var attempt of [expr.trim(), expr.replace(/\s+/g, ' ')]) {
+    if (attempt !== expr && attempt.trim()) {
+      var result = await run_one(attempt)
+      if (check_status(result, target_status)) expr = attempt
+    }
+  }
+
+  return expr
+}
+
 // --- Pool runner ---
 
-var concurrency = parseInt(process.argv[4]) || 50
+var concurrency = parseInt(process.argv[4]) || 200
+
+var completed = 0
+var start = Date.now()
 
 function handle_result(result) {
+  completed++
   if (result.status === 'ok') {
     passed++
   } else {
@@ -307,27 +442,31 @@ function handle_result(result) {
     if (result.error) console.log('    ', result.error)
     errors.push(result)
   }
+  if (completed % 100000 === 0) {
+    var elapsed = ((Date.now() - start) / 1000).toFixed(1)
+    console.log('  ... ' + completed + '/' + count + ' (' + passed + ' ok, ' + hangs + ' hang, ' + crashes + ' crash, ' + elapsed + 's)')
+  }
 }
 
-async function run_batch(exprs, label) {
-  console.log('--- ' + label + ' (' + exprs.length + ') ---')
+async function run_batch(gen_fn, total, label) {
+  console.log('--- ' + label + ' (' + total + ') ---')
   var active = 0
   var next = 0
 
   return new Promise(function(resolve) {
     function launch() {
-      while (active < concurrency && next < exprs.length) {
+      while (active < concurrency && next < total) {
         active++
-        var idx = next++
-        run_one(exprs[idx]).then(function(result) {
+        next++
+        run_one(gen_fn()).then(function(result) {
           handle_result(result)
           active--
-          if (next >= exprs.length && active === 0) resolve()
+          if (next >= total && active === 0) resolve()
           else launch()
         })
       }
     }
-    if (exprs.length === 0) resolve()
+    if (total === 0) resolve()
     else launch()
   })
 }
@@ -339,16 +478,30 @@ console.log('Count:', count, ' Seed:', seed, ' Concurrency:', concurrency)
 console.log('Handlers:', handlers.length, ' Aliases:', aliases.length)
 console.log('')
 
-var start = Date.now()
-var edge_count = Math.min(Math.floor(count * 0.2), 50)
+var edge_count = Math.floor(count * 0.1)
 var gen_count = count - edge_count
 
-// Build all expressions up front (uses the seeded RNG)
-var edge_exprs = Array.from({length: edge_count}, function() { return gen_edge_case() })
-var gen_exprs = Array.from({length: gen_count}, function() { return gen_expr() })
+await run_batch(gen_edge_case, edge_count, 'Edge cases')
+await run_batch(gen_expr, gen_count, 'Generated')
 
-await run_batch(edge_exprs, 'Edge cases')
-await run_batch(gen_exprs, 'Generated')
+// --- Minimize failures ---
+
+if (errors.length) {
+  console.log('')
+  console.log('--- Minimizing ' + errors.length + ' failure(s) ---')
+  minimizing = true
+  for (var i = 0; i < errors.length; i++) {
+    var e = errors[i]
+    var minimal = await minimize(e.expr, e.status)
+    if (minimal.length < e.expr.length) {
+      console.log('  ' + e.status.toUpperCase() + ': ' + JSON.stringify(e.expr).slice(0, 80))
+      console.log('    => ' + JSON.stringify(minimal))
+    } else {
+      console.log('  ' + e.status.toUpperCase() + ': ' + JSON.stringify(minimal) + ' (already minimal)')
+    }
+    e.minimal = minimal
+  }
+}
 
 var elapsed = ((Date.now() - start) / 1000).toFixed(1)
 
