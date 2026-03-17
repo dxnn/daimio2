@@ -1452,7 +1452,7 @@ arbitrary depth).
 
 ### Collections: keyed and unkeyed
 
-A collection's entries may be keyed, unkeyed, or a mix.
+A collection is either keyed or unkeyed.
 
 ```
 (1 2 3)            — unkeyed (positional only)
@@ -1536,9 +1536,11 @@ Star is a **traversal** — it focuses on all existing children.
 Par is a **multiplexer** — it maps an operation across multiple paths.
 Each sub-path carries its own semantics.
 
-**Pos is 1-indexed.** `#1` is first element, `#-1` is last. Pos works
-on both keyed and unkeyed collections (keyed collections are accessed
-by insertion order).
+**Pos is 1-indexed.** `#1` is first element, `#-1` is last. Negative
+positions count from the end. Pos works on both keyed and unkeyed
+collections (keyed collections are accessed by insertion order).
+`#0` is invalid. Any position that doesn't resolve to an existing
+element sploots.
 
 **Key access is 0-indexed.** Key with a numeric string on an unkeyed
 list uses 0-based indexing (see Key coercion below).
@@ -1549,9 +1551,9 @@ Keys in paths may be strings or numbers. Coercion depends on the
 target collection:
 
 ```
-String key on unkeyed list:  coerce to nat using (x|0) === +x
+String key on unkeyed list:  coerce to natural number
                               if success: 0-indexed array access
-                              if failure: soft error
+                              if failure: sploot
 
 Number key on keyed list:    treat as string
 
@@ -1574,14 +1576,18 @@ peek({a:1, b:2, c:3}, ["#2"]) →  2     (Pos on keyed list, by insertion order)
 
 All four share the same path language.
 
-| Operation | Creates structure? | Changes shape? | Optics analog |
+| Operation | Adds entries? | Removes entries? | Optics analog |
 |---|---|---|---|
 | **peek** | No | No | get / view |
 | **poke** | Yes (Key only) | No | set / put |
 | **map** | No | No | over |
 | **delete** | No | Yes | — |
 
-TODO: the above table says map does not create structure, and does not change shape. are those things really true? what exactly do they mean in this context?
+"Adds entries" means a key or position that didn't exist before now
+exists in the collection. Only poke can do this (via Key on keyed
+collections or Empty). Map can change the *value* at an existing
+entry — including replacing a scalar with a collection — but it
+never adds or removes entries from the parent collection.
 
 #### Peek (read)
 
@@ -1601,11 +1607,12 @@ peek(Empty, _ :: _)  = Empty
 always yields Empty.
 
 **Return type is path-dependent:** if any selector in the path is
-Star or Par, the result is always a list (even if empty: `[]`).
-If all selectors are affine (Key or Pos), the result is a single
-value or Empty. The caller can predict the return shape from the
-path alone, regardless of data.
-TODO: note that a value can be a list -- this is about the wrapping
+Star or Par, the result is always wrapped in a list (even if
+empty: `[]`). If all selectors are affine (Key or Pos), the result
+is a single unwrapped value or Empty. The caller can predict the
+wrapping from the path alone, regardless of data. Note: the
+unwrapped value itself may be a list — the wrapping is about
+whether peek adds an *additional* list layer around the result.
 
 #### Poke (write)
 
@@ -1615,7 +1622,12 @@ structure.** Everything else modifies in place or sploots.
 ```
 poke(v, [], new) = new                    — replace entirely
 ```
-TODO: should poke really replace it entirely? it currently appends. I'm still not sure which is right.
+
+Empty-path poke replaces the value wholesale. This preserves the
+lens laws (PutGet, PutPut, GetPut all hold at empty path). The
+code currently appends/merges instead — this is a known divergence
+that should be fixed. Append semantics are available separately
+via `list append`.
 
 **Key** — creates on keyed collections, Empty, and scalars:
 
@@ -1669,25 +1681,28 @@ poke(v, Par(ps) :: rest, new) =
 ```
 
 **Scalar mid-path rule (affine vs traversal):** when poke encounters
-a scalar mid-path, behavior depends on whether the overall path is
-affine (no Star) or a traversal (passes through Star):
-TODO: does this really happen based on overall path, or just based on current segment? which of those should it be?
+a scalar mid-path, behavior depends on whether the scalar was
+reached through Star expansion:
 
-  - **Affine:** Key replaces the scalar and continues.
+  - **Affine (no Star above):** Key replaces the scalar and continues.
     `poke({x: 42}, [:x, :a], 99)` → `{x: {a: 99}}`
-  - **Traversal:** scalar children are skipped.
+  - **Traversal (reached via Star):** scalar children are skipped.
     `poke([1, 2, 3], ["*", :a], 99)` → `[1, 2, 3]`
+
+The determination is local: did this particular recursive call
+arrive here through a Star expansion? Not "does the overall path
+contain Star somewhere." This matters for Par, where different
+sub-paths may have different affinity — each sub-path is expanded
+independently, so each makes its own affine/traversal determination.
 
 #### Map (transform at focus)
 
 Map applies a block to each value at a path focus. **Map never
-creates structure** (it doesn't add keys or extend collections).
-However, map **will overwrite scalars with structure** if the block
-returns a complex value. If the path doesn't reach any focus, the
-structure is returned unchanged.
-
-TODO: it seems a little wrong to say Map never creates structure. It will have happily add a deeper structure, e.g. : `{(1 2) | list map block (3 4)}`
-TODO: In other places it says poke doesn't create structure, but poke definitely creates new keys
+adds entries** — it doesn't add keys or extend collections. It
+transforms existing values in place. However, the block's return
+value can be any type, so map can replace a scalar with a
+collection (or vice versa) at an existing entry. If the path
+doesn't reach any focus, the structure is returned unchanged.
 
 
 ```
@@ -1750,20 +1765,23 @@ delete(Collection, selector :: rest) =
   navigate to child(ren) via selector, recurse with rest
 ```
 
-**Par-delete uses collect-then-remove semantics.** It identifies
-all targets from the original structure, then removes them all at
-once (in reverse index order, for positional deletes to preserve
-correctness as indices shift).
+**Par-delete uses collect-then-remove semantics.** All target
+positions are identified from the original structure, then removed
+in reverse index order within each level. Reverse order ensures
+that removing an earlier position doesn't shift later positions
+before they're removed.
 
-This differs from Par-poke and Par-map, which are sequential. Both poke and map preserve collection shape, so sequential
-application over non-overlapping paths is equivalent to parallel.
-Delete changes shape — sequential positional deletes shift indices
-between steps, causing later sub-paths to target wrong positions.
-We accept the asymmetry because it is justified by the operations'
-different relationship to shape.
+This differs from Par-poke and Par-map, which apply sequentially
+left-to-right. Poke and map don't remove entries, so sequential
+application is safe — later sub-paths still address the same
+positions. Delete removes entries, shifting indices. Sequential
+positional deletes would corrupt later sub-paths.
 
-TODO: shape the above statement a bit better.
-TODO: whta about overlapping paths? what if the first par path pokes a shape in that the second par path follows? how is that handled currently?
+**Overlapping Par paths.** For Par-poke and Par-map, overlapping
+sub-paths are applied sequentially: the second sub-path sees the
+result of the first. For Par-delete, overlapping sub-paths are
+resolved from the original structure — if both sub-paths target
+the same entry, it is removed once.
 
 #### Path command signatures
 
