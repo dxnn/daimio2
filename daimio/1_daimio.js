@@ -1341,6 +1341,98 @@ D.poke = function(base, path, value) {
   return base
 }
 
+D.map_path = function(base, path, apply_fn, prior_starter, path_acc) {
+  // Recursive path-guided structural transformation.
+  // Descends along path, applies apply_fn at focus points, rebuilds structure.
+  // Uses NaN/callback async convention throughout.
+
+  path_acc = path_acc || []
+
+  // Empty path (leaf): apply the block
+  if(!path.length)
+    return apply_fn(base, prior_starter, null, null, path_acc)
+
+  // Scalar/null with non-empty path: unchanged, no block applied
+  if(typeof base !== 'object' || base === null)
+    return base
+
+  var step = path[0]
+    , rest = path.slice(1)
+
+  // Par (array key): sequential left-to-right
+  if(Array.isArray(step)) {
+    var idx = 0, went_async = false
+    var next = function() {
+      while(idx < step.length) {
+        var sub = step[idx++]
+        var full = (Array.isArray(sub) ? sub : [sub]).concat(rest)
+        var result = D.map_path(base, full, apply_fn, function(val) {
+          base = val; next()
+        }, path_acc)
+        if(result !== result) { went_async = true; return NaN }
+        base = result
+      }
+      if(went_async) return prior_starter(base)
+      return base
+    }
+    return next()
+  }
+
+  // Star: iterate all children via data_trampoline
+  if(step === '*') {
+    var child_keys = Object.keys(base)
+    var processfun = function(child, starter, key) {
+      var ci = child_keys.indexOf(key)
+      var cp = path_acc.concat(key)
+      if(!rest.length) return apply_fn(child, starter, key, ci, cp)
+      return D.map_path(child, rest, apply_fn, starter, cp)
+    }
+    return D.data_trampoline(base, processfun, D.list_set, prior_starter, D.scrub_list)
+  }
+
+  // Key / Position: find pathfinder, gather child
+  var pf, test
+  for(var j=0, k=D.Pathfinders.length; j < k; j++) {
+    pf = D.Pathfinders[j]
+    test = pf.keymatch(step)
+    if(test) break
+  }
+
+  if(!pf) return base
+
+  var children = pf.gather(base, step)
+  if(!children.length) return base  // missing key/pos → unchanged
+
+  // Resolve actual key (positions → 0-indexed key string)
+  var rkey
+  if(typeof step === 'string' && /^#-?\d/.test(step)) {
+    var vkeys = Object.keys(base)
+      , position = +step.slice(1)
+      , idx = (position < 0) ? (vkeys.length + position) : position - 1
+    rkey = vkeys[idx]
+  } else {
+    rkey = step
+  }
+
+  var ci = Object.keys(base).indexOf(rkey)
+  var cp = path_acc.concat(rkey)
+
+  if(!rest.length) {
+    var result = apply_fn(children[0], function(val) {
+      base[rkey] = val; prior_starter(base)
+    }, rkey, ci, cp)
+    if(result !== result) return NaN
+    base[rkey] = result
+    return base
+  }
+
+  var result = D.map_path(children[0], rest, apply_fn, function(val) {
+    base[rkey] = val; prior_starter(base)
+  }, cp)
+  if(result !== result) return NaN
+  base[rkey] = result
+  return base
+}
 
 
   /*ooooooo.         .o.       ooooooooo.    .oooooo..o oooooooooooo ooooooooo.

@@ -2203,6 +2203,119 @@ test('group: no mutation',
 
 
 // =====================================================
+// §Map: path parameter + _index/_path injection
+// =====================================================
+
+// Backward compatibility (no path = default star)
+test('map: no path, array',
+  '{(1 2 3) | list map block "{__ | add 10}"}',
+  '[11,12,13]'
+)
+test('map: no path, object',
+  '{* (:x 1 :y 2) | list map block "{__ | add 10}"}',
+  '{"x":11,"y":12}'
+)
+
+// Explicit star
+test('map: explicit star path',
+  '{(1 2 3) | list map path ("*") block "{__ | add 10}"}',
+  '[11,12,13]'
+)
+
+// Key path
+test('map: key path hits',
+  '{* (:a 1 :b 2) | list map path (:a) block "{__ | add 10}"}',
+  '{"a":11,"b":2}'
+)
+test('map: key path misses',
+  '{* (:a 1 :b 2) | list map path (:c) block "{__ | add 10}"}',
+  '{"a":1,"b":2}'
+)
+
+// Position path
+test('map: position path',
+  '{(10 20 30) | list map path ("#2") block "{__ | add 100}"}',
+  '[10,120,30]'
+)
+
+// Nested paths
+test('map: nested key+star',
+  '{* (:items (1 2 3)) | list map path (:items "*") block "{__ | add 10}"}',
+  '{"items":[11,12,13]}'
+)
+test('map: star+position',
+  '{((1 2) (3 4)) | list map path ("*" "#1") block "{__ | add 100}"}',
+  '[[101,2],[103,4]]'
+)
+test('map: star+key across objects',
+  '{* (:a {* (:x 1 :y 2)} :b {* (:x 3)}) | list map path ("*" :x) block "{__ | add 10}"}',
+  '{"a":{"x":11,"y":2},"b":{"x":13}}'
+)
+
+// Scalar mid-path (unchanged)
+test('map: scalar mid-path, all scalars',
+  '{(1 2 3) | list map path ("*" :foo) block "{__ | add 10}"}',
+  '[1,2,3]'
+)
+test('map: scalar mid-path, mixed',
+  '{* (:a 42 :b {* (:x 1)}) | list map path ("*" :x) block "{__ | add 10}"}',
+  '{"a":42,"b":{"x":11}}'
+)
+
+// Par
+test('map: par path',
+  '{* (:a 1 :b 2 :c 3) | list map path ((:a :c)) block "{__ | add 10}"}',
+  '{"a":11,"b":2,"c":13}'
+)
+
+// _path injection
+test('map: _path at top level',
+  '{(10 20 30) | list map block "{_path}"}',
+  '[["0"],["1"],["2"]]'
+)
+
+// _index injection
+test('map: _index array',
+  '{(:x :y :z) | list map block "{_index}"}',
+  '[0,1,2]'
+)
+test('map: _index object',
+  '{* (:a 10 :b 20) | list map block "{_index}"}',
+  '{"a":0,"b":1}'
+)
+
+// _key injection (existing behavior preserved)
+test('map: _key object',
+  '{* (:a 1 :b 2) | list map block "{_key}"}',
+  '{"a":"a","b":"b"}'
+)
+
+// Position resolves to 0-indexed key in _path
+test('map: position resolves in _path',
+  '{(10 20 30) | list map path ("#2") block "{_path}"}',
+  '[10,["1"],30]'
+)
+
+// Empty collection
+test('map: empty collection',
+  '{() | list map path ("*") block "{__ | add 10}"}',
+  '[]'
+)
+
+// Deep rebuild
+test('map: deep rebuild with position',
+  '{* (:a (1 2 3) :b (4 5 6)) | list map path (:a "#2") block "{__ | math multiply value 10}"}',
+  '{"a":[1,20,3],"b":[4,5,6]}'
+)
+
+// No mutation
+test('map: no mutation with path',
+  '{* (:a (1 2 3)) | >$x || $x | list map path (:a "*") block "{__ | add 10}" || $x}',
+  '{"a":[1,2,3]}'
+)
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

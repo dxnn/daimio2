@@ -25,7 +25,7 @@ D.import_models({
         examples: [
           ['{(1 2 3) | list map block "{__ | add 10}"}', '[11,12,13]'],
         ],
-        injects: ['value', 'key'],
+        injects: ['value', 'key', 'index', 'path'],
         params: [
           {
             key: 'data',
@@ -39,8 +39,13 @@ D.import_models({
             type: 'block',
             required: true
           },
+          {
+            key: 'path',
+            desc: 'Path to focus (default: all children)',
+            type: 'maybe-list',
+          },
         ],
-        fun: function(data, block, prior_starter, process) {
+        fun: function(data, block, path, prior_starter, process) {
 
           // (because you can't write to it, and these *should* be immutable -- plus then they're cheaper!)
 
@@ -53,9 +58,6 @@ D.import_models({
 
           // what about 'extract' where you need 'this' and 'parent'?
           // or here where 'key' would be nice?
-
-          // TODO: add path param! easy changes to nested values!
-          // TODO: add 'this' param (and 'key'?) to each of these.
 
           /* THINK: an 'into' param, for making a new list with the same top-level keys. [nope]
              note: ruby calls this 'collect'... but in daimio it doesnt matter. it's not needed. duh!
@@ -102,18 +104,19 @@ D.import_models({
 
           // TODO: 'zip' command: takes N arrays of M elements and makes a single array with M elements where the Kth item is an array of the Kth items from all of the initial arrays. e.g. ((1 2 3) (4 5 6)) -> ((1 4) (2 5) (3 6))
 
-          var scope = {}
+          if(!path || !path.length) path = ['*']
 
-          var processfun = function(item, prior_starter, key) {
+          var apply_fn = function(item, callback, key, index, full_path) {
+            var scope = {}
             scope["__in"] = item
             scope["value"] = item
             scope["key"] = key
-            return block(
-                     function(value) {prior_starter(value)}
-                   , scope, process)
+            scope["index"] = index
+            scope["path"] = full_path
+            return block(function(value) { callback(value) }, scope, process)
           }
 
-          return D.data_trampoline(data, processfun, D.list_set, prior_starter, D.scrub_list)
+          return D.map_path(D.deep_copy(data), path, apply_fn, prior_starter, [])
         },
       },
 
