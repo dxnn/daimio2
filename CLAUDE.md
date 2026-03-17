@@ -196,6 +196,8 @@ Part III — Blocks (inner language):
 - §10: Block domains (values, collections, paths, splooting, blocks, processes)
 - §11: Block execution (transition relations, pipes, scope, sub-processes)
 - §12: Errors (soft errors, splooting)
+- §13: Security analysis (privilege escalation, TOCTOU, DoS, spoofing)
+- §14: Future work (concurrent scheduling, editor, auth, TODA, apps)
 
 ## Test status
 

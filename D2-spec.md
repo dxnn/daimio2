@@ -2358,3 +2358,231 @@ When splooting:
 
 This is analogous to IEEE 754 NaN propagation: errors flow through the
 pipeline as values, rather than interrupting control flow.
+
+
+## 13. Security Analysis
+
+This section traces attack vectors against the model and shows
+how the invariants defend against them — or where the defense
+depends on configuration.
+
+### Privilege escalation via block evaluation
+
+**Attack:** Alice stores a malicious block in a space variable.
+Bob's ship triggers `{$alice_block | process unquote | run}`.
+Bob has admin dialect. Alice's code runs under Bob's authority.
+
+**Defense:** The sender's effective dialect is the intersection
+of sender.dialect and outerSpace.dialect (I4). Bob's process runs
+Alice's code, but under Bob's effective dialect — which is
+`Bob.dialect ∩ outerSpace.dialect`. If Alice's code tries commands
+outside that intersection, they sploot. The risk is when Bob's
+dialect is MORE permissive than Alice intended — Alice's code gets
+more power than she designed for.
+
+**Mitigation:** `process unquote` is the privilege boundary. It
+converts strings to executable code. If `unquote` is not in the
+sender's dialect, arbitrary code blocks are inert strings. The
+restricted dialect blocks `unquote` by default.
+
+### Privilege escalation via socketed spaces
+
+**Attack:** Alice loads a space into a socket. Bob sends a ship
+into the outer space, which routes to Alice's socketed space.
+Alice's space contains stations that do powerful things.
+
+**Defense:** Alice's space runs under Bob's effective dialect.
+The sender propagates through all port routing, including into
+subspaces (I3). Alice's stations can only execute commands in
+Bob's effective dialect. Additionally, Alice's socketed space
+can only cause effects through ports that the parent wired (I11).
+Unwired ports sploot (I10).
+
+**Residual risk:** If the socket's wiring is permissive AND Bob's
+dialect is permissive, Alice's code has broad capability. Socket
+wiring should be as restrictive as the use case allows.
+
+### TOCTOU on space variables (concurrent model only)
+
+**Attack:** Under the aspirational concurrent model, ship A reads
+`$balance`, goes async, and writes `$balance - amount` after
+resumption. Ship B does the same concurrently. Both read the same
+balance, both subtract, double-spend.
+
+**Defense under current model:** Serial exclusion (I5) prevents
+this entirely. One ship at a time per space. Ship B is queued
+until Ship A completes.
+
+**Defense under concurrent model:** Not fully mitigated. The
+concurrent scheduling doc discusses potential mitigations: MVCC
+snapshots, compare-and-swap, advisory locking. None are in the
+current spec. If concurrent scheduling is enabled for a space,
+the space author must design for it.
+
+### Regex denial of service
+
+**Attack:** A sender provides a string that triggers catastrophic
+backtracking in a regex command (e.g. `string grep`).
+
+**Defense:** The restricted dialect sets a policy flag
+`no_user_regex` that disables user-provided regex patterns.
+Commands that accept regex can check this policy and sploot if
+the sender's dialect disallows it. This is a dialect-level
+defense, not a runtime defense — a permissive dialect can still
+be vulnerable.
+
+**Residual risk:** A sender with regex permission can still craft
+pathological patterns. The energy/resource limits (§13 Future
+Work) would mitigate this by capping CPU time per sender.
+
+### Denial of service via resource exhaustion
+
+**Attack:** A sender submits a program with deep recursion,
+infinite loops via space variable manipulation, or massive data
+construction.
+
+**Defense (partial):** Totality (I1) prevents crashes but not
+resource exhaustion. Liveness (I9) guarantees effectful operations
+resolve via timeout. But pure computation has no built-in limit —
+a tight loop of pure commands can consume unbounded CPU.
+
+**Mitigation:** Resource limits are deferred to Future Work.
+Currently, the outer application is responsible for monitoring
+and killing runaway processes.
+
+### Cross-space information leakage
+
+**Attack:** A subspace tries to read its parent's space variables
+directly, bypassing the port interface.
+
+**Defense:** Space boundary opacity (I8). All cross-boundary
+communication goes through ports. A subspace cannot read or write
+its parent's σ directly. Cross-boundary state access requires
+an explicit effectful command (`var read`, `var write`) through a
+down port, which the parent must wire to a handler. If the parent
+doesn't wire it, the request sploots.
+
+### Sender spoofing
+
+**Attack:** A malicious entity sends a ship with a forged sender
+(claiming to be an admin).
+
+**Defense:** Daimio does not authenticate senders — this is
+explicitly the App's responsibility. Daimio trusts whatever
+sender the App provides. If the App's authentication is broken,
+Daimio's dialect confinement is bypassed.
+
+**Mitigation:** The sender authentication mechanism (§13 Future
+Work) would add cryptographic verification at the outer space
+boundary. Until then, the App MUST validate sender identity
+before passing ships into the outer space.
+
+### Port wiring as attack surface
+
+**Attack:** A socketed space declares ports that match wiring
+rules the parent didn't intend to expose.
+
+**Defense:** Wiring authority (I11). The parent controls ALL
+wiring for its subspaces. A subspace can only declare ports — it
+cannot wire them. The parent's wiring rules determine what each
+port connects to. The OTHER fallback in wiring rules is a
+catch-all that the parent explicitly configures. If a port
+doesn't match any rule and there's no OTHER, it sploots.
+
+
+## 14. Future Work
+
+Things we've thought about and deliberately deferred. These are
+not TODOs — they're design directions that are out of scope for
+the current spec but inform where the system is heading.
+
+### Concurrent scheduling
+
+The current serial model (one ship at a time per space) could be
+relaxed to allow segment-level interleaving within a space. This
+would increase throughput when ships are waiting on effects, at
+the cost of introducing TOCTOU hazards on shared space variables.
+Concurrency would be a per-space opt-in. See
+`D2-concurrent-scheduling.md` for the full aspirational model.
+
+### Content-addressed editor
+
+Blocks and spaces are content-addressed, which means copy and
+paste is automatically deduplicated. An editor built on this
+property could track the structural sharing graph: when you modify
+a copy, you choose whether it's a specialization or a change to
+propagate to all instances. The content-address graph becomes a
+version history where changes flow like merging branches. You
+don't have to choose between abstraction and copying — you get
+both.
+
+### Per-subspace dialects
+
+Currently, the dialect is a property of the outer space and all
+subspaces inherit it. Subspace restrictions come entirely from
+wiring. A future extension could allow subspaces to have their
+own further-restricted dialects, giving finer-grained control.
+This would require dialect intersection at each space boundary
+instead of once at dock time.
+
+### Sender authentication
+
+Currently, Daimio trusts senders — the App is responsible for
+authentication. A future layer could build authentication into
+the sender model: signed messages, capability tokens, or HMAC
+verification at the outer space boundary. The sender's identity
+would be cryptographically verified before the dialect is looked
+up.
+
+### Energy and resource limits
+
+Per-sender budgets to prevent denial of service. A sender's
+processes would be metered: CPU cycles, memory allocation,
+number of ships sent. Exceeding the budget sploots the current
+operation and pauses that sender. Limits would be set by the
+space owner, not by Daimio itself.
+
+### Composite commands
+
+App-defined commands built from existing DAML commands. An app
+could register new handler/method names that expand to DAML
+programs at invocation time — similar to aliases but with
+parameters, dialect gating, and the ability to be shared across
+spaces.
+
+### Parameter-level dialect restrictions
+
+Currently, dialects restrict at the command level — a command is
+either available or not. A future extension could restrict at the
+parameter level: allow `db query` but deny `sql` values matching
+certain patterns, or allow `asset send` only to whitelisted
+recipients.
+
+### Remove the exec port
+
+The exec port is a legacy mechanism for running dynamic code with
+metadata threading (the "secret" hack). The sender model makes it
+obsolete: sender identity propagates automatically through all
+ports, and dynamic code execution is handled by
+`{process unquote | process run}` with explicit pipeline data
+flow. Removing exec eliminates three core hacks (secret stashing
+in port_standard_enter, station_id undefined in portsend, process
+threading through port exit).
+
+### Apps, Rooms, and higher-level architecture
+
+Daimio provides the execution layer. Above it sits the App layer:
+frontend spaces (UI), backend spaces (effects), rooms (multiplayer
+broadcast), and the routing between them. An App connects multiple
+actors to multiple spaces with different dialects and different
+resource backends. This architecture is sketched in
+`extra/D_new.txt` but not yet specified.
+
+### TODA integration
+
+First-class digital assets via TODA files. Your user account,
+relationships, and assets become portable, self-sovereign objects
+that don't need to live on someone else's server. Combined with
+self-authenticating messages, this enables channel-independent
+identity and Bring Your Own Backend — you carry your assets and
+computational resources into any app.
