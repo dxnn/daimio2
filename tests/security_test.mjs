@@ -523,6 +523,74 @@ await sender_test(
   }
 )
 
+// 7. Nested subspace crossing (2+ levels deep): actor survives multiple boundaries
+await sender_test(
+  'nested subspace crossing',
+  `
+  deep
+    @in
+    @out
+    work {__ | add 1}
+    @in -> work -> @out
+  mid
+    @in
+    @out
+    @in -> deep.in
+    deep.out -> @out
+  outer
+    @init from-js
+    @out  actor-check
+    @init -> mid.in
+    mid.out -> @out`,
+  sender_actor,
+  [{port: 'init', value: 0}],
+  1,
+  function(results) {
+    test('sender nested subspace: ship exits', results.length >= 1)
+    test('sender nested subspace: actor preserved', results.length >= 1 && results[0].actor === sender_actor)
+    test('sender nested subspace: value correct (0+1=1)', results.length >= 1 && results[0].ship == 1)
+  }
+)
+
+// 8. No-dialect actor: actor with null dialect should use space dialect unchanged
+var no_dialect_actor = new D.Actor('plain-jane')
+await sender_test(
+  'no-dialect actor',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    work {__ | add 10}
+    @init -> work -> @out`,
+  no_dialect_actor,
+  [{port: 'init', value: 5}],
+  1,
+  function(results) {
+    test('no-dialect actor: ship exits', results.length >= 1)
+    test('no-dialect actor: actor preserved', results.length >= 1 && results[0].actor === no_dialect_actor)
+    test('no-dialect actor: value correct (full dialect works)', results.length >= 1 && results[0].ship == 15)
+  }
+)
+
+// 9. No actor at all: ships without sender still work (regression)
+await sender_test(
+  'no actor',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    work {__ | add 10}
+    @init -> work -> @out`,
+  null,
+  [{port: 'init', value: 5}],
+  1,
+  function(results) {
+    test('no actor: ship exits', results.length >= 1)
+    test('no actor: actor is absent', results.length >= 1 && !results[0].actor)
+    test('no actor: value correct', results.length >= 1 && results[0].ship == 15)
+  }
+)
+
 console.log('\n=== Sender Confinement ===')
 
 // Actor with restricted dialect that blocks math.add
@@ -530,7 +598,7 @@ var restricted_actor = new D.Actor('restricted-bob', {
   dialect: D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
 })
 
-// 1. Blocked command sploots
+// 1. Blocked command sploots — verify the result IS empty
 await sender_test(
   'blocked command',
   `
@@ -544,37 +612,36 @@ await sender_test(
   1,
   function(results) {
     test('confinement blocked command: ship exits', results.length >= 1)
-    // math.add should sploot — result is empty, not 15
-    test('confinement blocked command: math.add splooted', results.length >= 1 && results[0].ship !== '15')
+    // math.add should sploot — result is empty string (the splooted value)
+    test('confinement blocked command: math.add splooted to empty', results.length >= 1 && results[0].ship === '')
+    test('confinement blocked command: actor preserved', results.length >= 1 && results[0].actor === restricted_actor)
   }
 )
 
-// Actor that blocks process.unquote
-var no_unquote_actor = new D.Actor('no-unquote', {
-  dialect: D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'process': ['unquote']}})
-})
-
-// 2. Confinement through block eval
+// 2. Confinement INSIDE block eval — blocked command sploots inside list map
 await sender_test(
-  'confinement in block eval',
+  'confinement inside block eval',
   `
   outer
     @init from-js
     @out  actor-check
-    work {(1 2 3) | map block "{__ | add 1}" | count | >@done}
+    work {(1 2 3) | map block "{__ | math add value 10}" | >@done}
     @init -> work
     work.done -> @out`,
-  no_unquote_actor,
+  restricted_actor,
   [{port: 'init', value: 0}],
   1,
   function(results) {
-    // map should still work (add is allowed), but actor is preserved
-    test('confinement in block eval: ship exits', results.length >= 1)
-    test('confinement in block eval: actor preserved', results.length >= 1 && results[0].actor === no_unquote_actor)
+    test('confinement inside block eval: ship exits', results.length >= 1)
+    // Each map iteration sploots (math.add blocked), so result is ["","",""]
+    var val = results.length >= 1 ? results[0].ship : null
+    var is_all_empty = Array.isArray(val) && val.length === 3 && val.every(function(v) { return v === '' })
+    test('confinement inside block eval: all splooted', is_all_empty)
+    test('confinement inside block eval: actor preserved', results.length >= 1 && results[0].actor === restricted_actor)
   }
 )
 
-// 3. Confinement through subspace
+// 3. Confinement through subspace — verify splooted value is empty
 await sender_test(
   'confinement in subspace',
   `
@@ -593,13 +660,42 @@ await sender_test(
   1,
   function(results) {
     test('confinement in subspace: ship exits', results.length >= 1)
-    // math.add is blocked even inside the subspace
-    test('confinement in subspace: math.add splooted', results.length >= 1 && results[0].ship !== '15')
+    test('confinement in subspace: math.add splooted to empty', results.length >= 1 && results[0].ship === '')
     test('confinement in subspace: actor preserved', results.length >= 1 && results[0].actor === restricted_actor)
   }
 )
 
-// 4. process.dialect reflects effective dialect
+// 4. Bidirectional intersection — actor blocks one thing, space dialect blocks another
+// Both restrictions must apply simultaneously
+var space_restricts_unquote = D.make_restricted_dialect({blocked_methods: {'process': ['unquote']}})
+var actor_restricts_add = new D.Actor('bidirectional', {
+  dialect: D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
+})
+// Create a space with restricted dialect
+await (function() {
+  return new Promise(function(resolve) {
+    var seed_id = D.spaceseed_add({
+      dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}
+    })
+    D.SPACESEEDS[seed_id].dialect_instance = space_restricts_unquote
+    var space = new D.Space(seed_id)
+
+    // Run code that tests both restrictions via D.run with actor
+    D.run('{math add value 1 to 2}', space, null, function(result) {
+      test('bidirectional: actor-blocked math.add sploots', result === '')
+      D.run('{process unquote value "hello"}', space, null, function(result2) {
+        test('bidirectional: space-blocked process.unquote sploots', result2 === '')
+        // Non-blocked command still works
+        D.run('{math multiply value 3 by 4}', space, null, function(result3) {
+          test('bidirectional: non-blocked multiply works', result3 === '12')
+          resolve()
+        }, actor_restricts_add)
+      }, actor_restricts_add)
+    }, actor_restricts_add)
+  })
+})()
+
+// 5. process.dialect reflects effective dialect
 await sender_test(
   'process.dialect confinement',
   `
@@ -614,11 +710,78 @@ await sender_test(
   1,
   function(results) {
     test('process.dialect confinement: ship exits', results.length >= 1)
-    // Under restricted_actor, math.add should NOT appear in process dialect output
     var val = results.length >= 1 ? results[0].ship : 'MISSING'
     test('process.dialect confinement: math.add excluded', !val || val === '' || val === 'false')
   }
 )
+
+// 6. process.aliases respects effective dialect
+var no_unquote_actor = new D.Actor('no-unquote', {
+  dialect: D.make_actor_dialect(D.DIALECTS.top, {
+    blocked_methods: {'process': ['unquote']},
+    blocked_aliases: ['unquote']
+  })
+})
+await sender_test(
+  'process.aliases confinement',
+  `
+  outer
+    @init from-js
+    @out  actor-check
+    work {process aliases | list peek path (:unquote) | >@done}
+    @init -> work
+    work.done -> @out`,
+  no_unquote_actor,
+  [{port: 'init', value: 0}],
+  1,
+  function(results) {
+    test('process.aliases confinement: ship exits', results.length >= 1)
+    var val = results.length >= 1 ? results[0].ship : 'MISSING'
+    test('process.aliases confinement: unquote excluded', !val || val === '' || val === 'false')
+  }
+)
+
+// 7. D.run with actor — direct entry point test
+await (function() {
+  return new Promise(function(resolve) {
+    D.run('{math add value 5 to 10}', D.ExecutionSpace, null, function(result) {
+      test('D.run with restricted actor: math.add sploots', result === '')
+      D.run('{math multiply value 3 by 4}', D.ExecutionSpace, null, function(result2) {
+        test('D.run with restricted actor: multiply still works', result2 === '12')
+        resolve()
+      }, restricted_actor)
+    }, restricted_actor)
+  })
+})()
+
+console.log('\n=== intersect_dialects ===')
+// Unit tests for the intersection function
+test('intersect_dialects exists', typeof D.intersect_dialects === 'function')
+test('intersect same dialect returns same', D.intersect_dialects(D.DIALECTS.top, D.DIALECTS.top) === D.DIALECTS.top)
+test('intersect with null returns other', D.intersect_dialects(D.DIALECTS.top, null) === D.DIALECTS.top)
+test('intersect null with dialect returns dialect', D.intersect_dialects(null, D.DIALECTS.restricted) === D.DIALECTS.restricted)
+
+var int1 = D.intersect_dialects(D.DIALECTS.top, D.DIALECTS.restricted)
+test('intersection has a did', typeof int1.did === 'number')
+test('intersection blocks restricted method', !int1.get_method('process', 'unquote'))
+test('intersection allows unrestricted method', !!int1.get_method('math', 'add'))
+
+// Cache reuse: same pair returns same object
+var int2 = D.intersect_dialects(D.DIALECTS.top, D.DIALECTS.restricted)
+test('intersection is cached (same object)', int1 === int2)
+
+// Intersection of two different restrictions blocks BOTH
+var blocks_add = D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
+var blocks_multiply = D.make_actor_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['multiply']}})
+var both_blocked = D.intersect_dialects(blocks_add, blocks_multiply)
+test('bidirectional intersection blocks add', !both_blocked.get_method('math', 'add'))
+test('bidirectional intersection blocks multiply', !both_blocked.get_method('math', 'multiply'))
+test('bidirectional intersection allows subtract', !!both_blocked.get_method('math', 'subtract'))
+
+// Policy merge: restrictive policy wins
+var with_policy = D.intersect_dialects(D.DIALECTS.top, D.DIALECTS.restricted)
+test('intersection inherits restrict_unsafe_ports', with_policy.policy.restrict_unsafe_ports === true)
+test('intersection inherits no_user_regex', with_policy.policy.no_user_regex === true)
 
 console.log('\n=== Subspace Dialect Lockout ===')
 // Subspaces must inherit parent dialect, even if seed.dialect_instance is set
