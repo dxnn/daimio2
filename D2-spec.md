@@ -208,6 +208,17 @@ downward: an invited actor or loaded subspace can never exceed the
 host's permissions. This composes recursively to arbitrary depth
 (§0.3).
 
+### Content-addressed deduplication
+Blocks and spaces are content-addressed: identical code compiles
+to the same identity. Copy and paste is a civilized operation —
+the engine deduplicates automatically. No need for premature
+abstraction. Just paste the code where you need it and the engine
+recognizes the shared structure. When you modify a copy, the
+editor can track the relationship: is this a specialization for
+one case, or a change to propagate to all instances? The
+content-address graph is a version history of structural sharing,
+where changes can flow through the graph like merging branches.
+
 ### Liveness
 No process waits forever. Every down-port request has a finite
 timeout (explicit, inherited, or the 10s system default). When the
@@ -556,6 +567,18 @@ Each station contributes three implicit ports (`_in`, `_out`,
 `_error`) to the ports array. Named out-ports from `>@portname`
 in station DAML are added as extra ports. Routes are pairs of
 port indices connecting the topology.
+
+A spaceseed's identity is the hash of its (JSON) serialized form.
+
+```
+spaceseed.id = hash(JSON.stringify(spaceseed))
+```
+
+Identical space definitions produce the same spaceseed ID. Seeds
+are stored in a global table (`D.SPACESEEDS`) keyed by ID. Since
+station blocks are themselves content-addressed (see §10 "Block
+identity"), the spaceseed's hash transitively covers the full
+content of the space — topology, blocks, and nested subspaces.
 
 The runtime works with spaceseeds, not with space syntax directly.
 An outer space is instantiated from a spaceseed (see §4 Outer Space).
@@ -1841,6 +1864,25 @@ inputs are looked up from the flow graph — the keys in the graph
 point to previously stored outputs. The first segment of a
 pipeline has no incoming flow edges (nothing feeds into it
 implicitly).
+
+### Block identity
+
+Before hashing, the compiler normalizes segment keys to sequential
+indices (`wash_keys`). This ensures that two blocks compiled from
+the same DAML produce identical normalized structures regardless
+of the compilation context. The block is then JSON-serialized and
+hashed. The hash is the block's identity:
+
+```
+block.id = hash(JSON.stringify(normalized_block))
+```
+
+Identical DAML always produces the same block ID. Blocks are
+stored in a global table (`D.BLOCKS`) keyed by ID — if a block
+with the same hash already exists, the existing one is reused.
+This means every station, every block parameter, and every named block
+that contains the same DAML shares the same compiled block. The
+deduplication is automatic and invisible to the programmer.
 
 ### Processes
 ```
