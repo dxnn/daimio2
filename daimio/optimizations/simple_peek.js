@@ -54,7 +54,10 @@ D.import_optimizer('simple_peek', 0.4, function(block) {
 })
 
 D.SegmentTypes.OPT_simple_peek = {
-  execute: function(segment, inputs) {
+  execute: function(segment, inputs, dialect) {
+    if(dialect && dialect.get_method && !dialect.get_method('list', 'peek'))
+      return ''
+
     var key  = segment.value
     var data = inputs[0]
 

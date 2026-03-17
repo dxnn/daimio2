@@ -202,7 +202,7 @@ Part III — Blocks (inner language):
 - **d2_spec_test**: 197/197 pass
 - **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 68/68 pass
-- **security_test**: 124/124 pass
+- **security_test**: 155/155 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass

@@ -43,7 +43,10 @@ D.import_optimizer('simple_math', 0.5, function(block) {
 })
 
 D.SegmentTypes.OPT_simple_math = {
-  execute: function(segment, inputs) {
+  execute: function(segment, inputs, dialect) {
+    if(dialect && dialect.get_method && !dialect.get_method('math', segment.value.op))
+      return ''
+
     var val  = inputs[0]
     var sval = segment.value.value
     var svop = segment.value.op
