@@ -383,7 +383,10 @@ D.import_models({
           if(also != undefined)
             value.push(also)
 
-          return Math.min.apply(null, value) || 0
+          var result = Infinity
+          for(var i = 0; i < value.length; i++)
+            if(+value[i] < result) result = +value[i]
+          return result === Infinity ? 0 : result || 0
         },
       },
 
@@ -413,7 +416,10 @@ D.import_models({
           if(also != undefined)
             value.push(also)
 
-          return Math.max.apply(null, value) || 0
+          var result = -Infinity
+          for(var i = 0; i < value.length; i++)
+            if(+value[i] > result) result = +value[i]
+          return result === -Infinity ? 0 : result || 0
         },
       },
 

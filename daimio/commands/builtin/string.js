@@ -228,6 +228,8 @@ D.import_models({
           }
         ],
         fun: function(value, from, to, prior_starter, process) {
+          if(!from) return value
+
           from = D.safe_string_to_regex(from, true, process)
 
           if(typeof to != 'function')

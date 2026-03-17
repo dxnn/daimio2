@@ -161,6 +161,7 @@ function gen_segment(depth) {
   if (r < 0.60) return gen_atom(depth)
   if (r < 0.70) return gen_pipevar_write()
   if (r < 0.78) return gen_spacevar_write()
+  if (r < 0.85) return gen_portsend()
   return gen_atom(depth)
 }
 
@@ -253,11 +254,11 @@ var errors = []
 var hangs = 0
 var crashes = 0
 var passed = 0
-var pollution_checks = 0
+var pollution_found = 0
 var minimizing = false
 
-// Track JS-level errors (anything not a known Daimio error) per run
-var js_errors_for_run = []
+// Track JS-level errors per space (keyed by space object, not shared)
+var js_errors_by_space = new Map()
 var daimio_error_patterns = [
   /^Missing required parameter/,
   /^You have failed to provide an adequate method/,
@@ -304,11 +305,19 @@ var daimio_error_patterns = [
 
 D.on_error = function(command, error) {
   var msg = error || command
-  for (var i = 0; i < daimio_error_patterns.length; i++) {
-    if (daimio_error_patterns[i].test(msg)) return ""
+  try {
+    for (var i = 0; i < daimio_error_patterns.length; i++) {
+      if (daimio_error_patterns[i].test(msg)) return ""
+    }
+  } catch(e) {
+    // regex .test() itself can stack overflow on deeply recursive errors
+    return ""
   }
-  // Not a known Daimio error — likely a JS error
-  js_errors_for_run.push(msg)
+  // Not a known Daimio error — likely a JS error; attribute to active space
+  var space = D.Etc.active_space
+  if (space && js_errors_by_space.has(space)) {
+    js_errors_by_space.get(space).push(msg)
+  }
   return ""
 }
 
@@ -359,13 +368,14 @@ function run_one(expr, timeout_override) {
       if (!done) {
         done = true
         if (!minimizing) hangs++
+        js_errors_by_space.delete(space)
         cleanup_space(space)
         resolve({ status: 'hang', expr: expr })
       }
     }, timeout_override || timeout_ms)
 
     try {
-      js_errors_for_run = []
+      js_errors_by_space.set(space, [])
       if (verbose && !minimizing) process.stderr.write(completed + ': ' + expr.slice(0, 200) + '\n')
       hush()
       D.run(expr, space, null, function(value) {
@@ -377,15 +387,17 @@ function run_one(expr, timeout_override) {
 
         // Check for prototype pollution after each run
         if (({}).polluted !== undefined || ({}).bad !== undefined) {
-          if (!minimizing) pollution_checks++
+          if (!minimizing) pollution_found++
           resolve({ status: 'pollution', expr: expr, detail: 'Object.prototype polluted!' })
           return
         }
 
         // Check for JS-level errors that were caught as soft errors
-        if (js_errors_for_run.length) {
+        var js_errors = js_errors_by_space.get(space) || []
+        js_errors_by_space.delete(space)
+        if (js_errors.length) {
           if (!minimizing) crashes++
-          resolve({ status: 'crash', expr: expr, error: js_errors_for_run[0] })
+          resolve({ status: 'crash', expr: expr, error: js_errors[0] })
           return
         }
 
@@ -396,6 +408,7 @@ function run_one(expr, timeout_override) {
       if (done) return
       done = true
       clearTimeout(timer)
+      js_errors_by_space.delete(space)
       cleanup_space(space)
       if (!minimizing) crashes++
       resolve({ status: 'crash', expr: expr, error: e.message, stack: e.stack })
@@ -428,12 +441,13 @@ function split_chunks(expr) {
   return chunks
 }
 
-// Split a single {…} command into pipe segments
+// Split a single {…} command into pipe segments (preserving || as barrier)
 function split_pipes(cmd) {
   if (cmd[0] !== '{' || cmd[cmd.length - 1] !== '}') return null
   var inner = cmd.slice(1, -1)
-  // Naive split on | respecting nested {} and ""
-  var segs = [], cur = '', depth = 0, instr = false
+  // Split on | and || respecting nested {} and ""
+  // Each segment includes its leading separator ('' for first, '|' or '||' for rest)
+  var segs = [], seps = [], cur = '', depth = 0, instr = false
   for (var i = 0; i < inner.length; i++) {
     var c = inner[i]
     if (c === '"' && (i === 0 || inner[i-1] !== '\\')) instr = !instr
@@ -442,12 +456,19 @@ function split_pipes(cmd) {
     if (!instr && depth === 0 && c === '|') {
       segs.push(cur)
       cur = ''
+      // Check for || (barrier pipe)
+      if (i + 1 < inner.length && inner[i + 1] === '|') {
+        seps.push('||')
+        i++  // skip second |
+      } else {
+        seps.push('|')
+      }
     } else {
       cur += c
     }
   }
   segs.push(cur)
-  return segs
+  return { segs: segs, seps: seps }
 }
 
 function check_status(result, target) {
@@ -483,22 +504,34 @@ async function minimize(expr, target_status) {
   if (!expired()) {
     chunks = split_chunks(expr)
     for (var ci = 0; ci < chunks.length && !expired(); ci++) {
-      var segs = split_pipes(chunks[ci])
-      if (!segs || segs.length <= 1) continue
+      var parsed = split_pipes(chunks[ci])
+      if (!parsed || parsed.segs.length <= 1) continue
+      var segs = parsed.segs
+      var seps = parsed.seps
       var changed = true
       while (changed && !expired()) {
         changed = false
         for (var si = 0; si < segs.length; si++) {
           if (expired() || segs.length <= 1) break
           var try_segs = segs.slice(0, si).concat(segs.slice(si + 1))
+          // When removing a segment, also remove one separator:
+          // removing first seg drops seps[0], removing seg N drops seps[N-1]
+          var try_seps = si === 0
+            ? seps.slice(1)
+            : seps.slice(0, si - 1).concat(seps.slice(si))
+          var rejoined = try_segs[0]
+          for (var j = 1; j < try_segs.length; j++)
+            rejoined += try_seps[j - 1] + try_segs[j]
           var candidate = chunks.slice(0, ci).join('') +
-            '{' + try_segs.join('|') + '}' +
+            '{' + rejoined + '}' +
             chunks.slice(ci + 1).join('')
           if (!candidate.trim()) continue
           var result = await run_one(candidate, 5)
           if (check_status(result, target_status)) {
             segs.splice(si, 1)
-            chunks[ci] = '{' + segs.join('|') + '}'
+            if (si === 0) seps.splice(0, 1)
+            else seps.splice(si - 1, 1)
+            chunks[ci] = '{' + rejoined + '}'
             changed = true
             break
           }
@@ -528,7 +561,7 @@ function handle_result(result) {
     if (result.error) console.log('    ', result.error)
     errors.push(result)
   }
-  if (completed % 100000 === 0) {
+  if (completed % 10000 === 0) {
     var elapsed = ((Date.now() - start) / 1000).toFixed(1)
     console.log('  ... ' + completed + '/' + count + ' (' + passed + ' ok, ' + hangs + ' hang, ' + crashes + ' crash, ' + elapsed + 's)')
   }
@@ -607,12 +640,19 @@ console.log('=== Results ===')
 console.log('Passed:   ', passed)
 console.log('Crashes:  ', crashes)
 console.log('Hangs:    ', hangs)
-console.log('Pollution:', pollution_checks)
+console.log('Pollution:', pollution_found)
+console.log('Async:    ', async_errors.length)
 console.log('Total:    ', count)
 console.log('Time:     ', elapsed + 's')
 
-if (crashes || pollution_checks) {
-  console.log('\nFAIL: ' + crashes + ' crashes, ' + pollution_checks + ' pollution')
+if (async_errors.length) {
+  console.log('\nAsync errors (uncaughtException):')
+  for (var i = 0; i < async_errors.length; i++)
+    console.log('  ' + async_errors[i])
+}
+
+if (crashes || pollution_found || async_errors.length) {
+  console.log('\nFAIL: ' + crashes + ' crashes, ' + pollution_found + ' pollution, ' + async_errors.length + ' async errors')
   process.exit(1)
 } else if (hangs) {
   console.log('\nOK: ' + passed + ' passed, ' + hangs + ' hangs (>' + timeout_ms + 'ms, not crashes)')

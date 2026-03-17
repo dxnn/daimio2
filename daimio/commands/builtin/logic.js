@@ -148,7 +148,9 @@ D.import_models({
           for(var i=0, l=value.length; i < l; i = i + 2) {
             var test = value[i]
 
-            if(test == on) {
+            if(typeof test == 'object' || typeof on == 'object'
+              ? test === on
+              : test == on) {
               var result = value[i+1]
               return result
             }

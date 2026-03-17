@@ -2607,6 +2607,354 @@ test('reduce: subtraction is order-dependent',
 )
 
 // =====================================================
+// OPT_simple_math: NaN guard on optimized add/multiply
+// =====================================================
+
+// original bug: log(0) = -Infinity, -Infinity * 0 = NaN
+test('opt math: log then multiply 0',
+  '{math log | multiply 0}',
+  '0'
+)
+
+test('opt math: log value 0 then multiply 0',
+  '{math log value 0 | multiply 0}',
+  '0'
+)
+
+// +Infinity * 0 = NaN
+test('opt math: pow overflow then multiply 0',
+  '{math pow value 10 exp 999 | multiply 0}',
+  '0'
+)
+
+// -Infinity from divide, then * 0
+test('opt math: negative infinity times 0',
+  '{0 | math subtract value 1 | math divide value 0 | multiply 0}',
+  '0'
+)
+
+// ±Infinity + 0 should stay ±Infinity (not NaN, not clamped)
+test('opt math: negative infinity add 0',
+  '{math log | add 0}',
+  '-Infinity'
+)
+
+test('opt math: positive infinity add 0',
+  '{math pow value 10 exp 999 | add 0}',
+  'Infinity'
+)
+
+// normal optimized multiply
+test('opt math: multiply normal',
+  '{5 | multiply 3}',
+  '15'
+)
+
+test('opt math: multiply negative',
+  '{-5 | multiply 3}',
+  '-15'
+)
+
+test('opt math: multiply by 0',
+  '{999 | multiply 0}',
+  '0'
+)
+
+test('opt math: multiply negative by 0',
+  '{-999 | multiply 0}',
+  '0'
+)
+
+test('opt math: zero times large',
+  '{0 | multiply 999}',
+  '0'
+)
+
+// normal optimized add
+test('opt math: add normal',
+  '{5 | add 3}',
+  '8'
+)
+
+test('opt math: add to zero',
+  '{0 | add 0}',
+  '0'
+)
+
+test('opt math: add cancellation',
+  '{-3 | add 3}',
+  '0'
+)
+
+// non-number pipe falls back to command (not optimized fast path)
+test('opt math: string times number',
+  '{:hello | multiply 5}',
+  '0'
+)
+
+test('opt math: string plus number',
+  '{:hello | add 5}',
+  '5'
+)
+
+// =====================================================
+// string transform: empty from with large to (totality)
+// =====================================================
+
+// original crash: empty from → /(?:)/g, huge to string → "Invalid string length"
+test('transform: empty from returns value unchanged',
+  '{string transform value :hello to :X}',
+  'hello'
+)
+
+test('transform: large to with empty from does not crash',
+  '{process dialect | string transform to __ | logic is value __ like "/list/" | logic if then :yes else :no}',
+  'yes'
+)
+
+// normal transform still works
+test('transform: basic replacement',
+  '{string transform value :abcabc from :b to :B}',
+  'aBcaBc'
+)
+
+// =====================================================
+// math min/max: large array stack overflow (totality)
+// =====================================================
+
+// original crash: Math.min.apply(null, hugeArray) blows the call stack
+test('min: large array does not stack overflow',
+  '{list range length 200000 | math min}',
+  '1'
+)
+
+test('max: large array does not stack overflow',
+  '{list range length 200000 | math max}',
+  '200000'
+)
+
+// normal behavior preserved
+test('min: small array',
+  '{math min value (5 3 8 1)}',
+  '1'
+)
+
+test('max: small array',
+  '{math max value (5 3 8 1)}',
+  '8'
+)
+
+test('min: with also param',
+  '{math min value 5 also 3}',
+  '3'
+)
+
+test('max: with also param',
+  '{math max value 5 also 8}',
+  '8'
+)
+
+test('min: single element',
+  '{math min value 42}',
+  '42'
+)
+
+test('max: single element',
+  '{math max value 42}',
+  '42'
+)
+
+// =====================================================
+// list merge/group/rekey: null items in data (totality)
+// =====================================================
+
+// merge: null item from unset pipeline var via __
+test('merge: null item in data does not crash',
+  '{_x | list merge data (__ :a :b) block "{__}"}',
+  'ab'
+)
+
+test('merge: null item mid-data',
+  '{_x | list merge data (:key 0.001 __ 42) block "{__}"}',
+  'key0.00142'
+)
+
+// group: null item with string by path
+test('group: null item with string by does not crash',
+  '{_x | list group by :a data (:foo __ :bar) | logic if then :yes else :no}',
+  'yes'
+)
+
+test('group: null item with numeric by path',
+  '{>@result | list group by 999999 data (:a -100 __ -100) | logic if then :yes else :no}',
+  'yes'
+)
+
+// rekey: null item with string by path
+test('rekey: null item with string by does not crash',
+  '{_x | list rekey data (__ :a :b) by :foo | logic if then :yes else :no}',
+  'yes'
+)
+
+// =====================================================
+// logic switch: null-prototype objects (totality)
+// =====================================================
+
+// original crash: splooted object (null prototype) in value list, == throws on ToPrimitive
+// match comes AFTER the object entry, so crash prevents reaching it
+test('switch: null-proto object before match in value list',
+  '{(:x :y) | * | >obj || logic switch on :b value (_obj :wrong :b :yes)}',
+  'yes'
+)
+
+// null-proto object as the "on" value compared against primitives
+test('switch: null-proto object as on value',
+  '{(:a :b) | * | logic switch value 1 | logic if then :yes else :no}',
+  'no'
+)
+
+// object in value list with no match — should return false, not crash
+test('switch: null-proto object in value list no match',
+  '{(:x :y) | * | >obj || logic switch on :z value (_obj :wrong :b :also_wrong) | logic if then :yes else :no}',
+  'no'
+)
+
+// normal switch still works
+test('switch: normal string match',
+  '{logic switch on :b value (:a :alpha :b :beta)}',
+  'beta'
+)
+
+test('switch: normal number match',
+  '{logic switch on 2 value (1 :one 2 :two 3 :three)}',
+  'two'
+)
+
+test('switch: no match returns false',
+  '{logic switch on :z value (:a 1 :b 2) | logic if then :yes else :no}',
+  'no'
+)
+
+// =====================================================
+// list sort: null elements in data (totality)
+// =====================================================
+
+// original crash: unset _key → null in list, sort by string path hits null["-1"]
+test('sort: null element with string by path',
+  '{_key | list sort data (__ :foo :bar) by -1}',
+  '["bar","foo",""]'
+)
+
+test('sort: null element with block by',
+  '{_key | list sort data (__ :foo :bar) by "{__ | multiply -1}"}',
+  '["bar","foo",""]'
+)
+
+test('sort: null element no by (natural sort)',
+  '{_key | list sort data (__ :b :a)}',
+  '["","a","b"]'
+)
+
+test('sort: null element mid-list',
+  '{_key | (3 __ 1) | list sort}',
+  '["",1,3]'
+)
+
+test('sort: multiple null elements',
+  '{_key | (__ __ :a) | list sort}',
+  '["","","a"]'
+)
+
+test('sort: null from pipe into sort with by',
+  '{_key | (__ :a :b) | list sort by -1}',
+  '["b","a",""]'
+)
+
+// =====================================================
+// list union: null elements in values array (totality)
+// =====================================================
+
+// original crash: >$x returns null, __ picks it up, union iterates null
+test('union: null element from >$ pipe value',
+  '{>$data | union (__ -100 "abc def")}',
+  '["",-100,"abc def"]'
+)
+
+test('union: null __ with number in list',
+  '{>$x | union (__ 2)}',
+  '["",2]'
+)
+
+test('union: null __ mid-list',
+  '{>$x | union (1 __ 3)}',
+  '[1,"",3]'
+)
+
+test('union: pre-evaluated list with null element',
+  '{>$x | (__ 1) | list union}',
+  '["",1]'
+)
+
+test('union: multiple null elements',
+  '{>$x | union (__ __)}',
+  '["",""]'
+)
+
+// also param with null-bearing list
+test('union: also list contains null element',
+  '{>$x | list union data (1 2) also (__ 3)}',
+  '["",3,1,2]'
+)
+
+// nested lists with null
+test('union: nested lists with null element',
+  '{>$x | union ((__ 1) (2 3))}',
+  '["",1,2,3]'
+)
+
+// --- existing behavior preserved ---
+
+test('union: basic list of lists',
+  '{((1 2) (3 4)) | list union}',
+  '[1,2,3,4]'
+)
+
+test('union: data + also',
+  '{(1 2 3) | list union also (4 5)}',
+  '[4,5,1,2,3]'
+)
+
+test('union: empty string elements',
+  '{(("" 1) (2 3)) | list union}',
+  '["",1,2,3]'
+)
+
+test('union: zero elements',
+  '{((0 1) (2 3)) | list union}',
+  '[0,1,2,3]'
+)
+
+test('union: scalar data',
+  '{42 | list union}',
+  '[42]'
+)
+
+test('union: empty list',
+  '{() | list union}',
+  '[]'
+)
+
+test('union: no args',
+  '{list union}',
+  '[]'
+)
+
+test('union: large array does not stack overflow',
+  '{range 200000 | union | list count}',
+  '200000'
+)
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

@@ -244,13 +244,15 @@ D.import_models({
           var scope = {}
 
           var processfun = function(item, prior_starter, item_key) {
-            for(var key in item)
-              if(D._hop.call(item, key))
-                scope[key] = item[key]
+            if(item != null) {
+              for(var key in item)
+                if(D._hop.call(item, key))
+                  scope[key] = item[key]
+            }
 
             scope["__in"] = item
 
-            if(typeof item == 'object') {
+            if(item != null && typeof item == 'object') {
               if(!('key' in item))
                 scope.key = item_key
               if(!('value' in item))
@@ -618,7 +620,13 @@ D.import_models({
               all_arrays = false
           }
 
-          if(all_arrays) return [].concat.apply(Array.prototype, values)
+          if(all_arrays) {
+            var flat = []
+            for(var k = 0; k < values.length; k++)
+              for(var j = 0; j < values[k].length; j++)
+                flat.push(values[k][j])
+            return flat
+          }
 
           // we have to do a fancy union that keeps nested keys intact...
           for(var i=0, l=values.length; i < l; i++) {
@@ -684,6 +692,7 @@ D.import_models({
           }
           else if(by) {
             processfun = function(item, prior_starter) {
+              if(item == null) return item
               var bysplits = by.split('.')
               if(bysplits.length == 1) return item[bysplits[0]]
               return D.peek(item, bysplits)
@@ -746,6 +755,7 @@ D.import_models({
           }
           else if(by) {
             processfun = function(item, prior_starter) {
+              if(item == null) return item
               var bysplits = by.split('.')
               if(bysplits.length == 1) return item[bysplits[0]]
               return D.peek(item, bysplits)
@@ -805,6 +815,7 @@ D.import_models({
           }
           else if(by) {
             processfun = function(item, prior_starter) {
+              if(item == null) return item
               var bysplits = by.split('.')
               if(bysplits.length == 1) return item[bysplits[0]]
               return D.peek(item, bysplits)
