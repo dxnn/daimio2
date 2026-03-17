@@ -28,17 +28,16 @@ function rand_int(lo, hi) { return lo + Math.floor(rng() * (hi - lo + 1)) }
 
 // Collect available handlers, methods, params, aliases from D
 // Exclude effectful handlers (need port wiring, will hang without it)
-var effectful_handlers = new Set(['time', 'var', 'dagoba', 'daggr'])
-var effectful_methods = { process: new Set(['sleep', 'tap', 'downport', 'sender', 'dialect', 'run', 'unquote']) }
-var effectful_aliases = new Set(['sleep', 'wait', 'tap', 'downport', 'sender', 'run', 'unquote'])
+var effectful_handlers = new Set(['dagoba', 'daggr'])
+var effectful_pairs = new Set(['process.sleep'])
+var effectful_aliases = new Set(['sleep', 'wait'])
 
 var handlers = Object.keys(D.Commands).filter(h => !effectful_handlers.has(h))
 var aliases = Object.keys(D.Aliases).filter(a => !effectful_aliases.has(a))
 var all_methods = {}
 for (var h of handlers) {
   var methods = Object.keys(D.Commands[h].methods || {})
-  if (effectful_methods[h])
-    methods = methods.filter(m => !effectful_methods[h].has(m))
+    .filter(m => !effectful_pairs.has(h + '.' + m))
   all_methods[h] = methods
 }
 
@@ -64,6 +63,33 @@ function gen_list(depth) {
 function gen_block(depth) {
   if (depth > 2) return '"{__}"'
   return '"{' + gen_pipeline(depth + 1) + '}"'
+}
+
+var block_names = ['foo', 'bar', 'item', 'row', 'x', 'blk', 'inner']
+
+function gen_named_block(depth) {
+  var name = pick(block_names)
+  var begin = '{begin ' + name
+  // Sometimes add a pipeline on the begin tag
+  if (rng() < 0.5) begin += ' | ' + gen_pipeline(depth + 1)
+  begin += '}'
+  // Body: mix of literal text and commands
+  var body = gen_body(depth + 1)
+  var end = '{end ' + name + '}'
+  return begin + body + end
+}
+
+function gen_body(depth) {
+  var n = rand_int(0, 3)
+  var parts = []
+  for (var i = 0; i < n; i++) {
+    if (rng() < 0.3) {
+      parts.push(pick(['hello ', 'text ', '', '--- ', 'body ']))
+    } else {
+      parts.push('{' + gen_pipeline(depth) + '}')
+    }
+  }
+  return parts.join('')
 }
 
 function gen_atom(depth) {
@@ -137,6 +163,9 @@ function gen_pipeline(depth) {
 }
 
 function gen_expr() {
+  // Sometimes generate a named block expression
+  if (rng() < 0.15) return gen_named_block(0)
+
   var n_commands = rand_int(1, 3)
   var parts = []
   for (var i = 0; i < n_commands; i++) {
@@ -214,6 +243,11 @@ D.on_error = function(command, error) {
   return ""
 }
 
+// Suppress stdout during runs (D.run internals sometimes console.log)
+var real_log = console.log
+function hush() { console.log = function() {} }
+function unhush() { console.log = real_log }
+
 function make_fresh_space() {
   return new D.Space(
     D.spaceseed_add(
@@ -224,6 +258,7 @@ function run_one(expr) {
   return new Promise(function(resolve) {
     var done = false
     var timer = setTimeout(function() {
+      unhush()
       if (!done) {
         done = true
         hangs++
@@ -233,7 +268,9 @@ function run_one(expr) {
 
     try {
       var space = make_fresh_space()
+      hush()
       D.run(expr, space, null, function(value) {
+        unhush()
         if (done) return
         done = true
         clearTimeout(timer)
@@ -248,6 +285,7 @@ function run_one(expr) {
         resolve({ status: 'ok', expr: expr, value: value })
       })
     } catch(e) {
+      unhush()
       if (done) return
       done = true
       clearTimeout(timer)
@@ -322,17 +360,6 @@ console.log('Hangs:    ', hangs)
 console.log('Pollution:', pollution_checks)
 console.log('Total:    ', count)
 console.log('Time:     ', elapsed + 's')
-
-if (errors.length) {
-  console.log('')
-  console.log('=== Failing expressions ===')
-  for (var e of errors.slice(0, 20)) {
-    console.log(e.status.toUpperCase() + ':', JSON.stringify(e.expr))
-    if (e.error) console.log('  Error:', e.error)
-    if (e.detail) console.log('  Detail:', e.detail)
-  }
-  if (errors.length > 20) console.log('... and ' + (errors.length - 20) + ' more')
-}
 
 if (crashes || pollution_checks) {
   console.log('\nFAIL: ' + crashes + ' crashes, ' + pollution_checks + ' pollution')
