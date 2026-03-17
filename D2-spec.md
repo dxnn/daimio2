@@ -547,6 +547,11 @@ wiring rules that determine how effects are routed (§6).
 ### Spaceseeds
 
 A **spaceseed** is the compiled result of parsing a space definition.
+It describes the static topology: stations, ports, routes, subspaces,
+and initial state. A spaceseed is inert — it does not process ships
+or hold live state. To run, it must be instantiated into a space
+(see Spaces below).
+
 It is a content-addressed data structure: the seed's identifier is
 derived from its content, so identical definitions produce the same
 seed.
@@ -580,10 +585,9 @@ station blocks are themselves content-addressed (see §10 "Block
 identity"), the spaceseed's hash transitively covers the full
 content of the space — topology, blocks, and nested subspaces.
 
-The runtime works with spaceseeds, not with space syntax directly.
-An outer space is instantiated from a spaceseed (see §4 Outer Space).
-Multiple outer spaces can share the same spaceseed — each gets its
-own live state, but the topology definition is shared.
+The runtime instantiates a spaceseed into a live space (see Spaces
+below). Multiple spaces can share the same spaceseed — each gets
+its own σ and queue, but the topology definition is shared.
 
 
 ## 4. Space Domains
@@ -790,29 +794,28 @@ wiring    — how this port connects to the outside; determined by the
 
 ### Spaces
 ```
-space = (stations, subspaces, ports, wiringRules, defaultTimeout?)
-
-  stations      : name → station
-  subspaces     : name → space
-  ports         : set of port
-  wiringRules   : list of WiringRule     — pattern-based routing (see §6)
-  defaultTimeout: Duration?              — default timeout for wires (see §7.3)
+space = (spaceseed, σ, queue)
+  where spaceseed : Spaceseed       — the compiled topology
+        σ         : SVar → Val      — live space variable store
+        queue     : [Ship]          — pending ships (FIFO)
 ```
 
-A space is a **definition** — a template for execution. It specifies
-topology (stations and their wiring), subspaces, port structure, and
-wiring rules. It does NOT hold a dialect or space variable values.
-Those belong to the outer space (see Outer Space below).
+A space is a **live instance** of a spaceseed. It has its own
+state (σ), its own ship queue, and its own independent
+serialization — one ship at a time per space (see §5).
 
-When the outer application wants to use a space, it compiles a space
-definition into a spaceseed, creates an outer space from it, assigns
-a base dialect, and initializes the space variable store.
+When a spaceseed is instantiated into a space, each subspace
+spaceseed is recursively instantiated into a live subspace.
+Each subspace gets its own σ and its own queue, independent of
+the parent and of its siblings. Sibling subspaces can process
+ships concurrently with each other and with the parent (when
+the parent is waiting on an async effect).
 
 Externally, a space is a **reactive automaton** (Mealy machine):
 it accepts ships at in-ports, produces ships at out-ports, and
-maintains internal state between interactions. The parent
-cannot observe or modify the internal state — only the port
-interface is visible. This external view is coalgebraic:
+maintains internal state between interactions. The parent cannot
+observe or modify the internal state — only the port interface
+is visible. This external view is coalgebraic:
 `S → (Input → Output × S)`.
 
 However, the transition function is not a pure function — it may
@@ -822,15 +825,9 @@ each station's block is a program (free monad over effects + state
 monad, as described in Programs above). When a ship docks at a
 station, a process is created to execute the station's block.
 The full picture is: a reactive automaton whose transitions are
-effectful programs, executed one at a time (§5).
+effectful programs, executed one at a time per space (§5).
 
-A space processes **one ship at a time**. When a ship arrives at
-a busy space, it is queued. Processes (including sub-processes
-from block evaluation) have exclusive access to space state for their
-entire lifetime. See §5 for the full scheduling model.
-
-A space carries its own topology, stations, and state. It depends
-on the parent for:
+A space depends on the parent for:
   - **Port wiring**: the parent's wiring rules determine how
     the space's down-port requests are handled (§6)
 
@@ -843,47 +840,46 @@ says "these commands exist." The wiring says "these effects are
 connected." Both must be true for an effectful command to work.
 A command in the dialect but with an unwired port sploots.
 
-The space is "self-reliant" — it brings its own programs and
-state. But it is not self-sufficient: without wiring, its effects
-go nowhere.
+A space is "self-reliant" — it brings its own programs and state.
+But it is not self-sufficient: without wiring, its effects go
+nowhere.
 
 Spaces can also be serialized as space syntax and loaded into
 sockets at runtime. Socketed spaces have additional properties
 around loading, transitions, and state ephemerality — see §8.
 
 ### Outer Space
+
+An outer space is a top-level space with port handlers wired to
+the real world:
+
 ```
-outerSpace = (spaceseed, δ, σ, portHandlers)
-  where spaceseed    : Spaceseed       — the compiled space definition
-        δ            : Dialect         — the space's base dialect
-        σ            : SVar → Val      — live space variable store
+outerSpace = (space, δ, portHandlers)
+  where space        : Space           — the live space (with its own σ)
+        δ            : Dialect         — the base dialect
         portHandlers : port → handler  — wiring of outermost ports to real effects
 ```
 
-An outer space is a **live instance** of a spaceseed. It is where
-effects actually happen. A spaceseed is inert compiled topology; an
-outer space is that topology wired up to the real world.
-
-The outer application creates an outer space by:
-  1. Choosing a spaceseed (the compiled topology)
-  2. Assigning a base dialect (what commands are available)
-  3. Initializing the space variable store
-  4. Wiring the outermost ports to effect handlers (DOM, network,
-     database, filesystem, etc.)
-
-This wiring is what makes effects real. Inside the space, an
+This is where effects actually happen. Inside the space, an
 effectful command like `{time now}` produces a port request that
 propagates outward. At the outermost boundary, the port handler
 executes the actual effect and returns the response. Without this
-wiring, the request would be unwired and return the default value.
+wiring, the request would be unwired and sploot.
+
+The outer application creates an outer space by:
+  1. Choosing a spaceseed (the compiled topology)
+  2. Instantiating it into a live space (with σ and queue)
+  3. Assigning a base dialect
+  4. Wiring the outermost ports to effect handlers (DOM, network,
+     database, filesystem, etc.)
 
 **Multiple outer spaces.** An application can create as many outer
 spaces as it needs. Each is a completely independent universe — no
 shared scheduler, no shared state, no cross-instance communication.
-Different outer spaces may use the same space definition with
-different dialects and different port wiring, or entirely different
-space definitions. The application is responsible for routing data
-between them (via whatever external systems it chooses).
+Different outer spaces may use the same spaceseed with different
+dialects and different port wiring, or entirely different
+spaceseeds. The application is responsible for routing data between
+them (via whatever external systems it chooses).
 
 **Senders.** Multiple senders can send ships into the same outer
 space. Each sender carries their own dialect — a restricted subset
@@ -911,7 +907,8 @@ ever execute concurrently within the same space.
 This applies regardless of which station the ship targets. A space
 with stations A and B will never process a ship at A and a ship at
 B at the same time. The serialization is per-space, not per-station
-or per-port.
+or per-port. Sibling subspaces are independent — each is its own
+space with its own queue, and they can process ships concurrently.
 
 ### The queue
 
