@@ -2698,6 +2698,31 @@ test('opt math: string plus number',
 )
 
 // =====================================================
+// list poke: star path on scalar/null children (totality)
+// =====================================================
+
+// original crash: star expands scalar children, poke tries to set property on null
+test('poke: star path on scalar does not crash',
+  '{-Infinity | list poke path ("*" :b) value 1}',
+  '[""]'
+)
+
+test('poke: star path on number does not crash',
+  '{42 | list poke path ("*" :c) value 1}',
+  '[42]'
+)
+
+test('poke: star path on string does not crash',
+  '{:hello | list poke path ("*" :b) value 1}',
+  '["hello"]'
+)
+
+test('poke: deep star path on scalar does not crash',
+  '{-Infinity | list poke path ("*" -1 :c) value :y}',
+  '[""]'
+)
+
+// =====================================================
 // string transform: empty from with large to (totality)
 // =====================================================
 

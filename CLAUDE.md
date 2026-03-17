@@ -7,10 +7,10 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 197 spec alignment tests
+node tests/d2_spec_test.mjs     # 327 spec alignment tests
 node tests/daimio_test.mjs       # 843 legacy tests (0 known failures)
 node tests/node_code.mjs         # 68 internal tests
-node tests/security_test.mjs    # 155 security tests (dialect, pollution, regex, senders)
+node tests/security_test.mjs    # 157 security tests (dialect, pollution, regex, senders)
 node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
 node tests/example_test.mjs     # 104 command example tests
 node tests/perf_test.mjs        # 21 performance regression benchmarks
@@ -114,7 +114,7 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (217 tests)
+  d2_spec_test.mjs     — spec alignment tests (323 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
   node_code.mjs        — internal JS-level tests (68 tests)
   example_test.mjs     — command example tests (104 tests, auto-discovered)
@@ -201,10 +201,10 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 217/217 pass
+- **d2_spec_test**: 327/327 pass
 - **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 68/68 pass
-- **security_test**: 158/158 pass
+- **security_test**: 157/157 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
@@ -258,7 +258,7 @@ Most demos have been updated to work with the current codebase:
 - excitebikes2.html: same issue likely
 - sans-collatz.html: same pattern, plus missing `collate` station type
 - mandelbrot demos: `mandelbrot iterate` command only defined in canvas_ships_faster.html, not the other two
-- turtle_net, turtle_net_temp: load daimio from remote `http://daimio.org/`, need socket.io
+- turtle_net, turtle_net_temp: load daimio from remote `http://daimio.org/`, need socket.io (exec port replaced with unquote+run)
 - server demos: need socket.io backend
 
 **Pattern reference for `with` removal:**

@@ -1303,7 +1303,7 @@ D.poke = function(base, path, value) {
           var cv = children[m]
             , ck = child_keys[m]
           // scalar mid-path: affine → replace with {}; traversal (star_seen) → skip
-          if(cv !== null && cv !== undefined && typeof cv !== 'object') {
+          if(typeof cv !== 'object' || cv == null) {
             if(star_seen) continue
             else { cv = {}; todo[j][ck] = cv }
           }

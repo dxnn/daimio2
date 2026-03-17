@@ -28,7 +28,6 @@ test('restricted allows process.quote', !!D.DIALECTS.restricted.get_method('proc
 
 console.log('\n=== Unsafe Port Flavours ===')
 test('dom-set-raw-html is unsafe', D.PortFlavours['dom-set-raw-html'].unsafe === true)
-test('exec is unsafe', D.PortFlavours['exec'].unsafe === true)
 test('to-js is unsafe', D.PortFlavours['to-js'].unsafe === true)
 test('xhr-send is unsafe', D.PortFlavours['xhr-send'].unsafe === true)
 test('socket-in is unsafe', D.PortFlavours['socket-in'].unsafe === true)
