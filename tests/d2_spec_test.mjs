@@ -70,6 +70,106 @@ test(
   'yes'
 )
 
+// --- logic is: non-array "in" param (totality) ---
+
+// keyed list (object) as "in" — should search object values
+test(
+  'is-in: keyed list finds matching value',
+  '{:x | time stampwrap | >data || logic is value 3 in _data | logic if then :yes else :no}',
+  'yes'
+)
+
+test(
+  'is-in: keyed list rejects missing value',
+  '{:x | time stampwrap | >data || logic is value :nope in _data | logic if then :yes else :no}',
+  'no'
+)
+
+// scalar "in" — list type coerces to single-element array
+test(
+  'is-in: scalar number matches itself',
+  '{logic is value 42 in 42 | logic if then :yes else :no}',
+  'yes'
+)
+
+test(
+  'is-in: scalar number rejects non-match',
+  '{logic is value 42 in 99 | logic if then :yes else :no}',
+  'no'
+)
+
+test(
+  'is-in: scalar string matches itself',
+  '{logic is value :a in :a | logic if then :yes else :no}',
+  'yes'
+)
+
+test(
+  'is-in: scalar string rejects non-match',
+  '{logic is value :a in :b | logic if then :yes else :no}',
+  'no'
+)
+
+// normal array — existing behavior preserved
+test(
+  'is-in: array finds member',
+  '{logic is value 2 in (1 2 3) | logic if then :yes else :no}',
+  'yes'
+)
+
+test(
+  'is-in: array rejects non-member',
+  '{logic is value 9 in (1 2 3) | logic if then :yes else :no}',
+  'no'
+)
+
+// empty list — always false
+test(
+  'is-in: empty list returns false',
+  '{logic is value 1 in () | logic if then :yes else :no}',
+  'no'
+)
+
+// block as "in" — coerced to empty array
+test(
+  'is-in: block as in returns false',
+  '{logic is value 1 in "{1}" | logic if then :yes else :no}',
+  'no'
+)
+
+// loose equality (== not ===) for string/number coercion
+test(
+  'is-in: string value found in number list via coercion',
+  '{logic is value :2 in (1 2 3) | logic if then :yes else :no}',
+  'yes'
+)
+
+test(
+  'is-in: number value found in string list via coercion',
+  '{logic is value 2 in (:1 :2 :3) | logic if then :yes else :no}',
+  'yes'
+)
+
+// zero membership
+test(
+  'is-in: zero found in list containing zero',
+  '{logic is value 0 in (0 1 2) | logic if then :yes else :no}',
+  'yes'
+)
+
+test(
+  'is-in: zero not found in list without zero',
+  '{logic is value 0 in (1 2 3) | logic if then :yes else :no}',
+  'no'
+)
+
+// original crash: pipe value is object, fills "in" implicitly
+test(
+  'is-in: object via pipe does not crash',
+  '{:x | time stampwrap | logic is value __in | logic if then :yes else :no}',
+  'no'
+)
+
 
 // =====================================================
 // §4 Soft errors: pipeline continues with default value
@@ -2145,7 +2245,7 @@ test('zip: uneven lengths',
 // zip empty input
 test('zip: empty input',
   '{() | list zip}',
-  ''
+  '[]'
 )
 
 // no mutation: zip should not alter the original list
@@ -2164,6 +2264,124 @@ test('zip: no mutation with also',
 test('zip: alias',
   '{((1 2) (3 4)) | zip}',
   '[[1,3],[2,4]]'
+)
+
+// --- scalar data (not list-of-lists) → [] ---
+
+test('zip: scalar number',
+  '{zip 42}',
+  '[]'
+)
+
+test('zip: scalar string',
+  '{zip :hello}',
+  '[]'
+)
+
+test('zip: scalar negative number',
+  '{zip -7}',
+  '[]'
+)
+
+test('zip: scalar 1',
+  '{zip 1}',
+  '[]'
+)
+
+// --- flat list (elements aren't arrays) → [] ---
+
+test('zip: flat string list',
+  '{(:a :b :c) | zip}',
+  '[]'
+)
+
+test('zip: flat number list',
+  '{(42 43 44) | zip}',
+  '[]'
+)
+
+// --- falsy/empty data → [] ---
+
+test('zip: zero',
+  '{zip 0}',
+  '[]'
+)
+
+// --- empty inner lists ---
+
+test('zip: single empty inner list',
+  '{(()) | zip}',
+  '[]'
+)
+
+test('zip: two empty inner lists',
+  '{(() ()) | zip}',
+  '[]'
+)
+
+test('zip: first inner list empty',
+  '{(() (1 2)) | zip}',
+  '[]'
+)
+
+test('zip: second inner list empty',
+  '{((1 2) ()) | zip}',
+  '[[1,null],[2,null]]'
+)
+
+// --- mixed types (first element is array, others aren't) ---
+
+test('zip: mixed array and string in list',
+  '{((1 2) :a (3 4)) | zip}',
+  '[[1,"a",3],[2,null,4]]'
+)
+
+// --- ragged inner lists ---
+
+test('zip: three lists different lengths',
+  '{((1 2) (3 4 5 6) (7)) | zip}',
+  '[[1,3,7],[2,4,null]]'
+)
+
+// --- also param edge cases ---
+
+test('zip: scalar data with also list',
+  '{42 | zip also (1 2 3)}',
+  '[[1,42],[2,null],[3,null]]'
+)
+
+test('zip: list data with scalar also',
+  '{(1 2 3) | zip also 42}',
+  '[[42,1]]'
+)
+
+test('zip: scalar data with scalar also',
+  '{42 | zip also 99}',
+  '[[99,42]]'
+)
+
+test('zip: also shorter than data',
+  '{(1 2 3) | zip also (4 5)}',
+  '[[4,1],[5,2]]'
+)
+
+// --- single-element inner lists ---
+
+test('zip: single-element inner lists',
+  '{((1) (2) (3)) | zip}',
+  '[[1,2,3]]'
+)
+
+test('zip: single-element string inner lists',
+  '{((:a) (:b)) | zip}',
+  '[["a","b"]]'
+)
+
+// --- nested arrays (valid list-of-lists-of-lists) ---
+
+test('zip: nested arrays as elements',
+  '{(((1 2) (3 4)) ((5 6) (7 8))) | zip}',
+  '[[[1,2],[5,6]],[[3,4],[7,8]]]'
 )
 
 

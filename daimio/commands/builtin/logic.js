@@ -67,7 +67,10 @@ D.import_models({
         ],
         fun: function(value, _in, like, prior_starter, process) {
           if(!D.is_nice(like)) {
-            if(D.is_nice(_in)) return _in.some(function(item) { return item == value })
+            if(D.is_nice(_in)) {
+              if(!Array.isArray(_in)) _in = D.to_array(_in)
+              return _in.some(function(item) { return item == value })
+            }
 
 
             if(!Array.isArray(value)) return D.on_error("Requires 'in', 'like', or a value list")
