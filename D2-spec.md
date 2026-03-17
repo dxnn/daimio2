@@ -14,63 +14,71 @@ then we eat lunch.
 
 ### Why Daimio exists
 
-Daimio is designed for a world where applications are programmable,
-multiactor, and composable. The execution model is shaped by six
-core ideas:
+Applications as we know them are the wrong abstraction.
 
-**1. Programmable applications.** You shouldn't need to use an
-application's UI to use the application. You should be able to
-send a program that expresses your intent, and have it executed.
-Then you can make and use any interface you want. The application
-behaves the same regardless of interface. This is why Daimio has
-uniform evaluation (§1): a program received as data executes
-under exactly the same rules as built-in code.
+An application binds together the user interface, the features,
+the data, the assets, the backend, and the process of using it —
+all into a single monolithically controlled unit. The app maker
+decides what you can do, how you do it, what your data looks like,
+and when it changes. You can't add features. You can't remove
+features. You can't control your data. You can't change the
+interface. And you can't change the *process* -- the sequence of steps,
+the workflow, the way the tool shapes your work. A filing cabinet
+and index cards don't work this way. There, you control your
+process. But not with digital things.
 
-**2. Multiactor by default.** Multiple actors share a single
-application. Each actor has their own dialect — a restricted set
-of commands that determines what they can do. The application
-owner controls permissions by choosing each actor's dialect. An
-invited actor can do exactly what the owner allows, nothing more.
-This is why dialects exist (§4) and why dialect confinement is a
-core property (§1): there is no mechanism for privilege escalation.
+Daimio is part of a radical re-envisioning of our digital lives.
+It's one layer in a stack that includes
+first-class digital assets (TODA files for portable, self-sovereign
+ownership), self-authenticating messages (identity follows the
+message, not the channel), and fluid, heterogeneous topologies
+(no central server required). Daimio provides the execution model
+for this world: a safe, sandboxed environment where multiple
+people and programs can interact with shared capabilities, each
+constrained to exactly what they're allowed to do.
 
-**3. Command/port duality.** From inside a space, everything looks
-like a command call: `{time now}`, `{db query sql "..."}`,
-`{math add value 1 to 2}` — same syntax, same pipeline flow.
-From outside, the effectful commands are visible as ports —
-obligations that the environment must satisfy. Pure commands are
-invisible from outside; they're self-contained. A space that uses
-`{time now}` has a port sticking out of it that says "I need
-someone to satisfy time requests." The command is the inside view;
-the port is the outside view. These are the same thing seen from
-two sides of the space boundary. This is why effect locality is a
-core property (§1): effects propagate outward through ports until
-someone handles them.
+TODO: dig into this more, make it sing. bring back the original words.
 
-**4. Effect locality and testability.** Effects only happen at
-the outside of the outermost space. Every effectful command
-produces a port request that propagates outward. Any intermediate
-space can intercept and handle the request, or forward it to its
-own boundary. This means any space can be tested by composing it
-into a parent that provides mock handlers — the space cannot tell
-from the inside whether it's wired to production or to a test
-harness.
+**1. Control your process.** You shouldn't need to use an
+application's UI to use an application. You should be able to
+send a program that expresses your intent. Then you can make any
+interface you want. You can automate any sequence. You can adapt
+the process to your needs, not the other way around. Daimio makes
+this work through uniform evaluation (§1): a program received as
+data executes under exactly the same rules as built-in code,
+constrained by the sender's dialect.
 
-**5. Programs as messages.** A program can be shipped to where
-the effects are. Bob sends Alice a signed DAML program. Alice
-runs it under Bob's dialect on her backend. The result flows back.
-The channel doesn't matter — letter, WebSocket, carrier pigeon —
-only the message and its authentication. This is why Daimio has
-three sendable things (§4): data (just values), programs (borrow
-everything from the host), and spaces (bring their own context).
+**2. Full multiplayer, everywhere.** Why can't your friends and
+family and robot assistants just pile in and work alongside you?
+Daimio is multiplayer by default. Multiple actors share a space,
+each with their own dialect — a restricted set of commands that
+determines what they can do. The space owner controls permissions.
+An invited actor can do exactly what the owner allows, nothing
+more, nothing less. No third-party servers. No intermediation.
+Just people and programs working together.
 
-**6. Composition.** Spaces nest. A subspace's effect surface
-becomes obligations on the parent. The parent either handles them,
-forwards them to its own boundary, or swallows them. Dialects
-restrict downward: an invited actor or loaded subspace can never
-do more than the host allows. This composes to arbitrary depth,
-which is how applications compose — not by merging code, but by
-wiring spaces together through ports.
+**3. No more locked-up monoliths.** Applications shouldn't bundle
+everything into one thing that one entity controls. The right
+factoring separates UI, features, data, assets, backend, and
+topology so each can be independently controlled. Daimio's
+spaces decompose along these lines: the topology (how things
+connect) is separate from the behavior (what the blocks do), which
+is separate from the state (space variables), which is separate
+from the effects (port wiring). Each aspect can be swapped,
+rewired, or replaced without touching the others.
+
+**4. Your stuff is yours.** Combined with first-class digital
+assets, your accounts, relationships, and data don't need to stay
+locked up on someone else's server. You carry what you need.
+Self-authenticating messages mean it doesn't matter how your
+message arrives — letter, WebSocket, carrier pigeon — the receiver
+can verify it's you and act accordingly. Daimio supports this
+through channel-independent senders (§4): identity rides on the
+ship, not on the transport.
+
+Our digital experiences today make our lives more impoverished
+than they need to be. Everything is rigid and locked down. Daimio
+is part of changing that.
 
 ## 1. Properties of the Model
 
@@ -146,7 +154,7 @@ nesting: inner spaces can only interact with outer spaces through
 explicit port wiring. The parent controls what the child can do
 (via wiring rules and dialect), and the child cannot reach beyond
 what the parent exposes. This is what makes composition safe
-(§0.6): wiring spaces together cannot break their internal
+(§0.3): wiring spaces together cannot break their internal
 invariants. At the outermost level, separate Daimio instances have
 no knowledge of each other; inter-instance communication is
 entirely the outer application's concern.
@@ -158,7 +166,7 @@ Port requests propagate outward (via down-port forwarding through
 parent spaces) until they reach the outermost space, where real
 effects occur. Any intermediate space can intercept and handle the
 request (via up-port wiring to a subspace or a local handler).
-This is the mechanism behind testability (§0.4): any space can be
+This is the mechanism behind testability: any space can be
 tested by composing it into a parent that provides mock handlers,
 and the space cannot tell the difference from the inside.
 
@@ -198,7 +206,7 @@ obligations on the parent. The parent either handles them, forwards
 them to its own boundary, or swallows them. Dialects restrict
 downward: an invited actor or loaded subspace can never exceed the
 host's permissions. This composes recursively to arbitrary depth
-(§0.6).
+(§0.3).
 
 ### Liveness
 No process waits forever. Every down-port request has a finite
