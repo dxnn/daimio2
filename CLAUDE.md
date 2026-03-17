@@ -10,7 +10,7 @@ with a total (crash-free) execution model.
 node tests/d2_spec_test.mjs     # 197 spec alignment tests
 node tests/daimio_test.mjs       # 843 legacy tests (0 known failures)
 node tests/node_code.mjs         # 68 internal tests
-node tests/security_test.mjs    # 97 security tests (dialect, pollution, regex, actors)
+node tests/security_test.mjs    # 155 security tests (dialect, pollution, regex, senders)
 node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
 node tests/example_test.mjs     # 104 command example tests
 node tests/perf_test.mjs        # 21 performance regression benchmarks
@@ -246,5 +246,6 @@ node repl.mjs -f file.dm   # run a .dm file as DAML, print result, exit
 - Use `node repl.mjs -f <file>` to run a .dm file
 - Type Daimio expressions at the `>` prompt, hit Enter on a blank line to execute
 - Supports multiline paste (buffered until blank line)
+- Soft errors display in red; `-e` and `-f` modes print errors to stderr
 - Named blocks use pipe on `{begin}`, not `{end}`:
   `{begin foo | >$foo ||}{body}{end foo}`
