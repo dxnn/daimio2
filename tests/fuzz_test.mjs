@@ -53,9 +53,24 @@ for (var h of handlers) {
 
 // --- Generators ---
 
-function gen_number() { return pick([0, 1, -1, 42, 3.14, 999999, 0.001, -100]) }
+function gen_number() {
+  return pick([0, 1, -1, 42, 3.14, 999999, 0.001, -100,
+    Infinity, -Infinity, 1e308, -1e308, 5e-324, 1e20,
+    Number.MAX_SAFE_INTEGER, -Number.MAX_SAFE_INTEGER, 0.1 + 0.2])
+}
 function gen_name() { return ':' + pick(['foo', 'bar', 'baz', 'x', 'y', 'key', 'val', 'hello', 'a', '']) }
-function gen_string() { return '"' + pick(['hello', '', 'test', ' ', 'abc def', '{nested}', '|pipe', '42']) + '"' }
+function gen_string() {
+  return '"' + pick([
+    'hello', '', 'test', ' ', 'abc def', '42',
+    // Parser-hostile: embedded DAML
+    '{nested}', '|pipe', '{1 | math add value 2}',
+    '{__ | __}', '{begin x}{end x}',
+    // Escape sequences and special chars
+    '\\n', '\\t', '\\\\',
+    // Type coercion bait
+    'true', 'false', 'null', 'undefined', 'NaN', 'Infinity',
+  ]) + '"'
+}
 
 function gen_pipevar_read() { return '_' + pick(['x', 'y', 'z', 'value', 'key', 'foo']) }
 function gen_pipevar_write() { return '>' + pick(['x', 'y', 'z', 'value', 'key', 'foo']) }
@@ -71,7 +86,7 @@ function gen_list(depth) {
 }
 
 function gen_block(depth) {
-  if (depth > 2) return '"{__}"'
+  if (depth > 4) return '"{__}"'
   return '"{' + gen_pipeline(depth + 1) + '}"'
 }
 
@@ -123,6 +138,20 @@ function gen_atom(depth) {
   return String(gen_number())
 }
 
+function gen_wrong_type(expected, depth) {
+  // Return a value that doesn't match the expected type
+  if (expected === 'number' || expected === 'maybe-number')
+    return pick([gen_block(depth), gen_list(depth), gen_string(), gen_name()])
+  if (expected === 'block')
+    return pick([String(gen_number()), gen_list(depth), gen_name()])
+  if (expected === 'string' || expected === 'maybe-string')
+    return pick([gen_block(depth), gen_list(depth), String(gen_number())])
+  if (expected === 'list' || expected === 'array' || expected === 'maybe-list')
+    return pick([String(gen_number()), gen_block(depth), gen_string()])
+  // Fallback: just return something random
+  return gen_atom(depth)
+}
+
 function gen_command(depth) {
   var handler = pick(handlers)
   var methods = all_methods[handler]
@@ -132,7 +161,7 @@ function gen_command(depth) {
 
   var parts = [handler, method]
 
-  // Sometimes add params
+  // Sometimes add params (10% chance of type-confused value per param)
   if (method_def && method_def.params) {
     var n_params = rand_int(0, method_def.params.length)
     var used = new Set()
@@ -140,7 +169,8 @@ function gen_command(depth) {
       var param = pick(method_def.params)
       if (used.has(param.key)) continue
       used.add(param.key)
-      parts.push(param.key, gen_atom(depth))
+      var val = rng() < 0.1 ? gen_wrong_type(param.type, depth) : gen_atom(depth)
+      parts.push(param.key, val)
     }
   }
 
@@ -154,19 +184,54 @@ function gen_alias(depth) {
   return alias + ' ' + gen_atom(depth)
 }
 
+function gen_path() {
+  var n = rand_int(1, 4)
+  var parts = []
+  for (var i = 0; i < n; i++) {
+    var r = rng()
+    if (r < 0.3) parts.push(':' + pick(['a', 'b', 'c', 'x', 'name', 'nonexistent', '__proto__', 'constructor']))
+    else if (r < 0.5) parts.push(String(rand_int(-2, 5)))
+    else if (r < 0.7) parts.push(':*')
+    else if (r < 0.85) parts.push('"*"')
+    else parts.push(':' + pick(['', '0', '1']))
+  }
+  return '(' + parts.join(' ') + ')'
+}
+
+function gen_path_command(depth) {
+  var path = gen_path()
+  var data = gen_atom(depth)
+  var r = rng()
+  if (r < 0.5) return data + ' | peek ' + path
+  if (r < 0.8) return data + ' | list poke path ' + path + ' value ' + gen_atom(depth)
+  return data + ' | list map path ' + path + ' block "{__}"'
+}
+
+function gen_meta_eval(depth) {
+  var inner = gen_pipeline(depth + 1)
+  // Escape inner braces for embedding in a string
+  var escaped = '{' + inner + '}'
+  var r = rng()
+  if (r < 0.4) return 'process run value "' + escaped + '"'
+  if (r < 0.7) return 'process quote value "' + escaped + '" | process unquote'
+  return 'process quote value "' + escaped + '"'
+}
+
 function gen_segment(depth) {
   var r = rng()
-  if (r < 0.35) return gen_command(depth)
-  if (r < 0.50) return gen_alias(depth)
-  if (r < 0.60) return gen_atom(depth)
-  if (r < 0.70) return gen_pipevar_write()
-  if (r < 0.78) return gen_spacevar_write()
-  if (r < 0.85) return gen_portsend()
+  if (r < 0.30) return gen_command(depth)
+  if (r < 0.42) return gen_alias(depth)
+  if (r < 0.49) return gen_meta_eval(depth)
+  if (r < 0.56) return gen_path_command(depth)
+  if (r < 0.65) return gen_atom(depth)
+  if (r < 0.74) return gen_pipevar_write()
+  if (r < 0.82) return gen_spacevar_write()
+  if (r < 0.88) return gen_portsend()
   return gen_atom(depth)
 }
 
 function gen_pipeline(depth) {
-  var n = rand_int(1, 4)
+  var n = rand_int(1, 8)
   var segs = []
   for (var i = 0; i < n; i++) {
     segs.push(gen_segment(depth))
@@ -181,10 +246,13 @@ function gen_pipeline(depth) {
 }
 
 function gen_expr() {
+  // 0.5% chance: splice in a pathological edge case
+  if (rng() < 0.005) return pick(edge_cases)
+
   // Sometimes generate a named block expression
   if (rng() < 0.15) return gen_named_block(0)
 
-  var n_commands = rand_int(1, 3)
+  var n_commands = rand_int(1, 5)
   var parts = []
   for (var i = 0; i < n_commands; i++) {
     if (rng() < 0.1) {
@@ -196,56 +264,54 @@ function gen_expr() {
   return parts.join('')
 }
 
-// Special malicious/edge-case generators
-function gen_edge_case() {
-  return pick([
-    // Empty / whitespace
-    '', ' ', '\n', '\t',
-    // Unmatched braces
-    '{', '}', '{{', '}}', '{{{', '{}}', '}{',
-    // Deep nesting
-    '{{{{{1}}}}}',
-    '{"{"{"{1}"}"}"}',
-    // Prototype pollution attempts
-    '{(:__proto__ :constructor :prototype) | list union data ((:polluted :true))}',
-    '{list poke path (:__proto__) value :bad}',
-    '{list poke path (:constructor) value :bad}',
-    // Very long input
-    '{' + ':a '.repeat(200) + '| list range}',
-    // Unicode
-    '{:' + '\u{1F4A9}' + '}',
-    '{string length value "' + '\u{1F44D}'.repeat(10) + '"}',
-    // Named blocks
-    '{begin x}hello{end x}',
-    '{begin x}{end x}',
-    '{begin x}body{end y}',
-    '{begin 123}num{end 123}',
-    // Pipes
-    '{|}', '{||}', '{|||}',
-    '{1 | | 2}',
-    '{1 ||| 2}',
-    // Self-referential
-    '{__ | __}',
-    '{__in | __in}',
-    // Big numbers
-    '{math add value 99999999999999999999}',
-    '{math multiply value 1e308}',
-    '{math divide value 0}',
-    // Empty list ops
-    '{() | list first}',
-    '{() | list reduce block "{__}"}',
-    '{() | map block "{__}"}',
-    // Path edge cases
-    '{(:a :b :c) | peek :nonexistent}',
-    '{1 | peek :a}',
-    // Nested command references
-    '{process quote value "{process unquote value \\"{1}\\"}"}',
-    // Multiple barriers
-    '{1 || 2 || 3 || 4 || 5}',
-    // Variable stress
-    ...Array.from({length: 10}, (_, i) => `{${i} | >$v${i}}`),
-  ])
-}
+// Pathological edge cases — spliced into gen_expr at ~0.5% rate
+var edge_cases = [
+  // Empty / whitespace
+  '', ' ', '\n', '\t',
+  // Unmatched braces
+  '{', '}', '{{', '}}', '{{{', '{}}', '}{',
+  // Deep nesting
+  '{{{{{1}}}}}',
+  '{"{"{"{1}"}"}"}',
+  // Prototype pollution attempts
+  '{(:__proto__ :constructor :prototype) | list union data ((:polluted :true))}',
+  '{list poke path (:__proto__) value :bad}',
+  '{list poke path (:constructor) value :bad}',
+  // Very long input
+  '{' + ':a '.repeat(200) + '| list range}',
+  // Unicode
+  '{:' + '\u{1F4A9}' + '}',
+  '{string length value "' + '\u{1F44D}'.repeat(10) + '"}',
+  // Named blocks
+  '{begin x}hello{end x}',
+  '{begin x}{end x}',
+  '{begin x}body{end y}',
+  '{begin 123}num{end 123}',
+  // Pipes
+  '{|}', '{||}', '{|||}',
+  '{1 | | 2}',
+  '{1 ||| 2}',
+  // Self-referential
+  '{__ | __}',
+  '{__in | __in}',
+  // Big numbers
+  '{math add value 99999999999999999999}',
+  '{math multiply value 1e308}',
+  '{math divide value 0}',
+  // Empty list ops
+  '{() | list first}',
+  '{() | list reduce block "{__}"}',
+  '{() | map block "{__}"}',
+  // Path edge cases
+  '{(:a :b :c) | peek :nonexistent}',
+  '{1 | peek :a}',
+  // Nested command references
+  '{process quote value "{process unquote value \\"{1}\\"}"}',
+  // Multiple barriers
+  '{1 || 2 || 3 || 4 || 5}',
+  // Variable stress
+  ...Array.from({length: 10}, (_, i) => `{${i} | >$v${i}}`),
+]
 
 // --- Runner ---
 
@@ -608,11 +674,7 @@ console.log('Count:', count, ' Seed:', seed, ' Concurrency:', concurrency,
 console.log('Handlers:', handlers.length, ' Aliases:', aliases.length)
 console.log('')
 
-var edge_count = Math.floor(count * 0.1)
-var gen_count = count - edge_count
-
-await run_batch(gen_edge_case, edge_count, 'Edge cases')
-await run_batch(gen_expr, gen_count, 'Generated')
+await run_batch(gen_expr, count, 'Fuzzing')
 
 // --- Minimize failures ---
 
