@@ -2137,8 +2137,15 @@ new store `σ'`. Here `process.v` is the current pipeline value and
      `{2 | math add value 5}` means math.add receives 2 as its
      implicit first param and 5 as value.
 
-**Type coercion** is applied to each parameter value based on the
-param's declared type. Each type has a coercion function:
+**Type coercion.** Daimio's type system exists only at command
+boundaries. Values flowing through pipelines are untyped. When a
+value enters a command parameter, it is coerced to the param's
+declared type. There is no type checking and no type errors —
+coercion is total, always producing a value of the expected type.
+This is a deliberate choice: totality over type safety.
+
+Each command param declares a type in its definition (e.g.
+`{key: 'value', type: 'number'}`). The available types are fixed:
 
 ```
 list     — scalars wrap to single-element list; empty → []
@@ -2147,16 +2154,33 @@ number   — strings coerce numerically; empty → 0
 integer  — like number, then rounded
 block    — DAML string becomes an evaluable block
 anything — passed through (with empty normalization)
+
+either:A,B — if the value matches type A, coerce as A;
+             otherwise coerce as B. Used for params that
+             accept e.g. a block or a string key.
 ```
 
-This means passing `"hi"` to a param of type `list` produces
-`("hi")`, not a type error. Coercion is total — it always
-produces a value of the expected type.
+Passing `"hi"` to a param of type `list` produces `("hi")`, not
+an error. Passing `"hello"` to type `number` produces `0`. The
+empty value coerces to each type's zero: `""`, `0`, `[]`, etc.
+
+**Unfilled optional params** receive the empty value, coerced to
+their declared type (e.g. `""` for string, `0` for number, `[]`
+for list). If the param has a `fallback` defined, the fallback is
+used instead.
 
 **Required params:** if a param is marked `required` and receives
 no value (not from explicit naming, not from implicit pipe filling,
-and no fallback defined), the command is not executed. A soft error
-is emitted and the pipeline continues with the empty value.
+and no fallback defined), the command sploots.
+
+**Unknown param names** are silently ignored. The command only
+reads params declared in its definition. Supplied names that don't
+match any declared param are compiled but never consumed — the
+command executes as if they weren't there.
+
+**Param constraints:** a command definition may include `allow`
+or `deny` lists on a param. If the value doesn't satisfy the
+constraint, the command sploots.
 
 **Dialect check:** if c ∉ effective_dialect.commands, the command is
 not executed. A soft error is emitted (see §12), and the pipeline
