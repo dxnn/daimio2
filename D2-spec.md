@@ -573,6 +573,13 @@ Each station contributes three implicit ports (`_in`, `_out`,
 in station DAML are added as extra ports. Routes are pairs of
 port indices connecting the topology.
 
+Subspaces are **references by ID**, not inline. All spaceseeds
+live in a flat global table (`D.SPACESEEDS`), keyed by content
+hash. A spaceseed's `subspaces` field is an array of IDs pointing
+into this table. The same sub-seed can be shared by multiple
+parent seeds. When instantiated into a live space, each ID is
+recursively instantiated into a live subspace (see Spaces below).
+
 A spaceseed's identity is the hash of its (JSON) serialized form.
 
 ```
@@ -701,20 +708,21 @@ sender = (id, dialect)
 
 A sender identifies who originated a ship and what dialect they
 operate under. The sender's dialect is always a subset of the
-outer space's base dialect (`sender.dialect ⊆ outerSpace.dialect`).
+outer space's base dialect (`sender.dialect ⊆ space.dialect`).
 
 When a ship with a sender docks at a station, the process runs
 under the **effective dialect**: the intersection of the sender's
-dialect and the outer space's base dialect.
+dialect and the space's dialect.
 
 ```
-effective_dialect = sender.dialect ∩ outerSpace.dialect
+effective_dialect = sender.dialect ∩ space.dialect
 ```
 
-This intersection is computed once, at dock time in the outer space.
-It can be memoized by the `(sender.id, outerSpace)` pair.
+Since all subspaces inherit the same dialect, the intersection is
+the same regardless of where in the hierarchy the ship docks. It
+is computed once at dock time and can be memoized.
 
-A ship without a sender runs under the outer space's base dialect
+A ship without a sender runs under the space's dialect directly
 (the default case for internal routing, system events, etc.).
 
 **Sender propagation.** The sender is immutable and propagates
@@ -794,22 +802,27 @@ wiring    — how this port connects to the outside; determined by the
 
 ### Spaces
 ```
-space = (spaceseed, σ, queue)
-  where spaceseed : Spaceseed       — the compiled topology
-        σ         : SVar → Val      — live space variable store
-        queue     : [Ship]          — pending ships (FIFO)
+space = (spaceseed, σ, queue, subspaces, parent?, dialect, portHandlers?)
+  where spaceseed     : Spaceseed       — the compiled topology
+        σ             : SVar → Val      — live space variable store
+        queue         : [Ship]          — pending ships (FIFO)
+        subspaces     : [Space]         — live subspace instances
+        parent        : Space?          — enclosing space (null for outer space)
+        dialect       : Dialect         — inherited from parent, or set explicitly
+        portHandlers  : port → handler? — only on outer spaces
 ```
 
 A space is a **live instance** of a spaceseed. It has its own
-state (σ), its own ship queue, and its own independent
-serialization — one ship at a time per space (see §5).
+state (σ), its own ship queue, its own live subspaces, its own
+dialect, and its own independent serialization — one ship at a
+time per space (see §5).
 
 When a spaceseed is instantiated into a space, each subspace
-spaceseed is recursively instantiated into a live subspace.
-Each subspace gets its own σ and its own queue, independent of
-the parent and of its siblings. Sibling subspaces can process
-ships concurrently with each other and with the parent (when
-the parent is waiting on an async effect).
+seed ID in the spaceseed is recursively instantiated into a live
+subspace. Each subspace gets its own σ and its own queue,
+independent of the parent and of its siblings. Sibling subspaces
+can process ships concurrently with each other and with the
+parent (when the parent is waiting on an async effect).
 
 Externally, a space is a **reactive automaton** (Mealy machine):
 it accepts ships at in-ports, produces ships at out-ports, and
@@ -827,18 +840,30 @@ station, a process is created to execute the station's block.
 The full picture is: a reactive automaton whose transitions are
 effectful programs, executed one at a time per space (§5).
 
-A space depends on the parent for:
+**From inside, a space cannot tell whether it is an outer space
+or a subspace.** The port interface is the same in both cases.
+Effectful commands produce port requests that propagate outward.
+Whether those requests reach a real-world handler or another
+space's wiring is invisible from inside. This is the foundation
+of testability: any space can be tested by nesting it inside a
+parent that provides mock handlers, and the space cannot tell the
+difference.
+
+A subspace depends on the parent for:
   - **Port wiring**: the parent's wiring rules determine how
     the space's down-port requests are handled (§6)
+  - **Dialect**: inherited from the parent (see below)
 
-The dialect is a property of the **outer space**, not of individual
-subspaces. All subspaces inherit the outer space's dialect (as
-intersected with the sender's dialect, if present). Subspace
-restrictions come entirely from wiring: if you don't want a
-subspace to access `db`, don't wire its `db` port. The dialect
-says "these commands exist." The wiring says "these effects are
-connected." Both must be true for an effectful command to work.
-A command in the dialect but with an unwired port sploots.
+**Dialect propagation.** Every space has a dialect. Subspaces
+inherit their parent's dialect. The dialect is set explicitly
+only on the outer space; all subspaces get it by inheritance.
+This means there is one dialect for the entire hierarchy.
+Subspace restrictions come from wiring, not from dialect: if you
+don't want a subspace to access `db`, don't wire its `db` port.
+The dialect says "these commands exist." The wiring says "these
+effects are connected." Both must be true for an effectful
+command to work. A command in the dialect but with an unwired
+port sploots.
 
 A space is "self-reliant" — it brings its own programs and state.
 But it is not self-sufficient: without wiring, its effects go
@@ -848,30 +873,25 @@ Spaces can also be serialized as space syntax and loaded into
 sockets at runtime. Socketed spaces have additional properties
 around loading, transitions, and state ephemerality — see §8.
 
-### Outer Space
+### Outer spaces
 
-An outer space is a top-level space with port handlers wired to
-the real world:
-
-```
-outerSpace = (space, δ, portHandlers)
-  where space        : Space           — the live space (with its own σ)
-        δ            : Dialect         — the base dialect
-        portHandlers : port → handler  — wiring of outermost ports to real effects
-```
-
-This is where effects actually happen. Inside the space, an
-effectful command like `{time now}` produces a port request that
-propagates outward. At the outermost boundary, the port handler
-executes the actual effect and returns the response. Without this
-wiring, the request would be unwired and sploot.
+An **outer space** is any space that is not a subspace of another
+space. It's on the outside — there's no parent to wire its ports,
+so port handlers must be provided directly.
 
 The outer application creates an outer space by:
   1. Choosing a spaceseed (the compiled topology)
-  2. Instantiating it into a live space (with σ and queue)
-  3. Assigning a base dialect
+  2. Instantiating it into a live space (recursively creating
+     subspaces, initializing σ and queues)
+  3. Assigning a base dialect (what commands are available)
   4. Wiring the outermost ports to effect handlers (DOM, network,
      database, filesystem, etc.)
+
+This wiring is what makes effects real. Inside the space, an
+effectful command like `{time now}` produces a port request that
+propagates outward. At the outermost boundary, the port handler
+executes the actual effect and returns the response. Without this
+wiring, the request would sploot.
 
 **Multiple outer spaces.** An application can create as many outer
 spaces as it needs. Each is a completely independent universe — no
@@ -885,14 +905,66 @@ them (via whatever external systems it chooses).
 space. Each sender carries their own dialect — a restricted subset
 of the space's base dialect. When a ship with a sender docks at a
 station, the process runs under the effective dialect:
-`sender.dialect ∩ outerSpace.dialect`. This intersection is
-computed once at dock time and inherited by all sub-processes.
+`sender.dialect ∩ space.dialect`. This intersection is computed
+once at dock time and inherited by all sub-processes.
 
 Daimio does not authenticate senders. The App validates identity
 externally (HMAC, capability tokens, session auth, etc.) and
 passes trusted sender information into the outer space. From
 Daimio's perspective, the sender is metadata — the App is the
 authority on who sent what.
+
+
+### Port handlers
+
+Port handlers are the boundary between Daimio and the outside
+world. They are the only place where real effects occur (I10).
+A handler is a function provided by the App when creating an
+outer space. The interface depends on the port direction:
+
+**Down-port handler** (request/response):
+```
+handler(request, callback)
+  where request  : {value, handler, method, params, sender?}
+        callback : (response : Val) → void
+```
+
+The handler receives the request (including the sender, if
+present) and MUST call the callback exactly once with a response
+value. The calling process is waiting — it resumes when the
+callback fires. If the handler never calls the callback, the
+timeout (§7.3) will eventually resume the process with the
+default value.
+
+**Out-port handler** (fire-and-forget outward):
+```
+handler(ship)
+  where ship : {value, sender?}
+```
+
+The handler receives the ship and returns nothing. The process
+has already moved on — out-port routing is deferred and
+fire-and-forget. The handler may trigger external side effects
+(update the DOM, send a network message, write to a log) but
+Daimio does not wait for or observe the result.
+
+**In-port handler** (fire-and-forget inward):
+```
+handler.enter(ship)
+  — called by the App to push a ship into the space
+```
+
+In-port handlers are inverted: the App calls `port.enter(ship)`
+when an external event occurs (user click, network message,
+timer). The ship enters the space's queue through the normal
+docking mechanism. The App is responsible for constructing the
+ship (value + optional sender).
+
+**Substitutability.** Any handler can be replaced with a
+different implementation — mock, stub, logger, proxy to a remote
+service — without the space knowing. This is the mechanism behind
+testability (§0) and the command/port duality (§1): the space
+sees only the port interface, never the handler.
 
 
 ## 5. Space Execution (Scheduling)
@@ -947,7 +1019,7 @@ ships are queued, those queued ships dock first.
 
 When a ship docks at a station, a process is created to run the
 station's block. If the ship carries a sender, the effective dialect
-is computed: `sender.dialect ∩ outerSpace.dialect`. The process goes
+is computed: `sender.dialect ∩ space.dialect`. The process goes
 through these phases:
 
   1. **Dock**: ship arrives at station's in-port, process is created
@@ -1920,8 +1992,8 @@ variable bindings and tracking its position.
 
 The effective dialect is computed at process creation: if the ship
 carries a sender, `effective_dialect = sender.dialect ∩
-outerSpace.dialect`. If no sender, `effective_dialect =
-outerSpace.dialect`. All command invocations within the process
+space.dialect`. If no sender, `effective_dialect =
+space.dialect`. All command invocations within the process
 (and its sub-processes) are checked against this effective dialect.
 
 **Pipeline variable scope:** pipeline variables are write-once and
@@ -2149,7 +2221,8 @@ list     — scalars wrap to single-element list; empty → []
 string   — numbers stringify; empty → ""
 number   — strings coerce numerically; empty → 0
 integer  — like number, then rounded
-block    — DAML string becomes an evaluable block
+block    — compiled block refs become evaluable; strings pass through
+             (strings must be explicitly compiled via `process unquote`)
 anything — passed through (with empty normalization)
 
 either:A,B — if the value matches type A, coerce as A;
@@ -2300,7 +2373,7 @@ evaluated the same way — it's a block that gets run by a sub-process.
      propagate back to the parent. The sub-process's env is its own.
 
 Every process runs under its effective dialect (sender.dialect ∩
-outerSpace.dialect, computed at dock time). There is no mechanism
+space.dialect, computed at dock time). There is no mechanism
 for escalating or changing the dialect mid-execution. A program
 received as data inherits the sender and effective dialect of
 whatever process evaluates it — the sender's restrictions apply
@@ -2373,9 +2446,9 @@ Bob's ship triggers `{$alice_block | process unquote | run}`.
 Bob has admin dialect. Alice's code runs under Bob's authority.
 
 **Defense:** The sender's effective dialect is the intersection
-of sender.dialect and outerSpace.dialect (I4). Bob's process runs
+of sender.dialect and space.dialect (I4). Bob's process runs
 Alice's code, but under Bob's effective dialect — which is
-`Bob.dialect ∩ outerSpace.dialect`. If Alice's code tries commands
+`Bob.dialect ∩ space.dialect`. If Alice's code tries commands
 outside that intersection, they sploot. The risk is when Bob's
 dialect is MORE permissive than Alice intended — Alice's code gets
 more power than she designed for.
