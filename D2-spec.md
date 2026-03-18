@@ -84,7 +84,7 @@ is part of changing that.
 
 ### Totality
 Every command returns a value. Every port access either succeeds or
-sploots (emits a soft error and continues with the empty value). No
+sploots (emits a soft error and continues — see §10). No
 pipeline ever crashes or diverges (assuming commands are total, which
 is a requirement on command definitions). The empty value coerces to
 `""`, `0`, or `[]` as needed, so it always flows cleanly through subsequent
@@ -585,8 +585,13 @@ main
   splitter.left -> {__ | add 1} -> @out
 ```
 
-Station extra ports are declared implicitly by the DAML using
-`>@portname`. They appear in routes as `station.portname`.
+Named ports on stations are created by **routes**, not by DAML.
+The route `splitter.left -> {__ | add 1} -> @out` creates the
+`left` port on station `splitter`. The DAML `>@left` sends to
+that port — but only because the route declared it. Without the
+route, the port doesn't exist and `>@left` sploots at runtime.
+This ensures the space definition controls which ports each
+station can access.
 
 ### Static declarations
 
@@ -815,25 +820,32 @@ station = (name, block)
         block    : Block           — the compiled DAML for this station
 ```
 
-A station has exactly three built-in ports:
+A station has exactly three built-in ports, created automatically:
   - **_in**:    receives ships (fire-and-forget inward)
   - **_out**:   sends the process's result (fire-and-forget outward)
   - **_error**: receives soft errors from this station's execution
 
-A station's process can also send ships to the enclosing **space's**
-out-ports using `>@portname`. This is how a station pushes data to
-named space-level ports (not station ports).
+**Named ports and `>@portname`.** A station's DAML can send ships
+to named ports using `>@portname`. But the port must be explicitly
+declared in the space definition's routes. The route
+`station.portname -> destination` creates the named port on the
+station. Without a route declaring it, the port does not exist,
+and `>@portname` sploots at runtime.
 
-Down ports are NOT station-level constructs. They arise in two ways:
-  1. **From effectful commands:** when a process invokes an effectful
-     command, the runtime creates/uses a down port on the space.
-  2. **From explicit space-level wiring:** the space definition can
-     connect two stations (one's _out to another's _in) through a
-     down/up port pair, creating a call-response link between them.
+This is a security boundary: the space definition controls which
+ports each station can send to. Code running inside a station
+(including unquoted programs from untrusted senders) cannot send
+to arbitrary ports — only to ports that the space definition
+explicitly wired. The wiring is the gate.
 
-This means the station itself is simple — it's a block with in,
-out, and error ports. All the interesting port topology (down, up,
-wiring to subspaces, socket-in) lives at the space level.
+Down ports are NOT station-level constructs. They arise from
+effectful commands: when a process invokes an effectful command,
+the runtime creates/uses a down port on the space (see §6).
+
+The station itself is simple — it's a block with in, out, and
+error ports, plus any named ports declared by routes. All the
+interesting port topology (down, up, wiring to subspaces,
+socket-in) lives at the space level.
 
 ### Ports
 ```
@@ -1634,17 +1646,33 @@ value, which becomes whatever zero the consuming command expects.
 
 ### Splooting
 
-To **sploot** is to emit a soft error and continue with the empty
-value. A command outside the effective dialect sploots. An unbound
-variable sploots. An unwired port sploots. A key coercion failure
-sploots. The pipeline is never halted; the empty value flows
-through and coerces to whatever the next command expects.
+To **sploot** is to emit a soft error and continue. The pipeline
+is never halted. The error is routed to the space's error port
+(if wired); the pipeline continues with a value determined by
+the operation type.
 
 Splooting is the mechanism behind totality: every operation that
-"fails" actually succeeds — it just succeeds with the empty value
-and a side-channel error notification. The error is routed to the
-space's error port (if wired); the pipeline sees only the empty
-value.
+"fails" actually succeeds — it just succeeds with a soft error
+notification on the side. What value the pipeline continues with
+depends on the operation:
+
+  - **Value-producing operations** (commands, variable reads)
+    continue with the empty value. The operation didn't produce
+    a result, so empty is the right default.
+  - **Pass-through operations** (port sends, variable writes,
+    failed pokes) continue with the unchanged pipeline value. The
+    side effect failed, but the value flows through as if the
+    operation wasn't there.
+
+A sploot can occur at **compile time** or **runtime**:
+
+  - **Compile-time**: the error is detected during block
+    compilation (e.g. unknown command name). The soft error is
+    emitted once. The segment can be compiled away entirely —
+    no runtime cost per execution.
+  - **Runtime**: the error is detected during execution (e.g.
+    unbound space variable, unwired port). The soft error is
+    emitted each time the segment executes.
 
 ### Value semantics
 
@@ -2352,15 +2380,26 @@ Pipeline variable bindings are write-once within a synchronous segment
 
 **Port send:**
 ```
+  portname exists on this station (declared by a route)
   ─────────────────────────────────────────────────
   (process, σ) —[PortSend(portname)]→ (process, σ)
   schedule deferred: ship(process.v, process.sender) → portname
+
+  portname does not exist on this station
+  ─────────────────────────────────────────────────
+  (process, σ) —[PortSend(portname)]→ (process, σ)
+  emit soft error                       — pass-through: pipeline value unchanged
 ```
 
 The pipeline value is unchanged — PortSend passes it through.
 The actual ship send is **deferred**: it is scheduled to execute
 after the current process completes (see §5 "Port routing and
 deferred entry"). The deferred ship carries the process's sender.
+
+The port must be declared by a route in the space definition. A
+station cannot send to arbitrary ports — only to ports the space
+definition explicitly wired. This prevents untrusted code from
+sending ships to ports it shouldn't have access to.
 
 **No implicit fill on first segment.** The `|` operator creates
 edges in the segment flow graph (see §10 "Block compilation").
@@ -2473,27 +2512,34 @@ pipe     ::= '|' or '||'             — normal pipe or barrier pipe
 
 Daimio is total. Commands do not throw exceptions. When something
 goes wrong, the operation **sploots**: it emits a soft error and
-continues with the empty value (see §10 "Splooting").
+continues (see §10 "Splooting").
 
-Conditions that sploot:
+Conditions that sploot, with their continuation value:
 
 ```
+Value-producing (continue with empty):
   - command not in effective dialect
-  - effectful command with unwired port (returns empty, no async)
-  - timeout on down-port response (returns empty after elapsed time)
+  - effectful command with unwired port (no async)
+  - timeout on down-port response
+  - unbound space variable read
+  - required param missing
+
+Pass-through (continue with unchanged value):
+  - port send to nonexistent port
+  - key coercion failure in poke/delete
+  - Key poke on unkeyed list (no promotion)
+
+Dropped (no pipeline to continue):
   - ghost response (response arrives for already-completed request)
-  - unbound space variable read (returns empty)
-  - required param missing (no value from naming, pipe fill, or fallback)
-  - key coercion failure (non-numeric string key on unkeyed list)
-  - Key poke on unkeyed list (no promotion, returns unchanged)
 ```
 
 When splooting:
   1. A soft error is emitted as a ship to the space's error port
      (if wired). The error ship carries the process's sender.
   2. The pipeline is NOT halted.
-  3. The pipeline continues with the empty value (which coerces to
-     `""`, `0`, or `[]` depending on context).
+  3. The pipeline continues — with empty for value-producing
+     operations, or with the unchanged value for pass-through
+     operations.
 
 This is analogous to IEEE 754 NaN propagation: errors flow through the
 pipeline as values, rather than interrupting control flow.
@@ -2725,11 +2771,69 @@ up.
 
 ### Energy and resource limits
 
-Per-sender budgets to prevent denial of service. A sender's
-processes would be metered: CPU cycles, memory allocation,
-number of ships sent. Exceeding the budget sploots the current
-operation and pauses that sender. Limits would be set by the
-space owner, not by Daimio itself.
+Two separate mechanisms:
+
+**System-wide yield.** Every process yields after a fixed time
+slice (e.g. 100ms). This is not per-sender — it's a global
+scheduler property. No process can monopolize a space. When the
+yield fires, the process goes async and resumes on the next tick.
+Other queued ships and deferred routing get a chance to run. From
+the process's perspective, the yield is transparent.
+
+**Per-sender energy budget.** Each sender has an energy cap (set
+by the App). Every operation consumes energy — segment execution,
+sub-process creation, memory allocation. The App manages the
+budget externally: how it recharges, what the cap is, how costs
+are weighted. Daimio enforces the cap and reports energy consumed
+on outbound ships, so the App can update its accounting.
+
+Open questions:
+
+  - **Process termination.** What happens when a process exhausts
+    its sender's energy? If the process is killed immediately,
+    it releases the space for other ships — but serial exclusion
+    means the space was blocked while the process ran, and killing
+    mid-execution leaves questions about state.
+
+  - **State consistency.** If a killed process had already written
+    space variables, are those writes visible? Do they stay
+    (potentially inconsistent state) or get rolled back
+    (transactional, but expensive and surprising)? This also
+    affects subspace state if the process triggered work in
+    subspaces.
+
+  - **Partial output.** What exits through `_out` when a process
+    is killed? The value at the point of termination (probably
+    empty)? Or does the pipeline fast-forward through remaining
+    segments with empty values (similar to splooting everything,
+    but without soft errors for each)? Fast-forwarding may produce
+    strange results.
+
+  - **Error reporting.** Does killing emit one soft error to the
+    error port? Multiple? How does the App learn that a process
+    was killed for energy exhaustion vs completing normally?
+
+  - **Energy distribution across wiring.** If a process completes
+    with 100 energy remaining and its output is wired to two
+    different stations, how is the remaining energy split? Does
+    each receiver get 100? 50 each? Does the energy budget
+    transfer to the next process at all, or reset per-dock?
+
+  - **Resumability.** Can a killed process resume later if energy
+    is replenished? Or is termination permanent — the ship is
+    lost and the sender must re-send?
+
+  - **Sub-process energy.** Do sub-processes (from block
+    evaluation) share the parent's energy budget? They should,
+    since sub-processes are the mechanism for recursive
+    computation. Infinite recursion should drain the budget, not
+    bypass it.
+
+  - **Energy and the yield.** How do the two mechanisms interact?
+    The yield is time-based (wall clock). The energy budget is
+    operation-based (step count). A process could yield many times
+    (long-running but cooperative) without exhausting energy, or
+    exhaust energy within a single tick (tight loop).
 
 ### Composite commands
 

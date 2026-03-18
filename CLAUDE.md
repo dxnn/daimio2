@@ -164,7 +164,7 @@ D.import_models({
 })
 ```
 
-Effectful commands declare an `effect` property instead of (or alongside) `fun`.
+Effectful commands declare an `effect` property instead of `fun`.
 
 Examples are `[input, expected]` tuples tested by `example_test.mjs`. The test harness
 auto-discovers all examples from `D.Commands` — no registration needed.
@@ -208,7 +208,7 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 332/332 pass
+- **d2_spec_test**: 331/332 pass (1 flaky: `is-in` with `time stampwrap`)
 - **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 68/68 pass
 - **security_test**: 170/170 pass
@@ -268,8 +268,6 @@ Most demos have been updated to work with the current codebase:
   (replaced with css/daimio.css + vanilla JS for navbar dropdowns)
 
 **Needs investigation:**
-- excitebikes.html: DAML is correct (verified in Node), but grid interaction not working in browser — needs browser console debugging
-- excitebikes2.html: same issue likely
 - sans-collatz.html: same pattern, plus missing `collate` station type
 - mandelbrot demos: `mandelbrot iterate` command only defined in canvas_ships_faster.html, not the other two
 - turtle_net, turtle_net_temp: load daimio from remote `http://daimio.org/`, need socket.io (exec port replaced with unquote+run)
@@ -299,13 +297,12 @@ Relevant code:
 - `daimio/1_daimio.js` line 838: `D.setImmediate` in `port_standard_sync`
 - `daimio/1_daimio.js` line 2611: `D.setImmediate` in `run_queue`
 
-### Poke alias footgun
+### Pay attention to aliases
 
 The `poke` alias is `list poke value`, which fills the `value` param from the pipe.
-This means `{$d | poke (:a :x) value 99}` puts `(:a :x)` into the wrong param (it
-gets treated as a push, not a path). Must use `list poke path (:a :x) value 99` for
-key-path pokes. Similarly, inside a block `{$d | list poke path (:a :x) value __}`
-sets value to the pipe value (`$d`), not the block input — use `value __in` instead.
+This means `{$d | poke (:a :x) value 99}` puts `(:a :x)` into the value param, not the path param. (The 99 is skipped as a duplicate param.) 
+Instead do `{$d | poke 99 path (:a :x)}`. 
+Many aliases fill a parameter spot this same way, but not all, so pay attention.
 
 ## REPL
 
