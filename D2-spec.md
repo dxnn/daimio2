@@ -82,7 +82,7 @@ is part of changing that.
 
 ## 1. Properties of the Model
 
-### Totality
+### Totality [P-total]
 Every command returns a value. Every port access either succeeds or
 sploots (emits a soft error and continues — see §10). No
 pipeline ever crashes or diverges (assuming commands are total, which
@@ -91,7 +91,7 @@ is a requirement on command definitions). The empty value coerces to
 commands. See §10 "Splooting" for the definition.
 
 
-### Copy semantics
+### Copy semantics [P-copy]
 Values flowing through pipelines are functionally pure from the
 programmer's perspective. A command receives its own copy of any
 collection; mutations inside a command don't propagate back to the
@@ -99,7 +99,7 @@ caller's pipeline. Implementations may optimize with mutation when
 no future references exist (linear types style), but the observable
 behavior is always as-if copied.
 
-### Dialect confinement
+### Dialect confinement [P-dialect]
 Every process runs under an effective dialect: the intersection of
 the sender's dialect (if the ship carries a sender) and the outer
 space's base dialect. The effective dialect is computed once at dock
@@ -112,7 +112,7 @@ property: the space owner controls the base dialect, the App
 controls sender dialects, and the intersection guarantees neither
 party can escalate beyond the other (§0.2).
 
-### Serial execution
+### Serial execution [P-serial]
 Each space processes one ship at a time (see §5). The active
 process has exclusive access to the space's state from dock
 through completion, including across async boundaries. No other
@@ -126,7 +126,7 @@ A process that reads `$foo`, waits at an async boundary, and reads
 `$foo` again after resumption is guaranteed to see the same value
 (unless its own execution modified it in between).
 
-### Fresh reads
+### Fresh reads [P-fresh]
 Under the current serial model, fresh reads are trivially
 satisfied — no other process can modify space state during your execution.
 Space variable reads see exactly what the active process (or its
@@ -134,7 +134,7 @@ sub-processes) last wrote. Pipeline variables remain the mechanism
 for stashing values within a pipeline, but the motivation is
 convenience, not protection from concurrent modification.
 
-### Block scope isolation
+### Block scope isolation [P-blockscope]
 Pipeline variables flow into sub-processes (lexical inheritance
 from the parent process) but never flow out. A sub-process gets a
 copy of the parent's env; variables bound inside the sub-process
@@ -144,7 +144,7 @@ are frozen. The one-way information flow makes blocks safe to pass
 around as values — evaluating a block cannot corrupt the caller's
 state.
 
-### Space isolation
+### Space isolation [P-spaceisolate]
 Spaces are fully isolated containers. A subspace cannot read or
 write its parent's space variables directly — all cross-boundary
 communication goes through ports. This applies at every level of
@@ -157,7 +157,7 @@ invariants. At the outermost level, separate Daimio instances have
 no knowledge of each other; inter-instance communication is
 entirely the outer application's concern.
 
-### Effect locality
+### Effect locality [P-effectlocal]
 Effects only occur at the outside of the outermost space. Every
 effectful command invocation within a space produces a port request.
 Port requests propagate outward (via down-port forwarding through
@@ -168,7 +168,7 @@ This is the mechanism behind testability: any space can be
 tested by composing it into a parent that provides mock handlers,
 and the space cannot tell the difference from the inside.
 
-### Command/port duality
+### Command/port duality [P-duality]
 From inside a space, every command looks the same — pure and
 effectful use the same syntax and return values into the pipeline.
 From outside, the effectful commands are visible as ports: the
@@ -183,7 +183,7 @@ requests. Wire those ports to production handlers, mock handlers,
 or forward them to the parent's boundary — the space cannot tell
 the difference from the inside.
 
-### Single-response effects
+### Single-response effects [P-singleresponse]
 Every effectful command produces exactly one response. A down-port
 round trip is a single request/response pair — no streaming, no
 multi-shot continuations. This keeps pipelines linear: after an
@@ -191,14 +191,14 @@ effectful command, the programmer gets one value and continues.
 If the outside wants to send multiple values, it uses an in-port
 (fire-and-forget), not a down-port response.
 
-### Port demand-creation
+### Port demand-creation [P-demandport]
 The effect surface of a Daimio instance is not fully fixed at
 construction time. Ports are created when first needed and wired
 according to the parent space's rules. This supports block evaluation
 and socket loading without requiring static knowledge of all possible
 effects.
 
-### Composition
+### Composition [P-compose]
 Spaces compose by nesting. A subspace's effect surface becomes
 obligations on the parent. The parent either handles them, forwards
 them to its own boundary, or swallows them. Dialects restrict
@@ -206,7 +206,7 @@ downward: an invited actor or loaded subspace can never exceed the
 host's permissions. This composes recursively to arbitrary depth
 (§0.3).
 
-### Content-addressed deduplication
+### Content-addressed deduplication [P-contentaddr]
 Blocks and spaces are content-addressed: identical code compiles
 to the same identity. Copy and paste is a civilized operation —
 the engine deduplicates automatically. No need for premature
@@ -217,7 +217,7 @@ one case, or a change to propagate to all instances? The
 content-address graph is a version history of structural sharing,
 where changes can flow through the graph like merging branches.
 
-### Liveness
+### Liveness [P-liveness]
 No process waits forever. Every down-port request has a finite
 timeout (explicit, inherited, or the 10s system default). When the
 timeout fires, the process resumes with a default value. Unwired
@@ -225,7 +225,7 @@ ports sploot immediately with no async boundary at all. This
 guarantees that every process eventually completes its block,
 modulo the totality of the block's pure computation.
 
-### Timeout compositionality
+### Timeout compositionality [P-timeoutcompose]
 The effective timeout for a request chain is the minimum of all
 timeouts along the chain. Outer spaces' timeouts are authoritative:
 no inner wire can extend the wait time beyond what an outer wire
@@ -233,7 +233,7 @@ allows. Inner wires can only shorten it. This means the socket owner
 always controls the maximum wait time for anything loaded into their
 socket.
 
-### Uniform evaluation
+### Uniform evaluation [P-uniformeval]
 There is no special "eval" mechanism. Blocks, received programs,
 named blocks, and station blocks all execute as processes under the
 same rules — same dialect, same serial execution, same fresh reads,
@@ -243,7 +243,7 @@ sub-process. This is what makes programmable applications work
 (§0.1): a program sent by a sender executes under exactly the same
 rules as built-in code, constrained by the effective dialect.
 
-### Deterministic pipe filling
+### Deterministic pipe filling [P-pipefill]
 The implicit pipe value fills the first unfilled parameter of the
 next command, determined by the command's parameter definition order.
 This is fully deterministic from the command signature alone — the
@@ -251,7 +251,7 @@ programmer can predict what gets filled without knowing implementation
 details. Named parameters override this by explicitly binding a value
 to a parameter name, removing it from the implicit filling order.
 
-### Effect partition
+### Effect partition [P-effectpartition]
 Every command definition is either pure (has a `fun`) or effectful
 (has an `effect` with a port type and default handler). Never both,
 never neither. A pure command is a total function from parameters to
@@ -267,7 +267,7 @@ were secretly doing.
 The partition is checkable at command registration time: every
 command definition must have exactly one of `fun` or `effect`.
 
-### Handler parametricity
+### Handler parametricity [P-handlersub]
 Given the same sequence of responses from effect handlers, a DAML
 program produces the same effect requests regardless of which
 handlers produced those responses. The pure parts of a pipeline
@@ -284,7 +284,7 @@ Follows from: effect partition (pure parts can't touch ports),
 effect exteriority (I10), and the uniform command syntax (effectful
 commands look the same as pure commands from inside the pipeline).
 
-### Program portability
+### Program portability [P-portable]
 A DAML program — a block or pipeline serialized as source text —
 can be run in any space that provides the required dialect and port
 wiring, producing the same behavior given the same handler responses
@@ -514,7 +514,7 @@ is space syntax.
 ### Grammar
 
 Space syntax is **indentation-based**. A top-level name at column 0
-declares a space. Indented lines below it define the space's contents.
+declares a space. [spacesyn-toplevel] Indented lines below it define the space's contents.
 
 ```
 space_def  ::= name NL (indent line NL)*     — NL = newline
@@ -525,10 +525,10 @@ line       ::= port_decl
              | state_decl
              | dialect_decl
 
-port_decl  ::= '@' name flavour param*     — @counter dom-set-text
-station_decl ::= name NL indent daml       — station name, then DAML block
-route_decl ::= endpoint ('->' endpoint)+    — chain of connections
-state_decl ::= '$' name json_value?         — $count 0, $items []
+port_decl  ::= '@' name flavour param*     — @counter dom-set-text [spacesyn-port]
+station_decl ::= name NL indent daml       — station name, then DAML block [spacesyn-station]
+route_decl ::= endpoint ('->' endpoint)+    — chain of connections [spacesyn-route]
+state_decl ::= '$' name json_value?         — $count 0, $items [] [spacesyn-state]
 dialect_decl ::= '{' json_object '}'        — inline JSON restrictions
 
 endpoint   ::= '@' name                    — space-level port
@@ -538,11 +538,11 @@ endpoint   ::= '@' name                    — space-level port
 ```
 
 Every station automatically gets three implicit ports: `_in`,
-`_out`, and `_error`. When a station name appears in a route
+`_out`, and `_error`. [spacesyn-implicit-ports] When a station name appears in a route
 without a `.port` suffix, it expands to `.in` (as a destination)
-or `.out` (as a source).
+or `.out` (as a source). [spacesyn-route-expand]
 
-Anonymous inline stations can appear in routes as `{DAML}`:
+Anonymous inline stations can appear in routes as `{DAML}`: [spacesyn-anon-station]
 ```
 @init -> {__ | add 1} -> {__ | times 2} -> @out
 ```
@@ -585,7 +585,7 @@ main
   splitter.left -> {__ | add 1} -> @out
 ```
 
-Named ports on stations are created by **routes**, not by DAML.
+Named ports on stations are created by **routes**, not by DAML. [spacesyn-named-port-route]
 The route `splitter.left -> {__ | add 1} -> @out` creates the
 `left` port on station `splitter`. The DAML `>@left` sends to
 that port — but only because the route declared it. Without the
@@ -609,7 +609,7 @@ or hold live state. To run, it must be instantiated into a space
 
 It is a content-addressed data structure: the seed's identifier is
 derived from its content, so identical definitions produce the same
-seed.
+seed. [seed-content-addr]
 
 ```
 spaceseed = {
@@ -649,7 +649,7 @@ content of the space — topology, blocks, and nested subspaces.
 
 The runtime instantiates a spaceseed into a live space (see Spaces
 below). Multiple spaces can share the same spaceseed — each gets
-its own σ and queue, but the topology definition is shared.
+its own σ and queue, but the topology definition is shared. [seed-share-instance]
 
 
 ## 4. Space Domains
@@ -678,7 +678,7 @@ Bob's alias set is a subset of Alice's.
 fixed pipeline fragment before execution. They are part of the dialect
 because restricting a dialect may remove aliases as well as commands.
 Aliases are purely syntactic — they expand before any execution
-happens, and the expanded form must be valid under the same dialect.
+happens, and the expanded form must be valid under the same dialect. [dialect-alias-expand]
 
 ### Commands
 ```
@@ -692,7 +692,7 @@ Pure commands are total functions from params to Val.
 Effectful commands have no fun — they have a port type. When
 invoked, the request is sent through a port of that type. If the
 port is wired, the process waits for the response. If the port is
-not wired, the command sploots. No effects without wiring.
+not wired, the command sploots. [effectful-unwired-sploot] No effects without wiring.
 
 ### Programs
 
@@ -780,17 +780,17 @@ the same regardless of where in the hierarchy the ship docks. It
 is computed once at dock time and can be memoized.
 
 A ship without a sender runs under the space's dialect directly
-(the default case for internal routing, system events, etc.).
+(the default case for internal routing, system events, etc.). [sender-effective-default]
 
 **Sender propagation.** The sender is immutable and propagates
 through the entire execution tree:
-  - Sub-processes from block evaluation inherit the sender
-  - Ships sent through `>@portname` carry the sender
-  - Ships exiting through `_out` carry the sender
-  - Down-port requests carry the sender
-  - Error ships carry the sender
+  - Sub-processes from block evaluation inherit the sender [sender-propagate-subprocess]
+  - Ships sent through `>@portname` carry the sender [sender-propagate-portsend]
+  - Ships exiting through `_out` carry the sender [sender-propagate-out]
+  - Down-port requests carry the sender [sender-propagate-downport]
+  - Error ships carry the sender [sender-propagate-error]
   - Ships exiting the outermost space carry the sender (so the
-    App can route responses back and apply its own policies)
+    App can route responses back and apply its own policies) [sender-propagate-exit]
 
 The sender is how the App tracks which external entity triggered
 a computation. Daimio does not authenticate senders — the App is
@@ -830,7 +830,7 @@ to named ports using `>@portname`. But the port must be explicitly
 declared in the space definition's routes. The route
 `station.portname -> destination` creates the named port on the
 station. Without a route declaring it, the port does not exist,
-and `>@portname` sploots at runtime.
+and `>@portname` sploots at runtime. [station-port-requires-route]
 
 This is a security boundary: the space definition controls which
 ports each station can send to. Code running inside a station
@@ -883,10 +883,10 @@ time per space (see §5).
 
 When a spaceseed is instantiated into a space, each subspace
 seed ID in the spaceseed is recursively instantiated into a live
-subspace. Each subspace gets its own σ and its own queue,
+subspace. Each subspace gets its own σ [subspace-own-state] and its own queue [subspace-own-queue],
 independent of the parent and of its siblings. Sibling subspaces
 can process ships concurrently with each other and with the
-parent (when the parent is waiting on an async effect).
+parent (when the parent is waiting on an async effect). [subspace-sibling-concurrent]
 
 Externally, a space is a **reactive automaton** (Mealy machine):
 it accepts ships at in-ports, produces ships at out-ports, and
@@ -905,7 +905,7 @@ The full picture is: a reactive automaton whose transitions are
 effectful programs, executed one at a time per space (§5).
 
 **From inside, a space cannot tell whether it is an outer space
-or a subspace.** The port interface is the same in both cases.
+or a subspace.** [space-inside-opaque] The port interface is the same in both cases.
 Effectful commands produce port requests that propagate outward.
 Whether those requests reach a real-world handler or another
 space's wiring is invisible from inside. This is the foundation
@@ -919,7 +919,7 @@ A subspace depends on the parent for:
   - **Dialect**: inherited from the parent (see below)
 
 **Dialect propagation.** Every space has a dialect. Subspaces
-inherit their parent's dialect. The dialect is set explicitly
+inherit their parent's dialect. [dialect-inherit-parent] The dialect is set explicitly
 only on the outer space; all subspaces get it by inheritance.
 This means there is one dialect for the entire hierarchy.
 Subspace restrictions come from wiring, not from dialect: if you
@@ -959,7 +959,7 @@ wiring, the request would sploot.
 
 **Multiple outer spaces.** An application can create as many outer
 spaces as it needs. Each is a completely independent universe — no
-shared scheduler, no shared state, no cross-instance communication.
+shared scheduler, no shared state, no cross-instance communication. [outer-independent]
 Different outer spaces may use the same spaceseed with different
 dialects and different port wiring, or entirely different
 spaceseeds. The application is responsible for routing data between
@@ -995,7 +995,7 @@ handler(request, callback)
 
 The handler receives the request (including the sender, if
 present) and MUST call the callback exactly once with a response
-value. The calling process is waiting — it resumes when the
+value. [handler-down-callback] The calling process is waiting — it resumes when the
 callback fires. If the handler never calls the callback, the
 timeout (§7.3) will eventually resume the process with the
 default value.
@@ -1026,7 +1026,7 @@ ship (value + optional sender).
 
 **Substitutability.** Any handler can be replaced with a
 different implementation — mock, stub, logger, proxy to a remote
-service — without the space knowing. This is the mechanism behind
+service — without the space knowing. [handler-substitute] This is the mechanism behind
 testability (§0) and the command/port duality (§1): the space
 sees only the port interface, never the handler.
 
@@ -1035,15 +1035,15 @@ sees only the port interface, never the handler.
 
 ### Serial execution per space
 
-Each space processes **one ship at a time**. When a ship arrives at
+Each space processes **one ship at a time**. [serial-one-at-a-time] When a ship arrives at
 a space (via any in-port on any station), it either docks immediately
-(creating a process) or is placed in a FIFO queue. No two processes
+(creating a process) or is placed in a FIFO queue. [queue-fifo] No two processes
 ever execute concurrently within the same space.
 
 This applies regardless of which station the ship targets. A space
 with stations A and B will never process a ship at A and a ship at
 B at the same time. The serialization is per-space, not per-station
-or per-port. Sibling subspaces are independent — each is its own
+or per-port. [serial-per-space] Sibling subspaces are independent — each is its own
 space with its own queue, and they can process ships concurrently.
 
 ### The queue
@@ -1070,12 +1070,12 @@ COMPLETE(space):
   if space.queue is non-empty:
     (ship, station) ← space.queue.shift()              — FIFO dequeue
     space.active ← true
-    DEFER(DOCK(space, ship, station))                  — deferred execution
+    DEFER(DOCK(space, ship, station))                  — deferred execution [queue-deferred-dock]
 ```
 
 Both the dequeue and the completing process's output routing are
 **deferred**. The dequeue fires first: queued ships have priority
-over ships produced by the completing process's output routing.
+over ships produced by the completing process's output routing. [queue-priority-routing]
 If station A's `_out` routes a ship back to A's `_in` while other
 ships are queued, those queued ships dock first.
 
@@ -1103,7 +1103,7 @@ error port (if wired). All ships produced by the process carry
 the process's sender. All port routing is deferred — the ships
 arrive at their destinations after the current process completes.
 
-A waiting process **holds the space**. While a process waits for
+A waiting process **holds the space**. [serial-wait-holds] While a process waits for
 an async response, no other ships can dock. The process has
 exclusive access to the space's state for its entire lifetime,
 from dock through completion.
@@ -1115,9 +1115,9 @@ Commands that accept block parameters (`list map`, `process run`,
 A sub-process:
 
   - Runs in the same space, with access to the same space state
-  - Bypasses the queue (it is part of the active process's work)
+  - Bypasses the queue (it is part of the active process's work) [subprocess-bypass-queue]
   - Executes synchronously and depth-first: the parent process
-    waits for the sub-process to complete before continuing
+    waits for the sub-process to complete before continuing [subprocess-sync-dfs]
   - Can nest to arbitrary depth (sub-sub-processes, etc.)
 
 Sub-processes are nested execution, not concurrent execution.
@@ -1126,14 +1126,14 @@ Sub-processes are nested execution, not concurrent execution.
 
 When a process sends to a space-level port (`>@portname`), the
 port's output routing is **deferred**: the receiving station's
-in-port entry is scheduled asynchronously, not executed inline.
+in-port entry is scheduled asynchronously, not executed inline. [routing-portsend-deferred]
 The sending process continues immediately.
 
 This means `>@portname` does not block the sender's process.
 The routed ship arrives at the target station after the current
-process completes, entering through the normal queue mechanism.
+process completes, entering through the normal queue mechanism. [routing-after-complete]
 
-This also applies to the implicit `_out` routing. Ships produced
+This also applies to the implicit `_out` routing. [routing-out-deferred] Ships produced
 by output routing arrive after ships already in the queue — queued
 ships have priority over newly routed ships.
 
@@ -1166,10 +1166,10 @@ resolveOrCreatePort(space, portType)
   where portType ∉ space.ports = (p, space')
   where p      = new port(portType, Down)
         wiring = matchRules(space.wiringRules, p)
-        space' = space with ports ∪ {p}, p wired by wiring
+        space' = space with ports ∪ {p}, p wired by wiring  [demandport-wire]
 ```
 
-Ports are created on demand because:
+Ports are created on demand [demandport-create] because:
   1. Block evaluation can invoke arbitrary effectful commands at
      runtime — the effect surface isn't known until the block runs
   2. Serialized spaces loaded into sockets may have unknown effect surfaces
@@ -1177,7 +1177,7 @@ Ports are created on demand because:
 ### Wiring rules
 
 Wiring rules are declared in the parent space and pattern-match against
-port properties:
+port properties: [wiring-pattern-match]
 
 ```
 WiringRule = (pattern, target, timeout?)
@@ -1196,8 +1196,8 @@ timeout? : Duration        — explicit timeout for this wire
                              wire with a value, or system default 10s)
 ```
 
-Property values can be negated with `!` to mean "anything except this."
-Multiple properties in a single Match are conjunctive (all must hold).
+Property values can be negated with `!` to mean "anything except this." [wiring-negate]
+Multiple properties in a single Match are conjunctive (all must hold). [wiring-conjunctive]
 
 Concrete syntax example:
 ```
@@ -1207,17 +1207,17 @@ S.@[handler:math method:fizzbuzz] → you can only fizzbuzz nothing else
 ```
 
 Rules are evaluated in order. The first matching rule determines the
-target. OTHER matches anything not matched by a previous rule.
+target. [wiring-first-match] OTHER matches anything not matched by a previous rule. [wiring-other-fallback]
 
 The space's `defaultTimeout` (from the space definition) applies to
-all wiring rules unless individually overridden.
+all wiring rules unless individually overridden. [wiring-default-timeout]
 
 The target of a wiring rule is one of:
   - A handler function (the actual effect implementation)
   - An up-port on a sibling subspace (the sibling provides the service)
   - A down-port on the parent space's own boundary (forwarding the
     effect outward — the parent's environment must handle it)
-  - Null (/dev/null — the effect is silently swallowed, returns empty)
+  - Null (/dev/null — the effect is silently swallowed, returns empty) [wiring-target-null]
 
 ### Example wiring
 
@@ -1240,14 +1240,14 @@ If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then th
 
 ## 7. Async Boundaries
 
-An effectful command creates an **async boundary**. The process's
+An effectful command creates an **async boundary**. [async-boundary] The process's
 execution splits into two phases: before the effect (sync) and after
 the response (sync). The process waits for the response; under the
 current serial model (§5), the space remains busy during the wait.
 
 ### Down ports return exactly one value
 
-A down-port round trip always produces exactly one response. This is a
+A down-port round trip always produces exactly one response. [singleresponse-one] This is a
 design decision with several consequences:
 
   1. It aligns with the free monad interpretation: each effect operation
@@ -1273,7 +1273,7 @@ NOT expressible via down ports. These are exotic for Daimio's use cases
   (process, σ) —[EffCmd(c, args)]→ WAIT(p, process, continuation)
 ```
 
-The process waits. Its pipeline variables and sender are preserved.
+The process waits. Its pipeline variables [async-preserve-vars] and sender are preserved. [async-preserve-sender]
 The request (payload + args + sender) is sent out through port p.
 The sender exits with the request, so the outside (App, parent
 space, or handler) knows who originated it. The continuation is the
@@ -1314,7 +1314,7 @@ Wire = {
 A wire's **nominal timeout** is determined by:
   1. Its own explicit timeout value, if set.
   2. Otherwise, inherited from the nearest enclosing wire in the
-     chain that has an explicit value.
+     chain that has an explicit value. [timeout-inherit]
   3. If no wire in the chain has an explicit value, the system
      default of 10 seconds.
 
@@ -1327,7 +1327,7 @@ stays at 20s.
 
 The **effective timeout** for any down-port round trip is the
 minimum of all nominal timeouts along the chain from the requesting
-process to the handler. This arises naturally from the mechanics:
+process to the handler. [timeout-min-chain] This arises naturally from the mechanics:
 
 If D sends a request through C through B to an external handler:
   - D-C nominal timeout: 20s
@@ -1345,12 +1345,12 @@ An inner wire CAN shorten the wait by having a tighter timeout.
 #### Timeout and ghost response behavior
 
 When a timeout fires, the waiting process resumes with the effectful
-command's default value, and a soft error is emitted. The request is
+command's default value, and a soft error is emitted. [timeout-resume-empty] The request is
 marked completed.
 
 If a response later arrives for an already-completed request (an
 **ghost response**), it is dropped and a soft error fires in the
-space where the response surfaced — not where the request originated.
+space where the response surfaced — not where the request originated. [timeout-ghost-drop]
 
 #### Unwired ports
 
@@ -1403,7 +1403,7 @@ A socket is any space that has a port of flavour "socket-in".
 socketSpace = space with at least one port where flavour = "socket-in"
 ```
 
-When a serialized space arrives as a ship at a socket-in port:
+When a serialized space arrives as a ship at a socket-in port: [socket-load]
 
   1. **Parse** the source text (space syntax) into a space
      definition.
@@ -1414,7 +1414,7 @@ When a serialized space arrives as a ship at a socket-in port:
      Ports are left unresolved — they are demand-created on first
      use.
   4. **Add** the new subspace to the socket space. The parent's
-     wiring rules apply to the new subspace's ports on demand.
+     wiring rules apply to the new subspace's ports on demand. [socket-wiring-demand]
   5. If a previous subspace occupied this socket, **overlap**
      semantics apply (see below).
 
@@ -1425,15 +1425,15 @@ If a previous subspace occupied this socket, the transition uses
 until the old one finishes its work:
 
   1. **New subspace goes live immediately.** All newly arriving
-     ships route to the new subspace.
+     ships route to the new subspace. [socket-overlap-new-live]
   2. **Old subspace keeps running.** It finishes its active
      process, then processes every ship remaining in its queue,
      one at a time, in FIFO order. No new ships enter the old
-     subspace — only its existing queue drains.
+     subspace — only its existing queue drains. [socket-overlap-drain]
   3. **Old subspace is collected** when its queue is empty and
-     no process is active. Its state (σ) is discarded.
+     no process is active. Its state (σ) is discarded. [socket-overlap-state-lost]
 
-No ships are lost. The old subspace's queued work completes
+No ships are lost. [socket-overlap-no-loss] The old subspace's queued work completes
 before the subspace is removed. But state does not survive the
 transition — if you need persistent state across socket swaps,
 it lives outside the space (via ports to external storage). The
@@ -1442,7 +1442,7 @@ socket is a hot-swappable execution slot, not a state container.
 ### Cross-boundary space variable access
 
 A subspace that needs to read or write a parent's space variable
-does so through an explicit effectful command and a down port:
+does so through an explicit effectful command and a down port: [socket-crossboundary-var]
 
 ```
 {var read name :foo}     — sends a request up through a down port
@@ -1483,19 +1483,21 @@ Parsing is left-to-right.
 
 Scan: when the parser encounters '{', it scans forward counting
 '{' (+1) and '}' (-1) to find the balanced closing '}'. Matching
-is purely structural: quotes and other content are not considered.
-If no balanced '}' is found, the '{' is literal text and scanning
-continues from the next character.
+is purely structural: quotes and other content are not considered
+[parse-brace-structural]. If no balanced '}' is found, the '{' is
+literal text and scanning continues from the next character
+[parse-unmatched-open].
 
 Classify: when a balanced span '{...}' is found:
 
   1. If the span begins with '{begin NAME' (where NAME is one or
      more word characters), scan forward from end of span for the literal string
      '{end NAME}'. If found, the entire stretch from '{begin'
-     through '{end NAME}' is a namedblock.
+     through '{end NAME}' is a namedblock [parse-begin-end-match].
 
-  2. Otherwise the span is a command. (This includes '{begin
-     NAME...}' when no matching '{end NAME}' is found.)
+  2. Otherwise the span is a command [parse-command]. (This
+     includes '{begin NAME...}' when no matching '{end NAME}' is
+     found [parse-begin-no-end].)
 
 pipeline   ::= segment (pipe segment)*
 
@@ -1527,12 +1529,12 @@ value      ::= string_literal
              | block
              | name_literal
 
-string_literal ::= '"' (char | command | namedblock)* '"'
+string_literal ::= '"' (char | command | namedblock)* '"'   [parse-string-interpolation]
 number_literal ::= '-'? digit+ ('.' digit+)?    - actually any JS numeric string... so like 0x3e3 is cool :shrug:
-name_literal   ::= ':' name             — e.g. :foo produces the string "foo"
-list_literal   ::= '(' value* ')'       — e.g. (1 2 3), (:a :b :c)
+name_literal   ::= ':' name             — e.g. :foo produces the string "foo" [parse-name-lit]
+list_literal   ::= '(' value* ')'       — e.g. (1 2 3), (:a :b :c) [parse-list-lit]
 
-block      ::= '"{' pipeline '}"'       — a quoted pipeline as a value
+block      ::= '"{' pipeline '}"'       — a quoted pipeline as a value [parse-block-quoted]
              | '"' daml '"'             — a quoted DAML template as a value (those quotes are hard to parse)
 
 pvar_write ::= '>' name                 — e.g. >result, >x -- NB NO path for pvar writes!
@@ -1553,20 +1555,23 @@ Dot-path selectors are either **literal** (`name`, `#N`, `*`) or
 **evaluated** (`{...}`). An evaluated selector is a command whose
 result becomes the selector value. This is how Par works in
 dot-paths: `$foo.{(:a :b)}` evaluates the list `(:a :b)`, which
-becomes a Par selector. There is no bare `()` in dot-path syntax
-— Par requires evaluation, so it uses curlies.
+becomes a Par selector [path-eval-selector]. There is no bare `()`
+in dot-path syntax — Par requires evaluation, so it uses curlies
+[path-par-curlies].
 
 ### No escape sequences
 
 DAML has no escape mechanism for curly braces. There is no `\{`
 or `{{` syntax. This is deliberate:
 
-  - An unmatched `{` (no balanced `}`) is literal text.
-  - A lone `}` is always literal text.
+  - An unmatched `{` (no balanced `}`) is literal text
+    [parse-no-escape].
+  - A lone `}` is always literal text [parse-unmatched-close].
   - To produce a balanced `{...}` as literal output (without
     evaluation), use `{string from code 123}` to emit `{` and
-    `{string from code 125}` to emit `}`, or use `process quote`
-    to return a string containing DAML without evaluating it.
+    `{string from code 125}` to emit `}` [parse-code-curlies],
+    or use `process quote` to return a string containing DAML
+    without evaluating it.
 
 This keeps the parser simple — structural brace matching is the
 only rule, with no context-dependent escape processing.
@@ -1629,8 +1634,8 @@ The distinction matters in three places:
   Path expressions below.
 - **Conversion:** switching between keyed and unkeyed is explicit:
   ```
-  {* (:a 1 :b 2) | list values}    — keyed → unkeyed: drops keys
-  {(1 2) | list rekey}              — unkeyed → keyed: index strings as keys
+  {* (:a 1 :b 2) | list values}    — keyed → unkeyed: drops keys    [collection-values]
+  {(1 2) | list rekey}              — unkeyed → keyed: index keys   [collection-rekey]
   ```
 
 Most other operations (peek, map, delete, iteration) work uniformly
@@ -1639,16 +1644,17 @@ on both keyed and unkeyed collections.
 ### The empty value
 
 The empty value is the identity element. It coerces based on context:
-`""` when used as a string, `0` when used as a number, `[]` when used
-as a list. This is why totality works without error values — a missing
+`""` when used as a string [empty-coerce-string], `0` when used as a
+number [empty-coerce-number], `[]` when used as a list
+[empty-coerce-list]. This is why totality works without error values — a missing
 path, an unbound variable, or a timed-out effect all produce the empty
 value, which becomes whatever zero the consuming command expects.
 
 ### Splooting
 
 To **sploot** is to emit a soft error and continue. The pipeline
-is never halted. The error is routed to the space's error port
-(if wired); the pipeline continues with a value determined by
+is never halted [sploot-pipeline-continues]. The error is routed
+to the space's error port (if wired) [sploot-error-port]; the pipeline continues with a value determined by
 the operation type.
 
 Splooting is the mechanism behind totality: every operation that
@@ -1657,12 +1663,12 @@ notification on the side. What value the pipeline continues with
 depends on the operation:
 
   - **Value-producing operations** (commands, variable reads)
-    continue with the empty value. The operation didn't produce
-    a result, so empty is the right default.
+    continue with the empty value [sploot-value-cmd]. The operation
+    didn't produce a result, so empty is the right default.
   - **Pass-through operations** (port sends, variable writes,
-    failed pokes) continue with the unchanged pipeline value. The
-    side effect failed, but the value flows through as if the
-    operation wasn't there.
+    failed pokes) continue with the unchanged pipeline value
+    [sploot-passthru-portsend]. The side effect failed, but the
+    value flows through as if the operation wasn't there.
 
 A sploot can occur at **compile time** or **runtime**:
 
@@ -1698,14 +1704,16 @@ Star is a **traversal** — it focuses on all existing children.
 Par is a **multiplexer** — it maps an operation across multiple paths.
 Each sub-path carries its own semantics.
 
-**Pos is 1-indexed.** `#1` is first element, `#-1` is last. Negative
-positions count from the end. Pos works on both keyed and unkeyed
-collections (keyed collections are accessed by insertion order).
-`#0` is invalid. Any position that doesn't resolve to an existing
-element sploots.
+**Pos is 1-indexed.** `#1` is first element [pos-one-indexed],
+`#-1` is last [pos-negative]. Negative positions count from the
+end. Pos works on both keyed and unkeyed collections (keyed
+collections are accessed by insertion order). `#0` is invalid
+[pos-zero-invalid]. Any position that doesn't resolve to an
+existing element sploots.
 
-**Key access is 0-indexed.** Key with a numeric string on an unkeyed
-list uses 0-based indexing (see Key coercion below).
+**Key access is 0-indexed.** Key with a numeric string on an
+unkeyed list uses 0-based indexing [key-zero-indexed] (see Key
+coercion below).
 
 #### Key coercion
 
@@ -1713,15 +1721,15 @@ Keys in paths may be strings or numbers. Coercion depends on the
 target collection:
 
 ```
-String key on unkeyed list:  coerce to natural number
+String key on unkeyed list:  coerce to natural number               [keycoerce-string-unkeyed]
                               if success: 0-indexed array access
                               if failure: sploot
 
-Number key on keyed list:    treat as string
+Number key on keyed list:    treat as string                        [keycoerce-number-keyed]
 
-Number key on unkeyed list:  0-indexed array access
+Number key on unkeyed list:  0-indexed array access                 [keycoerce-number-unkeyed]
 
-String key on keyed list:    normal key lookup
+String key on keyed list:    normal key lookup                      [keycoerce-string-keyed]
 ```
 
 Examples:
@@ -1754,14 +1762,16 @@ never adds or removes entries from the parent collection.
 #### Peek (read)
 
 ```
-peek(v, []) = v
+peek(v, []) = v                                                     [peek-empty-path]
 
-peek(Collection, Key(s) :: rest)  =  peek(v[s], rest)      — or Empty
-peek(Collection, Pos(n)  :: rest) =  peek(v at n, rest)    — or Empty
-peek(Collection, Star :: rest)    = [peek(child, rest) for child in children(v)]
-peek(Collection, Par(ps) :: rest) = [peek(v, p ++ rest) for p in ps]
+peek(Collection, Key(s) :: rest)  =  peek(v[s], rest)               [peek-key-hit]
+                                     — or Empty                     [peek-key-miss]
+peek(Collection, Pos(n)  :: rest) =  peek(v at n, rest)             [peek-pos-hit]
+                                     — or Empty                     [peek-pos-miss]
+peek(Collection, Star :: rest)    = [peek(child, rest) ...]         [peek-star]
+peek(Collection, Par(ps) :: rest) = [peek(v, p ++ rest) ...]        [peek-par]
 
-peek(scalar, _ :: _) = Empty              — no navigation into scalars
+peek(scalar, _ :: _) = Empty                                        [peek-scalar]
 peek(Empty, _ :: _)  = Empty
 ```
 
@@ -1769,12 +1779,13 @@ peek(Empty, _ :: _)  = Empty
 always yields Empty.
 
 **Return type is path-dependent:** if any selector in the path is
-Star or Par, the result is always wrapped in a list (even if
-empty: `[]`). If all selectors are affine (Key or Pos), the result
-is a single unwrapped value or Empty. The caller can predict the
-wrapping from the path alone, regardless of data. Note: the
-unwrapped value itself may be a list — the wrapping is about
-whether peek adds an *additional* list layer around the result.
+Star or Par, the result is always wrapped in a list [peek-star-wraps]
+(even if empty: `[]`). If all selectors are affine (Key or Pos),
+the result is a single unwrapped value or Empty
+[peek-affine-unwraps]. The caller can predict the wrapping from the
+path alone, regardless of data. Note: the unwrapped value itself
+may be a list — the wrapping is about whether peek adds an
+*additional* list layer around the result.
 
 #### Poke (write)
 
@@ -1782,7 +1793,7 @@ Poke writes a constant value at a path. **Only Key creates new
 structure.** Everything else modifies in place or sploots.
 
 ```
-poke(v, [], new) = new                    — replace entirely
+poke(v, [], new) = new                    — replace entirely           [poke-empty-path]
 ```
 
 Empty-path poke replaces the value wholesale. This preserves the
@@ -1793,28 +1804,27 @@ Append semantics are available separately via `list union`.
 
 ```
 poke(KeyedCollection, Key(s) :: rest, new) =
-  if key s exists: update val with poke(val, rest, new)
-  else:            add entry (key=s, val=poke(Empty, rest, new))
+  if key s exists: update val                                   [poke-key-update]
+  else:            add entry                                    [poke-key-create]
 
 poke(UnkeyedCollection, Key(s) :: rest, new) =
-  apply key coercion; if s coerces to nat, update that element
-  otherwise: soft error, return unchanged (no promotion)
+  coerce to nat: update that element                            [poke-key-unkeyed-coerce]
+  otherwise: soft error, return unchanged                       [poke-key-unkeyed-fail]
 
 poke(Empty, Key(s) :: rest, new) =
-  create KeyedCollection with (key=s, val=poke(Empty, rest, new))
+  create KeyedCollection                                        [poke-key-empty]
 
 poke(scalar, Key(s) :: rest, new) =
-  if affine path (no Star): poke(Empty, Key(s) :: rest, new)
-                              — scalar is replaced
-  if traversal (through Star): unchanged — scalar is skipped
+  if affine (no Star): replace scalar                           [poke-key-scalar-affine]
+  if traversal (via Star): unchanged                            [poke-key-scalar-traversal]
 ```
 
 **Pos** — modifies existing positions only:
 
 ```
 poke(Collection, Pos(n) :: rest, new) =
-  if position n exists: update val with poke(val, rest, new)
-  else:                 unchanged         — out of bounds, no-op
+  if position n exists: update val                              [poke-pos-update]
+  else:                 unchanged — out of bounds               [poke-pos-oob]
 
 poke(Empty, Pos(n) :: rest, new) = Empty
 poke(scalar, Pos(n) :: rest, new) = unchanged
@@ -1823,7 +1833,7 @@ poke(scalar, Pos(n) :: rest, new) = unchanged
 **Star** — modifies all existing children, never creates:
 
 ```
-poke(Collection, Star :: rest, new) =
+poke(Collection, Star :: rest, new) =                           [poke-star]
   for each child: poke(child, rest, new)
   — scalar children are skipped (see scalar rule above)
 
@@ -1834,7 +1844,7 @@ poke(scalar, Star :: rest, new) = unchanged
 **Par** — delegates to each sub-path, sequentially left-to-right:
 
 ```
-poke(v, Par(ps) :: rest, new) =
+poke(v, Par(ps) :: rest, new) =                                 [poke-par-sequential]
   for each path p in ps (left to right):
     v = poke(v, p ++ rest, new)
   return v
@@ -1849,8 +1859,8 @@ reached through Star expansion:
   - **Traversal (reached via Star):** scalar children are skipped.
     `poke([1, 2, 3], ["*", :a], 99)` → `[1, 2, 3]`
 
-The determination is local: did this particular recursive call
-arrive here through a Star expansion? Not "does the overall path
+The determination is local [poke-midpath-local]: did this particular
+recursive call arrive here through a Star expansion? Not "does the overall path
 contain Star somewhere." This matters for Par, where different
 sub-paths may have different affinity — each sub-path is expanded
 independently, so each makes its own affine/traversal determination.
@@ -1858,8 +1868,8 @@ independently, so each makes its own affine/traversal determination.
 #### Map (transform at focus)
 
 Map applies a block to each value at a path focus. **Map never
-adds entries** — it doesn't add keys or extend collections. It
-transforms existing values in place. However, the block's return
+adds entries** [map-no-add] — it doesn't add keys or extend
+collections. It transforms existing values in place. However, the block's return
 value can be any type, so map can replace a scalar with a
 collection (or vice versa) at an existing entry. If the path
 doesn't reach any focus, the structure is returned unchanged.
@@ -1879,16 +1889,16 @@ map(Collection, Pos(n) :: rest, block) =
 map(Collection, Star :: rest, block) =
   for each child: map(child, rest, block)
 
-map(scalar, _ :: _, block) = unchanged
-map(Empty, _ :: _, block) = Empty
+map(scalar, _ :: _, block) = unchanged                              [map-scalar-unchanged]
+map(Empty, _ :: _, block) = Empty                                   [map-empty-unchanged]
 ```
 
 **Par-map is sequential** (same as Par-poke).
 
-**When path is omitted, default is `("*")`** — this matches current
+**When path is omitted, default is `("*")`** [map-default-star] — this matches current
 `list map` behavior (map over all children).
 
-**Block receives:**
+**Block receives:** [map-block-scope]
 - `__` — the value at the focus
 - `_key` — the key of the focus in its parent
 - `_index` — the index of the focus in its parent
@@ -1905,27 +1915,27 @@ collection shape** (positions shift, entries disappear). If the
 path doesn't reach any focus, the structure is returned unchanged.
 
 ```
-delete(v, []) = Empty
+delete(v, []) = Empty                                               [delete-empty-path]
 
-delete(KeyedCollection, Key(s) :: []) =
+delete(KeyedCollection, Key(s) :: []) =                             [delete-key-keyed]
   remove entry with key s (no-op if missing)
 
-delete(UnkeyedCollection, Key(s) :: []) =
+delete(UnkeyedCollection, Key(s) :: []) =                           [delete-key-unkeyed]
   apply key coercion; if s coerces to nat, splice (shift)
   otherwise: soft error, return unchanged
 
-delete(Collection, Pos(n) :: []) =
+delete(Collection, Pos(n) :: []) =                                  [delete-pos]
   if position n exists: splice (shift remaining elements)
   else:                 unchanged
 
-delete(Collection, Star :: []) =
+delete(Collection, Star :: []) =                                    [delete-star]
   remove all children (preserve keyed/unkeyed type)
 
 delete(Collection, selector :: rest) =
   navigate to child(ren) via selector, recurse with rest
 ```
 
-**Par-delete uses collect-then-remove semantics.** All target
+**Par-delete uses collect-then-remove semantics** [delete-par-collect]. All target
 positions are identified from the original structure, then removed
 in reverse index order within each level. Reverse order ensures
 that removing an earlier position doesn't shift later positions
@@ -1941,7 +1951,7 @@ positional deletes would corrupt later sub-paths.
 sub-paths are applied sequentially: the second sub-path sees the
 result of the first. For Par-delete, overlapping sub-paths are
 resolved from the original structure — if both sub-paths target
-the same entry, it is removed once.
+the same entry, it is removed once [delete-par-overlap].
 
 #### Path operations as commands
 
@@ -1957,13 +1967,13 @@ list delete — params: data, path
 #### Laws
 
 ```
-PutGet:    peek(poke(v, p, x), p) = x
-PutPut:    poke(poke(v, p, x), p, y) = poke(v, p, y)
-GetPut:    poke(v, p, peek(v, p)) = v
-DeleteGet: peek(delete(v, p), p) = Empty
-DeleteDel: delete(delete(v, p), p) = delete(v, p)
-MapId:     map(v, p, "{__}") = v
-PokeAsMap: poke(v, p, x) = map(v, p, "{x}")
+PutGet:    peek(poke(v, p, x), p) = x                               [law-putget]
+PutPut:    poke(poke(v, p, x), p, y) = poke(v, p, y)               [law-putput]
+GetPut:    poke(v, p, peek(v, p)) = v                               [law-getput]
+DeleteGet: peek(delete(v, p), p) = Empty                            [law-deleteget]
+DeleteDel: delete(delete(v, p), p) = delete(v, p)                   [law-deletedel]
+MapId:     map(v, p, "{__}") = v                                    [law-mapid]
+PokeAsMap: poke(v, p, x) = map(v, p, "{x}")                        [law-pokeasmap]
 ```
 
 PutPut holds universally. DeleteDel (idempotent) holds universally.
@@ -2011,19 +2021,16 @@ resolves data flow into a static segment flow graph:
   2. **Munging** resolves each token's data dependencies:
      - The `|` pipe operator creates an edge from the previous
        segment's output to the next segment's first unfilled
-       parameter. This is recorded as an entry in the flow graph.
-     - `||` (barrier) breaks the implicit edge. The next segment
-       receives no implicit input from the previous segment.
+       parameter [compile-pipe-edge].
+     - `||` (barrier) breaks the implicit edge [compile-barrier-break].
      - `__` is **compiled away**: references to `__` are replaced
-       with direct edges to the upstream segment. The `__` segment
-       is eliminated from the final block.
+       with direct edges to the upstream segment
+       [compile-dunder-elim].
      - `>x` / `_x` (pipeline variables) are **partially compiled
-       away**: `_x` references are resolved into direct edges to
-       the segment that produced `>x`'s value. The `>x` segment
-       remains (it stores the value for scope inheritance to
-       sub-processes), but the `_x` reads are wired directly.
+       away**: `_x` references are resolved into direct edges;
+       `>x` remains for scope inheritance [compile-pvar-partial].
      - `>$x` / `$x` (space variables) are **NOT compiled away**:
-       they are runtime reads/writes to shared state.
+       they are runtime reads/writes [compile-svar-runtime].
   3. **The result** is a block with an array of remaining segments
      and a flow graph: `{segmentKey: [inputKey1, inputKey2, ...]}`.
 
@@ -2037,18 +2044,19 @@ implicitly).
 ### Block identity
 
 Before hashing, the compiler normalizes segment keys to sequential
-indices (`wash_keys`). This ensures that two blocks compiled from
-the same DAML produce identical normalized structures regardless
-of the compilation context. The block is then JSON-serialized and
+indices (`wash_keys`) [compile-normalize]. This ensures that two
+blocks compiled from the same DAML produce identical normalized
+structures regardless of the compilation context. The block is then JSON-serialized and
 hashed. The hash is the block's identity:
 
 ```
 block.id = hash(JSON.stringify(normalized_block))
 ```
 
-Identical DAML always produces the same block ID. Blocks are
-stored in a global table (`D.BLOCKS`) keyed by ID — if a block
-with the same hash already exists, the existing one is reused.
+Identical DAML always produces the same block ID [blockid-same].
+Blocks are stored in a global table (`D.BLOCKS`) keyed by ID — if
+a block with the same hash already exists, the existing one is
+reused [blockid-dedup].
 This means every station, every block parameter, and every named block
 that contains the same DAML shares the same compiled block. The
 deduplication is automatic and invisible to the programmer.
@@ -2109,7 +2117,7 @@ composition, and block invocation (sub-processes).
 
 The `|` operator sequences segments. It also automatically **fills
 a parameter** of the next command. The first unfilled parameter
-takes the previous segment's output. This is the core pipe mechanic:
+takes the previous segment's output. [pipe-flow] This is the core pipe mechanic:
 
 ```
 {3 | math add to 5}
@@ -2130,7 +2138,7 @@ The command `list range` is defined with parameters `length`, `start`,
 and `step`, in that order. In the first example, the `length`
 parameter is filled by `2`, yielding `(1 2)`. In the second the
 `start` parameter is the first unfilled parameter by definition
-order, so it takes the `2`, yielding `(2 3 4)`. Only after the
+order, so it takes the `2`, yielding `(2 3 4)`. [pipe-fill-deforder] Only after the
 first two parameters are explicitly filled is the `2` finally
 allowed to infest `step`, producing `(4 6 8)`.
 
@@ -2140,7 +2148,7 @@ allowed to infest `step`, producing `(4 6 8)`.
 ```
 
 What if you want to fill the `step` parameter? The implicit value
-is also available explicitly as `__`. In the first example `step`
+is also available explicitly as `__`. [pipe-dunder] In the first example `step`
 is explicitly taking the previous pipe's value -- but `start` is
 also taking the implicit piped value, yielding `(2 4 6)`.
 
@@ -2161,7 +2169,7 @@ used as part of a block applied to data, as in this example. This
 does not implicitly fill a parameter in the first segment of the
 pipeline, but is accessible by `__`. It is also accessible as
 `__in` within any segment in that pipeline -- a fixed value, unlike
-`__`, which updates after each segment. Note that `__` is the only
+`__`, which updates after each segment. [pipe-dunderin] Note that `__` is the only
 pipeline variable that updates inside a pipeline. All other `_`
 vars are single-assignment (they actually get compiled down to
 wiring). This example takes the input value, adds 1, adds the
@@ -2182,14 +2190,14 @@ $foo       — space variable (set with >$foo)
 - `_foo` — pipeline variable: local to the pipeline; inherited by
   child blocks, but pvars set inside a block don't propagate back out
 - `$foo` — space variable: available within all pipelines in the
-  same space
+  same space [scope-svar-access]
 
 ### The `||` barrier
 
 `||` (double pipe) blocks the implicit pipe value from flowing to the
 next segment. After `||`, the next command receives the empty value as
 its implicit input. Pipeline variables (`_foo`) still cross the barrier
-— only the implicit value is blocked.
+— only the implicit value is blocked. [pipe-barrier-vars]
 
 This is how you run independent computations in sequence within one
 pipeline, using pipeline vars to stash results:
@@ -2207,7 +2215,7 @@ its implicit input, which is probably wrong:
 ```
 
 A trailing `||` causes the pipeline to return the empty value instead
-of its last segment's result. Useful in templating contexts where
+of its last segment's result. [pipe-trailing-empty] Useful in templating contexts where
 side-effectful operations shouldn't produce visible output:
 
 ```
@@ -2224,15 +2232,15 @@ two syntactic forms, but they produce the same thing:
 {begin foo}Hello, {name}!{end foo}   — named block (multi-line friendly)
 ```
 
-Both are parsed into the same Block segment via the same code path.
+Both are parsed into the same Block segment via the same code path. [block-forms-equivalent]
 A quoted block is DAML wrapped in quotes. A named block is syntactic
 sugar: the parser transforms `{begin foo | cmd}body{end foo}` into
 a pipeline where the body becomes a quoted block passed as the first
-value to `cmd`. The name exists only for matching the end tag and
+value to `cmd`. [block-named-pipe] The name exists only for matching the end tag and
 readability.
 
 Named blocks do not automatically create a variable or squelch
-output. To save one for reuse, pipe it explicitly:
+output. [block-named-no-squelch] To save one for reuse, pipe it explicitly:
 
 ```
 {begin greeting | >$greeting ||}
@@ -2249,7 +2257,7 @@ output. To save one for reuse, pipe it explicitly:
 {math subtract from 8 value 5}
 ```
 
-Note that **explicit parameter ordering** is unimportant. The
+Note that **explicit parameter ordering** is unimportant. [param-order-explicit] The
 command `math subtract` has the form
 `math subtract value _x from _y`, but those parameters can be
 specified in either order. The ordering in the command's definition
@@ -2275,7 +2283,7 @@ new store `σ'`. Here `process.v` is the current pipeline value and
   args' = fillImplicit(args, process.v)     — process.v fills first unfilled param
   v' = fun(args')
   ─────────────────────────────────────────────────
-  (process, σ) —[PureCmd(c, args)]→ (process{v := v'}, σ)
+  (process, σ) —[PureCmd(c, args)]→ (process{v := v'}, σ)     [total-cmd-value]
 ```
 
 **Parameter filling** (`fillImplicit`) works in two passes:
@@ -2284,7 +2292,7 @@ new store `σ'`. Here `process.v` is the current pipeline value and
      binds `value=5` and `to=3` regardless of definition order.
   2. **The implicit pipe value** (process.v) fills the first parameter
      (by definition order) that was not explicitly provided. This
-     happens at most once — only the first unfilled param receives it.
+     happens at most once — only the first unfilled param receives it. [pipe-fill-one]
      `{2 | math add value 5}` means math.add receives 2 as its
      implicit first param and 5 as value.
 
@@ -2299,15 +2307,15 @@ Each command param declares a type in its definition (e.g.
 `{key: 'value', type: 'number'}`). The available types are fixed:
 
 ```
-list     — scalars wrap to single-element list; empty → []
-string   — numbers stringify; empty → ""
-number   — strings coerce numerically; empty → 0
-integer  — like number, then rounded
-block    — compiled block refs become evaluable; strings pass through
+list     — scalars wrap to single-element list; empty → [] [coerce-list]
+string   — numbers stringify; empty → "" [coerce-string]
+number   — strings coerce numerically; empty → 0 [coerce-number]
+integer  — like number, then rounded [coerce-integer]
+block    — compiled block refs become evaluable; strings pass through [coerce-block]
              (strings must be explicitly compiled via `process unquote`)
-anything — passed through (with empty normalization)
+anything — passed through (with empty normalization) [coerce-anything]
 
-either:A,B — if the value matches type A, coerce as A;
+either:A,B — if the value matches type A, coerce as A; [coerce-either]
              otherwise coerce as B. Used for params that
              accept e.g. a block or a string key.
 ```
@@ -2318,14 +2326,14 @@ empty value coerces to each type's zero: `""`, `0`, `[]`, etc.
 
 **Unfilled optional params** receive the empty value, coerced to
 their declared type (e.g. `""` for string, `0` for number, `[]`
-for list). If the param has a `fallback` defined, the fallback is
+for list). [param-unfilled-default] If the param has a `fallback` defined, the fallback is
 used instead.
 
 **Required params:** if a param is marked `required` and receives
 no value (not from explicit naming, not from implicit pipe filling,
-and no fallback defined), the command sploots.
+and no fallback defined), the command sploots. [param-required-sploot]
 
-**Unknown param names** are silently ignored. The command only
+**Unknown param names** are silently ignored. [param-unknown-ignored] The command only
 reads params declared in its definition. Supplied names that don't
 match any declared param are compiled but never consumed — the
 command executes as if they weren't there.
@@ -2333,7 +2341,7 @@ command executes as if they weren't there.
 
 **Dialect check:** if c ∉ effective_dialect.commands, the command is
 not executed. A soft error is emitted (see §12), and the pipeline
-value is unchanged.
+value is unchanged. [dialect-cmd-sploot]
 
 **Read space variable:**
 ```
@@ -2343,7 +2351,7 @@ value is unchanged.
 ```
 
 If s is unbound in σ, or path doesn't match, the result sploots
-(empty value + soft error to error port). This aids debugging —
+(empty value + soft error to error port). [svar-read-unbound-sploot] This aids debugging —
 a typo in a variable name produces an observable error — while
 the pipeline continues normally with the empty value.
 
@@ -2354,7 +2362,7 @@ the pipeline continues normally with the empty value.
   (process, σ) —[WriteSVar(s, path)]→ (process, σ')
 ```
 
-If path is empty, this sets s directly. See §10 Path expressions for
+If path is empty, this sets s directly. [svar-write-path] See §10 Path expressions for
 full poke semantics: Key creates on keyed/Empty/scalar (affine only),
 Pos only modifies existing, Star only modifies existing children,
 Key on unkeyed lists coerces or soft errors.
@@ -2366,7 +2374,7 @@ Key on unkeyed lists coerces or soft errors.
   (process, σ) —[ReadPVar(x, path)]→ (process{v := v'}, σ)
 ```
 
-If x is unbound or path doesn't match, the result is empty (totality).
+If x is unbound or path doesn't match, the result is empty (totality). [pvar-unbound-empty]
 
 **Write pipeline variable:**
 ```
@@ -2376,7 +2384,7 @@ If x is unbound or path doesn't match, the result is empty (totality).
 ```
 
 Pipeline variable bindings are write-once within a synchronous segment
-(SSA). Rebinding is a compile-time error for _vars within a segment.
+(SSA). [scope-pvar-writeonce] Rebinding is a compile-time error for _vars within a segment.
 
 **Port send:**
 ```
@@ -2388,10 +2396,10 @@ Pipeline variable bindings are write-once within a synchronous segment
   portname does not exist on this station
   ─────────────────────────────────────────────────
   (process, σ) —[PortSend(portname)]→ (process, σ)
-  emit soft error                       — pass-through: pipeline value unchanged
+  emit soft error                       — pass-through: pipeline value unchanged [portsend-missing-sploot]
 ```
 
-The pipeline value is unchanged — PortSend passes it through.
+The pipeline value is unchanged — PortSend passes it through. [station-portsend-passthru]
 The actual ship send is **deferred**: it is scheduled to execute
 after the current process completes (see §5 "Port routing and
 deferred entry"). The deferred ship carries the process's sender.
@@ -2406,7 +2414,7 @@ edges in the segment flow graph (see §10 "Block compilation").
 The first segment of a pipeline has no incoming flow edges —
 nothing is injected into its first unfilled parameter. The
 pipeline's input is accessible explicitly as `__` and `__in`,
-but does not implicitly fill any parameter of the first segment.
+but does not implicitly fill any parameter of the first segment. [pipe-fill-first-none]
 
 **Pipe composition:**
 ```
@@ -2434,7 +2442,7 @@ A trailing `||` with no following segment returns empty:
 
 **Literal:**
 ```
-  (process, σ) —[Literal(v)]→ (process{v := v}, σ)
+  (process, σ) —[Literal(v)]→ (process{v := v}, σ)   — [literal-produces-value]
 ```
 
 ### Block invocation
@@ -2459,22 +2467,22 @@ evaluated the same way — it's a block that gets run by a sub-process.
 
   1. The sub-process **inherits the parent's pipeline vars**. All
      pipeline variables bound before the block was invoked are
-     readable inside. This is safe because pipeline vars are
+     readable inside. [scope-pvar-inherit] This is safe because pipeline vars are
      write-once — the sub-process gets a copy of frozen values.
   2. The command **injects scope variables** on top of the inherited
      vars. Standard injected names:
-       `_value`       — the current item being processed
-       `_key`         — the current item's key (for keyed collections)
-       `_index`       — the current item's index
-       `_total`       — accumulator value (for reduce/fold)
+       `_value`       — the current item being processed [scope-inject-value]
+       `_key`         — the current item's key (for keyed collections) [scope-inject-key]
+       `_index`       — the current item's index [scope-inject-index]
+       `_total`       — accumulator value (for reduce/fold) [scope-inject-total]
      Injected vars shadow parent vars of the same name.
   3. `__in` is the sub-process's input (typically `_value`). `__` is
-     the previous pipe segment's output — at the start, `__ = __in`.
+     the previous pipe segment's output — at the start, `__ = __in`. [pipe-dunderin-first]
   4. The sub-process executes in the same space as the parent, under
      the same effective dialect, with the same sender, and with
      access to the same space variables.
   5. Pipeline vars bound inside the sub-process (via `>x`) do NOT
-     propagate back to the parent. The sub-process's env is its own.
+     propagate back to the parent. [scope-pvar-no-propagate] The sub-process's env is its own.
 
 Every process runs under its effective dialect (sender.dialect ∩
 space.dialect, computed at dock time). There is no mechanism
