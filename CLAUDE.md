@@ -119,6 +119,13 @@ tests/
   node_code.mjs        — internal JS-level tests (68 tests)
   example_test.mjs     — command example tests (104 tests, auto-discovered)
   daimio.dm            — test definitions (text format)
+  daimio.html          — browser REPL + test runner
+bin/
+  repl.mjs             — Node REPL (interactive, -e, -f modes)
+  fuzzer.mjs           — DAML fuzzer (seeded PRNG, parallel, auto-minimizer)
+css/
+  daimio.css           — standalone styles for daimio.html (no Bootstrap)
+  todo.css             — TodoMVC demo styles
 D2-spec.md             — formal execution model specification
 extra/
   D2-spec-commentary.md — spec discussion/commentary
@@ -212,17 +219,17 @@ Part III — Blocks (inner language):
 
 ## Fuzzer
 
-The fuzzer at `tests/fuzz_test.mjs` generates random DAML and runs it, looking for crashes,
+The fuzzer at `bin/fuzzer.mjs` generates random DAML and runs it, looking for crashes,
 hangs, prototype pollution, and async errors. Generators cover: commands with type-confused
 params, meta-evaluation (process run/quote/unquote chains), complex pathfinder paths,
 coercion stress chains, port sends, named blocks (nested/multiple), and random garbage.
 
 ```bash
-node tests/fuzz_test.mjs                          # 1000 expressions, random seed
-node tests/fuzz_test.mjs 50000 myseed             # 50k, reproducible seed
-node tests/fuzz_test.mjs 5000 myseed 200 100      # count seed concurrency timeout_ms
-node tests/fuzz_test.mjs 5000 myseed -v            # verbose (full expressions to stderr)
-node tests/fuzz_test.mjs 5000 myseed --skip 3000   # skip first 3000 (for OOM bisection)
+node bin/fuzzer.mjs                          # 1000 expressions, random seed
+node bin/fuzzer.mjs 50000 myseed             # 50k, reproducible seed
+node bin/fuzzer.mjs 5000 myseed 200 100      # count seed concurrency timeout_ms
+node bin/fuzzer.mjs 5000 myseed -v            # verbose (full expressions to stderr)
+node bin/fuzzer.mjs 5000 myseed --skip 3000   # skip first 3000 (for OOM bisection)
 ```
 
 Crashes are auto-minimized to shortest reproducing expression (preserves `||` barrier pipes).
@@ -257,7 +264,8 @@ Most demos have been updated to work with the current codebase:
 - Fixed strict-mode errors in all `<script type="module">` blocks (`var`/`window.` declarations)
 - CodeMirror updated to CM5 from CDN (cdnjs 5.65.18) — custom daimio mode + hint stay local
 - Working: button_local, button_two, button_timer, turtle_solo, seqs/*, coderetreat, todomvc
-- tests/daimio.html: REPL converted to module script, var scoping fixed
+- tests/daimio.html: REPL converted to module script, var scoping fixed, Bootstrap removed
+  (replaced with css/daimio.css + vanilla JS for navbar dropdowns)
 
 **Needs investigation:**
 - excitebikes.html: DAML is correct (verified in Node), but grid interaction not working in browser — needs browser console debugging
@@ -301,14 +309,14 @@ sets value to the pipe value (`$d`), not the block input — use `value __in` in
 
 ## REPL
 
-The REPL is at `repl.mjs` in the project root (moved from `tests/repl.mjs`):
+The REPL is at `bin/repl.mjs`:
 ```bash
-node repl.mjs              # interactive mode  (alias: depl)
-node repl.mjs -e "{...}"   # evaluate expression, print result, exit  (alias: daml)
-node repl.mjs -f file.dm   # run a .dm file as DAML, print result, exit
+node bin/repl.mjs              # interactive mode  (alias: depl)
+node bin/repl.mjs -e "{...}"   # evaluate expression, print result, exit  (alias: daml)
+node bin/repl.mjs -f file.dm   # run a .dm file as DAML, print result, exit
 ```
-- Use `node repl.mjs -e "<expression>"` to quickly test DAML expressions
-- Use `node repl.mjs -f <file>` to run a .dm file
+- Use `node bin/repl.mjs -e "<expression>"` to quickly test DAML expressions
+- Use `node bin/repl.mjs -f <file>` to run a .dm file
 - Type Daimio expressions at the `>` prompt, hit Enter on a blank line to execute
 - Supports multiline paste (buffered until blank line)
 - Soft errors display in red; `-e` and `-f` modes print errors to stderr

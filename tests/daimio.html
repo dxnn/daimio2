@@ -7,7 +7,7 @@
   -->
     <script type="module" src="../daimio/daimio.js"></script>
 
-  <link rel="stylesheet" href="../css/styles.css" type="text/css" media="screen">
+  <link rel="stylesheet" href="../css/daimio.css" type="text/css" media="screen">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
 
@@ -157,7 +157,7 @@
   <!-- NAVBAR -->
   <nav class="navbar navbar-fixed-top navbar-inverse" role="navigation">
     <div class="navbar-header">
-      <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+      <button type="button" class="navbar-toggle">
         <span class="sr-only">Toggle navigation</span>
         <span class="icon-bar"></span>
         <span class="icon-bar"></span>
@@ -165,11 +165,11 @@
       </button>
       <a class="navbar-brand" href="#">Daimio</a>
     </div>
-    <div class="collapse navbar-collapse navbar-ex1-collapse">
+    <div class="navbar-collapse">
       <ul class="nav navbar-nav">
         <li class="active"><a href="#id_daimio_primer">Daimio Primer</a></li>
         <li class="dropdown">
-          <a href="#" class="dropdown-toggle" data-toggle="dropdown">In Depth <b class="caret"></b></a>
+          <a href="#" class="dropdown-toggle">In Depth <b class="caret"></b></a>
           <ul class="dropdown-menu">
             <li><a href="#id_commands">Commands</a></li>
             <li><a href="#id_lists">Lists</a></li>
@@ -182,7 +182,7 @@
           </ul>
         </li>
         <li class="dropdown">
-          <a href="#" class="dropdown-toggle" data-toggle="dropdown">Command Examples <b class="caret"></b></a>
+          <a href="#" class="dropdown-toggle">Command Examples <b class="caret"></b></a>
           <ul class="dropdown-menu">
             <li><a href="#id_list_examples">List</a></li>
             <li><a href="#id_logic_examples">Logic</a></li>
@@ -192,7 +192,7 @@
           </ul>
         </li>
         <li class="dropdown">
-          <a href="#" class="dropdown-toggle" data-toggle="dropdown">Appendices <b class="caret"></b></a>
+          <a href="#" class="dropdown-toggle">Appendices <b class="caret"></b></a>
           <ul class="dropdown-menu">
             <li><a href="#id_app_numbers" class="">Numbers</a></li>
             <li><a href="#id_app_edge" class="">Edge Cases</a></li>
@@ -201,7 +201,7 @@
           </ul>
         </li>
         <li class="dropdown">
-          <a href="#" class="dropdown-toggle" data-toggle="dropdown">Demos <b class="caret"></b></a>
+          <a href="#" class="dropdown-toggle">Demos <b class="caret"></b></a>
           <ul class="dropdown-menu">
             <li><a href="demos/button_timer.html" class="">Simple Counter</a></li>
             <li><a href="demos/seqs/full.html" class="">Sequence Generator</a></li>
@@ -222,7 +222,7 @@
   <div class="container">
     <div class="row">
       <div class="col-xs-12 col-md-6">
-        <div id="sidebar" data-spy="affix" class="hidden-print hidden-xs">
+        <div id="sidebar" class="hidden-print hidden-xs">
           <!-- REPL -->
           <div id="repl">
             <div class="panel panel-default">
@@ -254,8 +254,9 @@
             <li class="list-group-item">Use <em>Up</em> and <em>Down</em> arrows to cycle through your history.</li>
             <li class="list-group-item">History is saved between sessions.</li>
             <li class="list-group-item">Start with a '{' and end with a '}' when writing Daimio commands.</li>
-          </div>
+          </ul>
         </div>
+      </div>
       <div class="col-xs-12 col-md-6">
 
         <!-- INTRO -->
@@ -282,8 +283,6 @@
 </div>
 
 
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
@@ -440,8 +439,26 @@
 
   </script>
 
-  <script src="../js/jquery.js"></script>
-  <script src="../js/bootstrap.min.js"></script>
+  <script>
+    // Navbar dropdowns + mobile toggle (replaces Bootstrap JS)
+    document.querySelector('.navbar-toggle').addEventListener('click', function() {
+      document.querySelector('.navbar-collapse').classList.toggle('open')
+    })
+    document.querySelectorAll('.dropdown > a').forEach(function(el) {
+      el.addEventListener('click', function(e) {
+        e.preventDefault()
+        var li = this.parentNode
+        var wasOpen = li.classList.contains('open')
+        document.querySelectorAll('.dropdown.open').forEach(function(d) { d.classList.remove('open') })
+        if (!wasOpen) li.classList.add('open')
+      })
+    })
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.dropdown')) {
+        document.querySelectorAll('.dropdown.open').forEach(function(d) { d.classList.remove('open') })
+      }
+    })
+  </script>
 
 </body>
 </html>
