@@ -1530,7 +1530,8 @@ value      ::= string_literal
              | name_literal
 
 string_literal ::= '"' (char | command | namedblock)* '"'   [parse-string-interpolation]
-number_literal ::= '-'? digit+ ('.' digit+)?    - actually any JS numeric string... so like 0x3e3 is cool :shrug:
+number_literal ::= '-'? digit+ ('.' digit+)?    — also exponential (3e10), hex (0x777), etc.
+                                                   any string JS coerces to a number [parse-number-lit]
 name_literal   ::= ':' name             — e.g. :foo produces the string "foo" [parse-name-lit]
 list_literal   ::= '(' value* ')'       — e.g. (1 2 3), (:a :b :c) [parse-list-lit]
 
@@ -1826,8 +1827,8 @@ poke(Collection, Pos(n) :: rest, new) =
   if position n exists: update val                              [poke-pos-update]
   else:                 unchanged — out of bounds               [poke-pos-oob]
 
-poke(Empty, Pos(n) :: rest, new) = Empty
-poke(scalar, Pos(n) :: rest, new) = unchanged
+poke(Empty, Pos(n) :: rest, new) = Empty                        [poke-pos-empty]
+poke(scalar, Pos(n) :: rest, new) = unchanged                   [poke-pos-scalar]
 ```
 
 **Star** — modifies all existing children, never creates:
@@ -1837,8 +1838,8 @@ poke(Collection, Star :: rest, new) =                           [poke-star]
   for each child: poke(child, rest, new)
   — scalar children are skipped (see scalar rule above)
 
-poke(Empty, Star :: rest, new) = Empty
-poke(scalar, Star :: rest, new) = unchanged
+poke(Empty, Star :: rest, new) = Empty                          [poke-star-empty]
+poke(scalar, Star :: rest, new) = unchanged                     [poke-star-scalar]
 ```
 
 **Par** — delegates to each sub-path, sequentially left-to-right:
@@ -2250,6 +2251,49 @@ output. [block-named-no-squelch] To save one for reuse, pipe it explicitly:
 {$user | run block $greeting}
 ```
 
+### Code as data: quote, unquote, run
+
+DAML strings have a lifecycle between "live" (compiled, executable)
+and "dead" (raw text, inert).
+
+**Live strings (blocks).** A string literal `"{$foo}"` in DAML
+source is compiled at parse time into a block [block-in-source-live].
+When evaluated (as a block parameter to a command, or via
+`process run`), it creates a sub-process and produces a result
+[run-evaluates].
+
+**Dead strings.** Strings that arrive from the outside world
+(user input, database, network) are raw text. They are NOT
+compiled and will NOT execute — they're just data
+[dead-string-inert]. String transformation commands (like
+`string transform`) also kill live strings: they coerce the block
+to text, operate on it, and return a dead string
+[string-taints].
+
+**Quote** (`process quote`) takes a live string and returns the
+raw DAML text without evaluating it [quote-kills]. The block is
+coerced to its source text. Useful for inspecting DAML or passing
+it through string operations.
+
+**Unquote** (`process unquote`) takes a dead string and compiles
+it into a live block [unquote-compiles]. This is the **privilege
+boundary**: it's the only runtime mechanism that turns data into
+executable code. If `unquote` is not in the sender's effective
+dialect, strings cannot become code [unquote-privilege].
+
+**Run** (`process run`) evaluates a block, creating a sub-process
+under the current sender's effective dialect. The block inherits
+the parent's pipeline vars and sender.
+
+The typical pattern for dynamic code execution:
+```
+{$user_input | process unquote | process run}
+```
+
+This compiles the string, then runs it. Both steps are required.
+Without `unquote`, the string stays inert. Without `run`, the
+block is just a value.
+
 ### Parameter ordering
 
 ```
@@ -2262,6 +2306,37 @@ command `math subtract` has the form
 `math subtract value _x from _y`, but those parameters can be
 specified in either order. The ordering in the command's definition
 is only relevant for the implicit value carried through the pipe.
+
+### Alias expansion
+
+Aliases are compile-time substitutions (see §4 Dialect). An alias
+name is replaced with a fixed pipeline fragment during the munging
+phase [alias-expand-basic]. For example, `add` expands to
+`math add value`, so `{add 5}` becomes `{math add value 5}`.
+
+**Pipe-eating aliases.** Some alias expansions contain `__` (the
+implicit pipe reference). For example, `then` expands to
+`logic if value __ then`. When an alias contains `__`, the
+implicit pipe value is consumed by the alias expansion — it is
+NOT also passed implicitly to the expanded command's first
+unfilled parameter [alias-pipe-eat]. This prevents double-filling.
+
+**Parameter threading.** Named parameters after the alias name
+are threaded into the expansion. `{add 5 to 3}` expands `add`
+to `math add value`, then `5` fills the dangling positional slot
+and `to 3` maps to the `to` parameter of `math add`
+[alias-param-thread].
+
+**Dialect gating.** Aliases are part of the dialect. If an alias
+is removed from a restricted dialect, it is unavailable — using
+it sploots [alias-dialect-gate]. Note that alias expansion happens
+at compile time, but the expanded command is still checked against
+the effective dialect at runtime.
+
+**Multiple invocations.** Each invocation of an alias in a
+pipeline gets fresh internal keys. This ensures that multiple
+uses of the same alias (e.g. `{({1 | then :yay} {0 | then :boo})}`)
+don't corrupt each other's wiring [alias-multi-invoke].
 
 ### Transition relation for synchronous steps
 
@@ -2300,7 +2375,8 @@ new store `σ'`. Here `process.v` is the current pipeline value and
 boundaries. Values flowing through pipelines are untyped. When a
 value enters a command parameter, it is coerced to the param's
 declared type. There is no type checking and no type errors —
-coercion is total, always producing a value of the expected type.
+coercion is total, always producing a value of the expected type
+[coerce-total].
 This is a deliberate choice: totality over type safety.
 
 Each command param declares a type in its definition (e.g.
@@ -2309,7 +2385,7 @@ Each command param declares a type in its definition (e.g.
 ```
 list     — scalars wrap to single-element list; empty → [] [coerce-list]
 string   — numbers stringify; empty → "" [coerce-string]
-number   — strings coerce numerically; empty → 0 [coerce-number]
+number   — strings coerce numerically; empty → 0; NaN → 0 [coerce-number]
 integer  — like number, then rounded [coerce-integer]
 block    — compiled block refs become evaluable; strings pass through [coerce-block]
              (strings must be explicitly compiled via `process unquote`)
@@ -2526,19 +2602,19 @@ Conditions that sploot, with their continuation value:
 
 ```
 Value-producing (continue with empty):
-  - command not in effective dialect
-  - effectful command with unwired port (no async)
-  - timeout on down-port response
-  - unbound space variable read
-  - required param missing
+  - command not in effective dialect                         [dialect-cmd-sploot]
+  - effectful command with unwired port (no async)          [effectful-unwired-sploot]
+  - timeout on down-port response                           [timeout-resume-empty]
+  - unbound space variable read                             [svar-read-unbound-sploot]
+  - required param missing                                  [param-required-sploot]
 
 Pass-through (continue with unchanged value):
-  - port send to nonexistent port
-  - key coercion failure in poke/delete
-  - Key poke on unkeyed list (no promotion)
+  - port send to nonexistent port                           [portsend-missing-sploot]
+  - key coercion failure in poke/delete                     [poke-key-unkeyed-fail]
+  - Key poke on unkeyed list (no promotion)                 [sploot-passthru-poke]
 
 Dropped (no pipeline to continue):
-  - ghost response (response arrives for already-completed request)
+  - ghost response (arrived after completion)               [timeout-ghost-drop]
 ```
 
 When splooting:
