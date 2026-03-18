@@ -2992,6 +2992,277 @@ test('union: large array does not stack overflow',
 )
 
 // =====================================================
+// §I1 Effect separation: every command has fun XOR effect
+// =====================================================
+
+;(function() {
+  pending++
+
+  // Known violations: commands that currently have BOTH fun and effect.
+  // The spec says effectful commands have no fun (§4 line 629), but these
+  // use fun as a default handler when the port is unwired.
+  var known_both = ['time.now', 'var.read', 'var.write']
+
+  var pure = 0, effectful = 0, both = 0, neither = 0
+  var unexpected_both = []
+  var unexpected_neither = []
+
+  for (var handler in D.Commands) {
+    var methods = D.Commands[handler].methods
+    if (!methods) continue
+    for (var method in methods) {
+      var m = methods[method]
+      var has_fun = typeof m.fun === 'function'
+      var has_effect = !!m.effect
+      var name = handler + '.' + method
+
+      if (has_fun && has_effect) {
+        both++
+        if (known_both.indexOf(name) === -1) unexpected_both.push(name)
+      } else if (has_fun) {
+        pure++
+      } else if (has_effect) {
+        effectful++
+      } else {
+        neither++
+        unexpected_neither.push(name)
+      }
+    }
+  }
+
+  var ok = unexpected_both.length === 0 && unexpected_neither.length === 0
+  if (ok) {
+    pass++
+  } else {
+    fail++
+    var msg = ''
+    if (unexpected_both.length) msg += 'unexpected fun+effect: ' + unexpected_both.join(', ') + '. '
+    if (unexpected_neither.length) msg += 'no fun or effect: ' + unexpected_neither.join(', ')
+    failures.push({
+      label: 'effect separation: fun XOR effect',
+      input: '(structural check of D.Commands)',
+      expected: 'every command has fun XOR effect (known_both: ' + known_both.join(', ') + ')',
+      actual: msg
+    })
+  }
+  pending--
+  if (all_registered && pending === 0) report()
+})()
+
+
+// =====================================================
+// §I2 Handler independence: same program, different handlers, same responses → same behavior
+// =====================================================
+
+// Two spaces run the same DAML. Each has a different handler for time-now
+// that logs requests and replays the same canned response.
+// The request logs and outputs must be identical.
+
+;(function() {
+  pending++
+
+  var daml = '{time now | __.stamp | math add value 1}'
+  var seed_template =
+    'NAME\n' +
+    '  @effect down time-now\n' +
+    '  @init from-js start\n' +
+    '  @out  to-js\n' +
+    '  @init -> ' + daml + ' -> @out\n'
+
+  var seed_id_a = D.make_some_space(seed_template.replace('NAME', 'handler_indep_a'))
+  var seed_id_b = D.make_some_space(seed_template.replace('NAME', 'handler_indep_b'))
+
+  if (typeof seed_id_a !== 'number' || typeof seed_id_b !== 'number') {
+    fail++
+    failures.push({
+      label: 'handler independence: space setup',
+      input: '(space setup)',
+      expected: 'two seed_id numbers',
+      actual: 'a=' + seed_id_a + ' b=' + seed_id_b
+    })
+    pending--
+    return
+  }
+
+  var space_a = new D.Space(seed_id_a)
+  var space_b = new D.Space(seed_id_b)
+
+  var log_a = [], log_b = []
+  var output_a = null, output_b = null
+  var done_a = false, done_b = false
+
+  function setup_space(space, log, handler_fn, on_output) {
+    var from_port = space.ports.find(function(p) { return p.flavour === 'from-js' })
+    var to_port = space.ports.find(function(p) { return p.flavour === 'to-js' })
+    var down_port = space.ports.find(function(p) { return p.flavour === 'down' })
+
+    if (!from_port || !to_port || !down_port) return false
+
+    down_port.pair.outside_exit = function(ship, callback) {
+      log.push(JSON.parse(JSON.stringify(ship)))
+      handler_fn(ship, callback)
+    }
+
+    to_port.pair.outside_exit = function(value) {
+      on_output(String(value))
+    }
+
+    from_port.pair.enter('start')
+    return true
+  }
+
+  function check_done() {
+    if (!done_a || !done_b) return
+
+    var logs_match = JSON.stringify(log_a) === JSON.stringify(log_b)
+    var outputs_match = output_a === output_b && output_a === '43'
+
+    if (logs_match && outputs_match) {
+      pass++
+    } else {
+      fail++
+      var msg = ''
+      if (!logs_match) msg += 'request logs differ: A=' + JSON.stringify(log_a) + ' B=' + JSON.stringify(log_b) + '. '
+      if (!outputs_match) msg += 'outputs: A=' + output_a + ' B=' + output_b + ' (expected 43)'
+      failures.push({
+        label: 'handler independence: same responses → same behavior',
+        input: daml,
+        expected: 'identical request logs and output=43',
+        actual: msg
+      })
+    }
+    pending--
+    if (all_registered && pending === 0) report()
+  }
+
+  // Handler A: responds synchronously
+  var ok_a = setup_space(space_a, log_a, function(ship, callback) {
+    callback({ stamp: 42 })
+  }, function(v) { output_a = v; done_a = true; check_done() })
+
+  // Handler B: responds via setTimeout (different implementation, same value)
+  var ok_b = setup_space(space_b, log_b, function(ship, callback) {
+    setTimeout(function() { callback({ stamp: 42 }) }, 1)
+  }, function(v) { output_b = v; done_b = true; check_done() })
+
+  if (!ok_a || !ok_b) {
+    fail++
+    failures.push({
+      label: 'handler independence: port setup',
+      input: '(port setup)',
+      expected: 'all ports found',
+      actual: 'a=' + ok_a + ' b=' + ok_b
+    })
+    pending--
+  }
+})()
+
+
+// =====================================================
+// §I3 Serializability: same DAML in independent spaces → same behavior
+// =====================================================
+
+// Two completely independent spaces, constructed separately, run the same DAML source.
+// Recording handlers provide identical canned responses.
+// Request logs and outputs must be identical.
+
+;(function() {
+  pending++
+
+  var daml = '{time now | __.stamp | math add value 10}'
+
+  function make_space(name) {
+    var seed_id = D.make_some_space(
+      name + '\n' +
+      '  @effect down time-now\n' +
+      '  @init from-js start\n' +
+      '  @out  to-js\n' +
+      '  @init -> ' + daml + ' -> @out\n'
+    )
+    if (typeof seed_id !== 'number') return null
+    return new D.Space(seed_id)
+  }
+
+  var space_a = make_space('serial_a')
+  var space_b = make_space('serial_b')
+
+  if (!space_a || !space_b) {
+    fail++
+    failures.push({
+      label: 'serializability: space setup',
+      input: '(space setup)',
+      expected: 'two independent spaces',
+      actual: 'a=' + !!space_a + ' b=' + !!space_b
+    })
+    pending--
+    return
+  }
+
+  var log_a = [], log_b = []
+  var output_a = null, output_b = null
+  var done_a = false, done_b = false
+
+  function wire_space(space, log, on_output) {
+    var from_port = space.ports.find(function(p) { return p.flavour === 'from-js' })
+    var to_port = space.ports.find(function(p) { return p.flavour === 'to-js' })
+    var down_port = space.ports.find(function(p) { return p.flavour === 'down' })
+
+    if (!from_port || !to_port || !down_port) return false
+
+    down_port.pair.outside_exit = function(ship, callback) {
+      log.push(JSON.parse(JSON.stringify(ship)))
+      callback({ stamp: 42 })
+    }
+
+    to_port.pair.outside_exit = function(value) {
+      on_output(String(value))
+    }
+
+    from_port.pair.enter('start')
+    return true
+  }
+
+  function check_done() {
+    if (!done_a || !done_b) return
+
+    var logs_match = JSON.stringify(log_a) === JSON.stringify(log_b)
+    var outputs_match = output_a === output_b && output_a === '52'
+
+    if (logs_match && outputs_match) {
+      pass++
+    } else {
+      fail++
+      var msg = ''
+      if (!logs_match) msg += 'request logs differ: A=' + JSON.stringify(log_a) + ' B=' + JSON.stringify(log_b) + '. '
+      if (!outputs_match) msg += 'outputs: A=' + output_a + ' B=' + output_b + ' (expected 52)'
+      failures.push({
+        label: 'serializability: independent spaces, same DAML → same behavior',
+        input: daml,
+        expected: 'identical request logs and output=52',
+        actual: msg
+      })
+    }
+    pending--
+    if (all_registered && pending === 0) report()
+  }
+
+  var ok_a = wire_space(space_a, log_a, function(v) { output_a = v; done_a = true; check_done() })
+  var ok_b = wire_space(space_b, log_b, function(v) { output_b = v; done_b = true; check_done() })
+
+  if (!ok_a || !ok_b) {
+    fail++
+    failures.push({
+      label: 'serializability: port setup',
+      input: '(port setup)',
+      expected: 'all ports found',
+      actual: 'a=' + ok_a + ' b=' + ok_b
+    })
+    pending--
+  }
+})()
+
+
+// =====================================================
 // Done registering tests
 // =====================================================
 

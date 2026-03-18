@@ -903,6 +903,111 @@ await new Promise(function(resolve) {
   })
 })
 
+console.log('\n=== Optimizer Fast Path Confinement ===')
+
+// OPT_simple_math replaces {N | add M} at compile time with a fast-path segment.
+// That segment must still check the dialect before executing.
+
+var no_add_opt = new D.Sender('no-add-opt', {
+  dialect: D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
+})
+var no_mul_opt = new D.Sender('no-mul-opt', {
+  dialect: D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['multiply']}})
+})
+var no_peek_opt = new D.Sender('no-peek-opt', {
+  dialect: D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'list': ['peek']}})
+})
+
+// OPT_simple_math: add
+await new Promise(function(resolve) {
+  D.run('{5 | add 3}', D.ExecutionSpace, null, function(result) {
+    test('optimizer: sender blocks math.add through OPT_simple_math', result === '')
+    resolve()
+  }, no_add_opt)
+})
+
+// OPT_simple_math: multiply
+await new Promise(function(resolve) {
+  D.run('{5 | multiply 3}', D.ExecutionSpace, null, function(result) {
+    test('optimizer: sender blocks math.multiply through OPT_simple_math', result === '')
+    resolve()
+  }, no_mul_opt)
+})
+
+// OPT_simple_peek: peek with simple path
+await new Promise(function(resolve) {
+  D.run('{(:a 1 :b 2) | list peek path :a}', D.ExecutionSpace, null, function(result) {
+    test('optimizer: sender blocks list.peek through OPT_simple_peek', result === '')
+    resolve()
+  }, no_peek_opt)
+})
+
+// Controls: same expressions without restriction
+await new Promise(function(resolve) {
+  D.run('{5 | add 3}', D.ExecutionSpace, null, function(result) {
+    test('optimizer control: unrestricted add works', result === '8')
+    resolve()
+  })
+})
+await new Promise(function(resolve) {
+  D.run('{5 | multiply 3}', D.ExecutionSpace, null, function(result) {
+    test('optimizer control: unrestricted multiply works', result === '15')
+    resolve()
+  })
+})
+
+console.log('\n=== process.run Sender Confinement ===')
+
+// process.run executes a block via block(callback, scope, process).
+// The current process (with sender) must propagate into the sub-process.
+
+await new Promise(function(resolve) {
+  D.run('{process run block "{math add value 1 to 2}"}', D.ExecutionSpace, null, function(result) {
+    test('process.run: sender blocks math.add inside run block', result === '')
+    resolve()
+  }, no_add_opt)
+})
+
+// Control
+await new Promise(function(resolve) {
+  D.run('{process run block "{math add value 1 to 2}"}', D.ExecutionSpace, null, function(result) {
+    test('process.run control: unrestricted run block works', result === '3')
+    resolve()
+  })
+})
+
+console.log('\n=== Alias Invocation Confinement ===')
+
+// Aliases expand at parse time (n_alias.js uses D.Aliases directly, not dialect).
+// But the resulting Command segment is still gated by dialect.get_method at runtime.
+// So even though 'unquote' alias expands, process.unquote is blocked at dispatch.
+
+var no_unquote_sender = new D.Sender('no-unquote', {
+  dialect: D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'process': ['unquote']}})
+})
+
+await new Promise(function(resolve) {
+  D.run('{:hello | unquote}', D.ExecutionSpace, null, function(result) {
+    test('alias invocation: sender blocks unquote via alias', result === '')
+    resolve()
+  }, no_unquote_sender)
+})
+
+await new Promise(function(resolve) {
+  D.run('{process unquote value :hello}', D.ExecutionSpace, null, function(result) {
+    test('alias invocation: sender blocks unquote via direct command', result === '')
+    resolve()
+  }, no_unquote_sender)
+})
+
+// Control: unquote works without restriction (returns a block, stringified to empty by D.run)
+await new Promise(function(resolve) {
+  D.run('{:hello | unquote | process run}', D.ExecutionSpace, null, function(result) {
+    test('alias invocation control: unrestricted unquote+run works', result === 'hello')
+    resolve()
+  })
+})
+
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')
 if(fail) process.exit(1)

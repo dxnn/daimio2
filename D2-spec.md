@@ -251,6 +251,60 @@ programmer can predict what gets filled without knowing implementation
 details. Named parameters override this by explicitly binding a value
 to a parameter name, removing it from the implicit filling order.
 
+### Effect partition
+Every command definition is either pure (has a `fun`) or effectful
+(has an `effect` with a port type and default handler). Never both,
+never neither. A pure command is a total function from parameters to
+a value — it can be executed with no environment at all. An effectful
+command can do nothing except send a request to its port and return
+whatever comes back. This partition is what makes a DAML program
+decomposable into an effect skeleton (the sequence of port requests)
+and pure filling (the computation between them). If a command could
+be mostly pure but also touch a port, you could no longer substitute
+handlers freely because you wouldn't know what the "pure" parts
+were secretly doing.
+
+The partition is checkable at command registration time: every
+command definition must have exactly one of `fun` or `effect`.
+
+### Handler parametricity
+Given the same sequence of responses from effect handlers, a DAML
+program produces the same effect requests regardless of which
+handlers produced those responses. The pure parts of a pipeline
+cannot observe handler identity — they see only the values the
+handler returns. A program is parametric in its effects.
+
+This is the property that makes testing by handler substitution
+valid: replace production handlers with mock handlers, provide the
+same response script, and you get the same request sequence and
+the same output. The test doesn't need a "test mode" — it needs
+a different handler. See command/port duality and effect locality.
+
+Follows from: effect partition (pure parts can't touch ports),
+effect exteriority (I10), and the uniform command syntax (effectful
+commands look the same as pure commands from inside the pipeline).
+
+### Program portability
+A DAML program — a block or pipeline serialized as source text —
+can be run in any space that provides the required dialect and port
+wiring, producing the same behavior given the same handler responses
+and the same initial space state. The program text is a faithful
+serialization of the computation: no closures, no ambient references,
+no hidden state within a pipeline. Two independently constructed
+spaces running the same DAML with identical handlers and identical
+initial state produce identical results.
+
+One subtlety: space variables read but not set within the program
+are part of the space's initial state, not the program. Portability
+holds for the program itself; the caller must provide the expected
+state environment. This is why shipping a program to a different
+space works: the recipient provides its own handlers and state, and
+the program executes identically as long as the effect responses
+and state match.
+
+Follows from: no closures in DAML, deterministic evaluation, and
+uniform evaluation.
+
 
 ### Invariants
 
@@ -988,7 +1042,7 @@ when it arrives at a space that already has an active process.
 ```
 ARRIVE(space, ship, station):
   if space.active:
-    space.queue ← space.queue ++ [(ship, station)]    — FIFO append
+    space.queue ← space.queue ++ [(ship, station)]     — FIFO append
     return                                             — ship waits
   else:
     space.active ← true
@@ -1704,10 +1758,8 @@ poke(v, [], new) = new                    — replace entirely
 ```
 
 Empty-path poke replaces the value wholesale. This preserves the
-lens laws (PutGet, PutPut, GetPut all hold at empty path). The
-code currently appends/merges instead — this is a known divergence
-that should be fixed. Append semantics are available separately
-via `list append`.
+lens laws (PutGet, PutPut, GetPut all hold at empty path).  
+Append semantics are available separately via `list union`.
 
 **Key** — creates on keyed collections, Empty, and scalars:
 
@@ -2575,6 +2627,56 @@ cannot wire them. The parent's wiring rules determine what each
 port connects to. The OTHER fallback in wiring rules is a
 catch-all that the parent explicitly configures. If a port
 doesn't match any rule and there's no OTHER, it sploots.
+
+
+### Dialect confinement proof (runtime eval)
+
+Now that runtime code evaluation is consolidated to a single path
+(`process unquote` → `process run`), we can enumerate every
+execution path and verify dialect enforcement is complete.
+
+**Claim:** Given effective dialect D_eff = sender.dialect ∩
+space.dialect, no DAML expression executing under D_eff can invoke
+a command outside D_eff.
+
+**Proof by path enumeration:**
+
+| Path | Where checked | Mechanism |
+|------|---------------|-----------|
+| Command dispatch | `m_command.js` execute | `dialect.get_method()` before every `run_fun` call |
+| Optimizer fast paths | `OPT_simple_math`, `OPT_simple_peek` | `dialect.get_method()` at top of execute |
+| `process run` (block eval) | `datatypes/block.js` → `real_execute` | Inherits `process.sender` → new Process recomputes D_eff |
+| Implicit block eval (pipe) | same as above | Same `datatypes/block.js` path |
+| Station docking | `port_standard_enter` → `Space.dock` | Sender extracted from process, forwarded through port pair |
+| Subspace crossing | `Space` constructor | `this.dialect = parent.dialect` (I2 monotonicity); sender intersected at Process creation |
+| Alias expansion | `n_alias.js` (parse) + `m_command.js` (runtime) | Aliases expand unconditionally at parse time; resulting Command checked at dispatch |
+| `D.run` boundary | `execute_then_stringify` | Sender forwarded to block re-execution context |
+
+**Key invariants this depends on:**
+
+- Blocks are compiled without dialect checks; dialect is enforced
+  fresh at every execution. This enables the same block to run
+  under different authority levels.
+- `D.is_block` requires `instanceof D.Segment` — blocks cannot be
+  forged from DAML data values.
+- No DAML command creates, modifies, or exposes sender objects.
+  Senders are App-level only.
+- `intersect_dialects` uses AND logic: both sender and space must
+  allow a command for it to execute.
+- Policy flags (`restrict_unsafe_ports`, `no_user_regex`) merge
+  with OR logic: either restriction wins.
+
+**What this does NOT cover:**
+
+- DoS via `D.BLOCKS` cache growth. Every `unquote` call allocates
+  a compiled block that is never evicted. A loop generating novel
+  strings is a slow memory leak.
+- Alias information leakage. Aliases expand at parse time from the
+  global `D.Aliases` table, not through dialect gating. A blocked
+  command produces a diagnostic error revealing its existence.
+- Sender authentication. The App is responsible for verifying
+  sender identity before passing ships into the outer space
+  (see §14).
 
 
 ## 14. Future Work

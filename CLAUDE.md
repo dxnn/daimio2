@@ -7,10 +7,10 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 329 spec alignment tests
+node tests/d2_spec_test.mjs     # 332 spec alignment tests
 node tests/daimio_test.mjs       # 843 legacy tests (0 known failures)
 node tests/node_code.mjs         # 68 internal tests
-node tests/security_test.mjs    # 157 security tests (dialect, pollution, regex, senders)
+node tests/security_test.mjs    # 170 security tests (dialect, pollution, regex, senders)
 node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
 node tests/example_test.mjs     # 104 command example tests
 node tests/perf_test.mjs        # 21 performance regression benchmarks
@@ -114,7 +114,7 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (329 tests)
+  d2_spec_test.mjs     — spec alignment tests (332 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
   node_code.mjs        — internal JS-level tests (68 tests)
   example_test.mjs     — command example tests (104 tests, auto-discovered)
@@ -201,10 +201,10 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 329/329 pass (was 217 at start of session)
+- **d2_spec_test**: 332/332 pass
 - **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 68/68 pass
-- **security_test**: 157/157 pass
+- **security_test**: 170/170 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
