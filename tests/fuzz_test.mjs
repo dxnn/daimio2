@@ -126,7 +126,8 @@ function gen_body(depth, block_name) {
 
 function gen_atom(depth) {
   var r = rng()
-  if (r < 0.2) return String(gen_number())
+  if (r < 0.05) return pick(['""', '()', '"{}"', '0', '":"'])  // hostile boundary values
+  if (r < 0.22) return String(gen_number())
   if (r < 0.35) return gen_name()
   if (r < 0.45) return gen_string()
   if (r < 0.55) return gen_pipevar_read()
@@ -217,12 +218,49 @@ function gen_meta_eval(depth) {
   return 'process quote value "' + escaped + '"'
 }
 
+function gen_coercion_chain(depth) {
+  // Chain operations that force type coercion at each step
+  var steps = [
+    // number → string
+    'math add value 1 | string uppercase',
+    // string → list
+    'string split on ":"',
+    // list → number
+    'list length',
+    // list → string
+    'string join on ":"',
+    // number → list
+    'list range',
+    // block → string → run
+    'process quote | process run',
+    // anything → block → run
+    'process quote value "{__}" | process unquote | process run',
+    // string → number → math
+    'math add value 0 | math multiply value ' + String(gen_number()),
+    // number → string → split → map
+    'string split on "" | map block "{__ | math add value 1}"',
+    // list → poke → peek
+    'list poke path (:x) value 1 | peek :x',
+  ]
+  return pick(steps)
+}
+
+function gen_run_pipe() {
+  // Try to execute whatever is in the pipe as DAML
+  var r = rng()
+  if (r < 0.4) return 'process run'
+  if (r < 0.7) return 'process unquote | process run'
+  return 'process quote | process unquote'
+}
+
 function gen_segment(depth) {
   var r = rng()
-  if (r < 0.30) return gen_command(depth)
-  if (r < 0.42) return gen_alias(depth)
-  if (r < 0.49) return gen_meta_eval(depth)
-  if (r < 0.56) return gen_path_command(depth)
+  if (r < 0.26) return gen_command(depth)
+  if (r < 0.36) return gen_alias(depth)
+  if (r < 0.42) return gen_meta_eval(depth)
+  if (r < 0.48) return gen_path_command(depth)
+  if (r < 0.53) return gen_run_pipe()
+  if (r < 0.58) return gen_coercion_chain(depth)
   if (r < 0.65) return gen_atom(depth)
   if (r < 0.74) return gen_pipevar_write()
   if (r < 0.82) return gen_spacevar_write()
@@ -245,18 +283,46 @@ function gen_pipeline(depth) {
   return parts.join(' ')
 }
 
+function gen_garbage() {
+  // Random characters — pure parser stress test
+  var chars = '{}|"():$>@_!#%^&*[]<>\\/ \n\t0123456789abcdefghijklmnopqrstuvwxyz'
+  var n = rand_int(1, 50)
+  var s = ''
+  for (var i = 0; i < n; i++) s += chars[Math.floor(rng() * chars.length)]
+  return s
+}
+
 function gen_expr() {
+  // 1% chance: random garbage (parser stress)
+  if (rng() < 0.01) return gen_garbage()
+
   // 0.5% chance: splice in a pathological edge case
   if (rng() < 0.005) return pick(edge_cases)
 
-  // Sometimes generate a named block expression
+  // 5% chance: multiple named blocks (adjacent or nested)
+  if (rng() < 0.05) {
+    var n = rand_int(2, 3)
+    var parts = []
+    for (var i = 0; i < n; i++) parts.push(gen_named_block(0))
+    return parts.join('')
+  }
+
+  // 5% chance: nested named blocks (one inside another's body)
+  if (rng() < 0.05) {
+    var outer = pick(block_names)
+    var inner_block = gen_named_block(1)
+    var begin = '{begin ' + outer + '}'
+    var end = '{end ' + outer + '}'
+    return begin + '{' + gen_pipeline(1) + '}' + inner_block + end
+  }
+
+  // 15% chance: single named block expression
   if (rng() < 0.15) return gen_named_block(0)
 
   var n_commands = rand_int(1, 5)
   var parts = []
   for (var i = 0; i < n_commands; i++) {
     if (rng() < 0.1) {
-      // Sometimes add literal text between commands
       parts.push(pick(['hello ', 'text ', '', '--- ']))
     }
     parts.push('{' + gen_pipeline(0) + '}')
@@ -311,6 +377,45 @@ var edge_cases = [
   '{1 || 2 || 3 || 4 || 5}',
   // Variable stress
   ...Array.from({length: 10}, (_, i) => `{${i} | >$v${i}}`),
+  // Overlapping/interleaved named blocks
+  '{begin a}{begin b}{end a}{end b}',
+  '{begin a}{begin a}inner{end a}outer{end a}',
+  // Recursive eval
+  '{process run value "{process run value \\"{1}\\"}"}',
+  '{process quote value "{__}" | process unquote | process run}',
+  // Type coercion gauntlet
+  '{() | math add value 1}',
+  '{1 | string split on ""}',
+  '{"{__}" | list length}',
+  '{0 | list map block "{__}"}',
+  '{"" | list reduce block "{__}"}',
+  '{Infinity | math add value Infinity}',
+  '{Infinity | string length}',
+  '{Infinity | list first}',
+  // Pathfinder on wrong types
+  '{1 | peek :*}',
+  '{:hello | peek 0}',
+  '{"{__}" | peek :a}',
+  '{"" | list poke path (:a) value 1}',
+  '{0 | list poke path (:*) value 1}',
+  // Block-as-data
+  '{process quote value "{1}" | list poke path (:a) value 2}',
+  '{process quote value "{1}" | map block "{__}"}',
+  '{process quote value "{1}" | list union data (1 2 3)}',
+  // Empty/nil through everything
+  '{() | list sort block "{__}"}',
+  '{() | list union data ()}',
+  '{() | peek :*}',
+  '{"" | process run}',
+  '{0 | process run}',
+  // Deeply nested blocks
+  '{"{"{"{"{"{ __}"}"}"}"}"}',
+  // Space var as command input
+  '{>$x || $x | math add value $x}',
+  '{>$x || >$x}',
+  // Port send with no port
+  '{1 | >@nonexistent}',
+  '{>@error}',
 ]
 
 // --- Runner ---
@@ -418,6 +523,8 @@ function is_self_referential(expr) {
 }
 
 function run_one(expr, timeout_override) {
+  if (!minimizing) launched++
+
   // TODO: self-referential named blocks cause unbounded stack overflow in the engine.
   // Fix execute_then_stringify to detect block recursion or add a depth limit.
   // For now, skip them entirely.
@@ -442,7 +549,7 @@ function run_one(expr, timeout_override) {
 
     try {
       js_errors_by_space.set(space, [])
-      if (verbose && !minimizing) process.stderr.write(completed + ': ' + expr.slice(0, 200) + '\n')
+      if (verbose && !minimizing) process.stderr.write(launched + ': ' + expr + '\n')
       hush()
       D.run(expr, space, null, function(value) {
         unhush()
@@ -615,6 +722,7 @@ async function minimize(expr, target_status) {
 var concurrency = parseInt(process.argv[4]) || 200
 
 var completed = 0
+var launched = 0
 var start = Date.now()
 
 function handle_result(result) {
@@ -642,6 +750,7 @@ async function run_batch(gen_fn, total, label) {
     skip -= to_skip
     total -= to_skip
     completed += to_skip
+    launched += to_skip
     passed += to_skip
   }
   if (total <= 0) { if (!skipping) console.log('--- ' + label + ' (0) ---'); return }

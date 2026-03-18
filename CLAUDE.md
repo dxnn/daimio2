@@ -7,7 +7,7 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 327 spec alignment tests
+node tests/d2_spec_test.mjs     # 329 spec alignment tests
 node tests/daimio_test.mjs       # 843 legacy tests (0 known failures)
 node tests/node_code.mjs         # 68 internal tests
 node tests/security_test.mjs    # 157 security tests (dialect, pollution, regex, senders)
@@ -114,7 +114,7 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (323 tests)
+  d2_spec_test.mjs     — spec alignment tests (329 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
   node_code.mjs        — internal JS-level tests (68 tests)
   example_test.mjs     — command example tests (104 tests, auto-discovered)
@@ -201,31 +201,37 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 327/327 pass
+- **d2_spec_test**: 329/329 pass (was 217 at start of session)
 - **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 68/68 pass
 - **security_test**: 157/157 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
-- **fuzz_test**: 50k expressions, 0 hangs, 0 crashes (seed-dependent; some seeds find real bugs)
+- **fuzz_test**: seed-dependent; stack overflows from self-referential blocks are the main finding
 
 ## Fuzzer
 
 The fuzzer at `tests/fuzz_test.mjs` generates random DAML and runs it, looking for crashes,
-hangs, and prototype pollution. It found and helped fix several real engine bugs.
+hangs, prototype pollution, and async errors. Generators cover: commands with type-confused
+params, meta-evaluation (process run/quote/unquote chains), complex pathfinder paths,
+coercion stress chains, port sends, named blocks (nested/multiple), and random garbage.
 
 ```bash
 node tests/fuzz_test.mjs                          # 1000 expressions, random seed
 node tests/fuzz_test.mjs 50000 myseed             # 50k, reproducible seed
 node tests/fuzz_test.mjs 5000 myseed 200 100      # count seed concurrency timeout_ms
-node tests/fuzz_test.mjs 5000 myseed -v            # verbose (all expressions to stderr)
+node tests/fuzz_test.mjs 5000 myseed -v            # verbose (full expressions to stderr)
 node tests/fuzz_test.mjs 5000 myseed --skip 3000   # skip first 3000 (for OOM bisection)
 ```
 
-Crashes are auto-minimized to shortest reproducing expression. Self-referential named
-blocks (`{begin foo | >$foo}{$foo}{end foo}`) are detected statically and skipped — the
-engine needs a recursion depth limit to handle these (TODO).
+Crashes are auto-minimized to shortest reproducing expression (preserves `||` barrier pipes).
+Self-referential named blocks (`{begin foo | >$foo}{$foo}{end foo}`) are detected statically
+and skipped — the engine needs a recursion depth limit to handle these (TODO).
+
+Known issue: `D.BLOCKS` caches every compiled block forever. Over long fuzzer runs this
+causes linear memory growth and eventual OOM. Not a fuzzer bug — it's the engine's global
+block cache with no eviction.
 
 ### Engine bugs found by fuzzer
 

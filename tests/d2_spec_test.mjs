@@ -2974,6 +2974,18 @@ test('union: no args',
   '[]'
 )
 
+// sparse array from poke — holes at indices 0-3
+test('union: sparse array does not crash',
+  '{ list poke path (4) value () | union }',
+  '[]'
+)
+
+// sparse array with object element — hits keyed-list union path
+test('union: sparse array with object does not crash',
+  '{ list poke path (4 :0 :x) value :key | list union }',
+  '{"0":{"x":"key"}}'
+)
+
 test('union: large array does not stack overflow',
   '{range 200000 | union | list count}',
   '200000'

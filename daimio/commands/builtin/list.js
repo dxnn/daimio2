@@ -623,7 +623,7 @@ D.import_models({
           if(all_arrays) {
             var flat = []
             for(var k = 0; k < values.length; k++)
-              for(var j = 0; j < values[k].length; j++)
+              if(values[k]) for(var j = 0; j < values[k].length; j++)
                 flat.push(values[k][j])
             return flat
           }
@@ -631,6 +631,7 @@ D.import_models({
           // we have to do a fancy union that keeps nested keys intact...
           for(var i=0, l=values.length; i < l; i++) {
             var value = values[i]
+            if(value == null) continue
 
             // if(typeof value != 'object')
             //   value = [value]
@@ -642,7 +643,7 @@ D.import_models({
 
               stack = []
               for(var j=0, k=values.length; j < k; j++) { // look through each key's value
-                if(typeof values[j][key] != 'undefined') stack.push(values[j][key])
+                if(values[j] != null && typeof values[j][key] != 'undefined') stack.push(values[j][key])
               }
 
               var temp = stack[stack.length - 1]

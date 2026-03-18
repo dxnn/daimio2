@@ -868,6 +868,41 @@ await sender_test(
   }
 )
 
+console.log('\n=== Sender Confinement Through execute_then_stringify ===')
+
+// When D.run returns a block value (not a string), execute_then_stringify
+// re-executes it. The sender's dialect restrictions must survive this boundary.
+// Attack: sender blocks math.add, but returns a block literal that does math.add.
+// The block gets re-executed by execute_then_stringify — sender must still apply.
+
+var no_add_sender = new D.Sender('no-add', {
+  dialect: D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
+})
+
+// Control: sender blocks math.add in normal execution
+await new Promise(function(resolve) {
+  D.run('{math add value 1 to 2}', D.ExecutionSpace, null, function(result) {
+    test('execute_then_stringify control: math.add blocked by sender', result === '')
+    resolve()
+  }, no_add_sender)
+})
+
+// Attack: block literal is the pipeline's return value — goes through execute_then_stringify
+await new Promise(function(resolve) {
+  D.run('{"{math add value 1 to 2}"}', D.ExecutionSpace, null, function(result) {
+    test('execute_then_stringify: sender restriction survives block re-execution', result === '')
+    resolve()
+  }, no_add_sender)
+})
+
+// Double-check: without sender restriction, the block literal should work fine
+await new Promise(function(resolve) {
+  D.run('{"{math add value 1 to 2}"}', D.ExecutionSpace, null, function(result) {
+    test('execute_then_stringify: unrestricted sender allows block execution', result === 3)
+    resolve()
+  })
+})
+
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')
 if(fail) process.exit(1)

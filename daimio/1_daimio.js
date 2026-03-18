@@ -575,7 +575,7 @@ D.run = function(daimio, space, scope, ultimate_callback, sender) {
 
   // THINK: can we refactor this into a different type of space.execute? can we convert this whole thing into a temporary channel on the space? with a 'log' type gateway or something?
   var prior_starter = function(value) {
-    var result = D.execute_then_stringify(value, ultimate_callback, {space: space, station_id: false})
+    var result = D.execute_then_stringify(value, ultimate_callback, {space: space, station_id: false, sender: sender})
     if(result === result)
       ultimate_callback(result)
   }
