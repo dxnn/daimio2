@@ -306,16 +306,21 @@ funtest('{list map data (1 2 3) block "{7}"}', "[7,7,7]")
 funtest('{(:One {"1 2 3" | string split on " "} :Two)}', "[\"One\",[\"1\",\"2\",\"3\"],\"Two\"]")
 
 
+// [literal-produces-value]
 funtest('asdf', 'asdf')
 
+// [parse-name-lit]
 funtest('{:asdf}', 'asdf')
 
+// [parse-brace-structural]
 funtest('{"asdf"}', 'asdf')
 
+// [literal-produces-value] [parse-name-lit]
 funtest('  asdf {:asdf}  ', '  asdf asdf  ')
 
 funtest('asdf {:asdf} asdf', 'asdf asdf asdf')
 
+// [parse-block-quoted]
 funtest('{"{:asdf}"}', 'asdf')
 
 funtest('{"{:asdf}"} ', 'asdf ')
@@ -326,21 +331,26 @@ funtest('2 {2 | add 2} ', '2 4 ')
 
 funtest('2 {2 | add 2} {2 | times 4}', '2 4 8')
 
+// [parse-block-quoted] [parse-list-lit]
 funtest('{(1 {"{2}"} 3)}', "[1,\"{2}\",3]")
 
+// [pipe-flow] [scope-inject-value] [pipe-dunder]
 funtest('{(1 2 3) | map block "{__ | add 4}"}', '[5,6,7]')
 
+// [pipe-dunder]
 funtest('{(1 2 3 4 5) | map block "{__ | times __}"}', '[1,4,9,16,25]')
 
 funtest('{(1 2 3 4 5) | map block "{times (__ __ __)}"}', '[1,8,27,64,125]')
 
 funtest('{(1 2 3 4 5) | map block "{(__ __ __) | times}"}', '[1,8,27,64,125]')
 
+// [async-boundary] [async-preserve-vars]
 // async test: process sleep for 0 uses D.setImmediate, returns NaN (async signal)
 funtest('{:hello | process sleep for 0}', 'hello')
 
 funtest('{(1 2 3 4 5) | map block "{__ | times __ | times __}"}', '[1,16,81,256,625]')
 
+// [block-named-pipe] [block-forms-equivalent]
 funtest('{begin block | map data (1 2 3) | string join on ","} asdf {end block}', ' asdf , asdf , asdf ')
 
 funtest('{(1 2 3) | map block "{add __ to 4}"}', '[5,6,7]')
@@ -361,8 +371,10 @@ funtest('{begin foo | map data (1 2 3 4) | map block "{__ | string transform fro
 
 funtest('{begin foo | map data (1 2 3 4) | map block "{__ | string split on ": " | map block "{if {__ | is like :answer} then :foo else "{__ | add 3}" | run}" | string join on ": "}" | string join on "---"}answer: {__ | add 4}{end foo}', 'foo: 8---foo: 9---foo: 10---foo: 11')
 
+// [parse-begin-end-match]
 funtest('{begin foo | string split on " " | string join on "---"}Some {a} text{end foo}', 'Some---{a}---text')
 
+// [peek-pos-hit] [pos-one-indexed]
 funtest('{(1 2 3) | __.#2}', '2')
 
 
@@ -441,6 +453,49 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
 // funtest('{math add value "{7}" to 13}', 20) 
 // THINK: what should this do? maybe make add accept only numbers, and use fold/zipwith/etc to add over lists?
 
+
+
+// =====================================================
+// §10 Content-addressed block dedup
+// =====================================================
+
+;(function() {
+  // Test 1: identical DAML produces same block.id
+  var seg1 = D.Parser.string_to_block_segment('{3 | add 4}')
+  var seg2 = D.Parser.string_to_block_segment('{3 | add 4}')
+  if (seg1.value.id === seg2.value.id) pass++
+  else ERRORS.push({in: 'block identity: identical DAML same id', out: seg2.value.id, was: seg1.value.id})
+
+  // Test 2: D.BLOCKS dedup — second parse reuses entry
+  var unique_daml = '{math add value 98701 to 12349}'
+  var before = Object.keys(D.BLOCKS).length
+  D.Parser.string_to_block_segment(unique_daml)
+  var mid = Object.keys(D.BLOCKS).length
+  D.Parser.string_to_block_segment(unique_daml)
+  var after = Object.keys(D.BLOCKS).length
+  if (mid > before && after === mid) pass++
+  else ERRORS.push({in: 'D.BLOCKS dedup: second parse reuses', out: 'before=' + before + ' mid=' + mid + ' after=' + after, was: 'mid > before && after === mid'})
+
+  // Test 3: different DAML produces different block.id
+  var segA = D.Parser.string_to_block_segment('{3 | add 4}')
+  var segB = D.Parser.string_to_block_segment('{3 | add 5}')
+  if (segA.value.id !== segB.value.id) pass++
+  else ERRORS.push({in: 'block identity: different DAML different id', out: segB.value.id, was: 'not ' + segA.value.id})
+
+  // Test 4: spaceseed identity — same seedlike produces same seed_id
+  var seedlike = 'dedup_test\n  @init from-js\n  @out to-js\n  @init -> @out\n'
+  var id1 = D.make_some_space(seedlike)
+  var id2 = D.make_some_space(seedlike)
+  if (id1 === id2 && D.SPACESEEDS[id1] === D.SPACESEEDS[id2]) {
+    // Also verify two spaces can be instantiated from the same seed
+    var sp1 = new D.Space(id1)
+    var sp2 = new D.Space(id2)
+    if (sp1 && sp2 && sp1 !== sp2) pass++
+    else ERRORS.push({in: 'spaceseed identity: two spaces from same seed', out: 'sp1===sp2 or null', was: 'distinct instances'})
+  } else {
+    ERRORS.push({in: 'spaceseed identity: same seedlike same id', out: 'id1=' + id1 + ' id2=' + id2, was: 'id1 === id2'})
+  }
+})()
 
 
 // WRAP IT ALL UP WITH A BOW

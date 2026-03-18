@@ -96,7 +96,7 @@
       {22 | math add to 20}
         42
 
-    aliases reduce typing
+    aliases reduce typing [alias-expand-basic]
       {(13 17 19) | count}
         3
       {22 | add 20}
@@ -262,7 +262,7 @@
       {3 | list range start 2 length 3}
         [2,5,8]
 
-    Most commands only have one parameter that would generally take a pipe value. In those cases we can use an alias that is preconfigured with that parameter name.
+    Most commands only have one parameter that would generally take a pipe value. In those cases we can use an alias that is preconfigured with that parameter name. [alias-expand-basic] [alias-param-thread]
       {3 | range}
         [1,2,3]
       {range 3}
@@ -290,7 +290,7 @@
       {3 | range start 3}
         [3,4,5]
 
-    Ah. So it looks like the trailing param value is negated if the word after the alias is a parameter name instead of a param value. (Param names are always bare words, param values never are.) It then becomes filled in through the pipe via the natural piping process. Interesting.
+    Ah. So it looks like the trailing param value is negated if the word after the alias is a parameter name instead of a param value. (Param names are always bare words, param values never are.) It then becomes filled in through the pipe via the natural piping process. Interesting. [alias-param-thread]
 
     We just learned that param values are never bare words. What kinds of things can be param values?
     - numbers: 1, 0.45
@@ -1283,9 +1283,9 @@
         [[2,999],[3,4],[4,999]]
 
 
-Alias tests
+Alias tests [alias-pipe-eat] [alias-multi-invoke]
 
-  These weird tests confirm that if an alias as an explicit pipe in it the implicit pipe in the usage is ignored.
+  These weird tests confirm that if an alias has an explicit pipe in it the implicit pipe in the usage is ignored. [alias-pipe-eat]
     {0 | else "{9}" | add 1}
       []
     {1 | >$ggg | then "{$ggg | add 1 | >$ggg}" else "" | $ggg}
@@ -1295,7 +1295,7 @@ Alias tests
     {({1 | then :yay} {0 | then :boo})}
       ["yay",""]
 
-  Ensure aliases with pipes in them work as the second segment in lambdas.
+  Ensure aliases with pipes in them work as the second segment in lambdas. [alias-multi-invoke]
   {( 0 1 "" "1" "x" "[]" () (1) (() ()) ) | map block "{__ | then 1 else 0}"}
     [0,1,0,1,1,1,0,1,1]
 
@@ -2440,25 +2440,25 @@ Tests for bad chars
   {123 | >_foo | "" | __foo}
 
 
-STRINGS
+STRINGS [block-in-source-live] [dead-string-inert] [quote-kills] [unquote-compiles] [run-evaluates] [string-taints]
 
-  -- internal strings containing Daimio are considered 'alive'
+  -- internal strings containing Daimio are considered 'alive' [block-in-source-live]
     - live strings are eventually processed
     - except when they're inside a list (they'll suffocate if not released)
-  -- data coming from outside the processed string (db, user, etc) is 'dead'
+  -- data coming from outside the processed string (db, user, etc) is 'dead' [dead-string-inert]
     - dead strings won't ever be processed
   -- any string without daimio code is always dead
-  -- the 'quote' command kills a live string
-  -- the 'unquote' command resuscitates a dead string
+  -- the 'quote' command kills a live string [quote-kills]
+  -- the 'unquote' command resuscitates a dead string [unquote-compiles]
   -- you can put a live string in a variable, and reference it many different times; each will be processed according to the customs of its time
-  -- the 'run' command fully processes (and kills) a live string
-  -- string transformation commands (of any kind) kill live strings
+  -- the 'run' command fully processes (and kills) a live string [run-evaluates]
+  -- string transformation commands (of any kind) kill live strings [string-taints]
 
-when a block is coerced into a string it isn't processed
+when a block is coerced into a string it isn't processed [string-taints]
   {"{:hello} world" | string split on " "}
     ["{:hello}","world"]
 
-so you have to do that manually
+so you have to do that manually [run-evaluates]
   {"{:hello} world" | run | string split on " "}
     ["hello","world"]
 (any string containing valid Daimio code is converted to a block at compile time)
@@ -2467,17 +2467,17 @@ so you have to do that manually
 
 Strings from foreign sources (db, user input, etc) aren't processed unless explicitly instructed. Also, any string transformations taint the source string, coercing it from live code into a normal string.
 
-  For reference, this is how you immediately run tainted strings:
+  For reference, this is how you immediately run tainted strings: [string-taints] [unquote-compiles] [run-evaluates]
     {:z | >$z | "x{$key}y{$z}" | string transform from "{$key}" to 123}
       x123y{$z}
     {:z | >$z | "x{$key}y{$z}" | string transform from "{$key}" to 123 | unquote | run}
       x123yz
 
-  And this is how you prep them for running eventually. (Here 'eventually' comes at the end of the pipeline.)
+  And this is how you prep them for running eventually. (Here 'eventually' comes at the end of the pipeline.) [unquote-compiles]
     {:z | >$z | "x{$key}y{$z}" | string transform from "{$key}" to 123 | unquote}
       x123yz
 
-  And these are all transformed, hence tainted:
+  And these are all transformed, hence tainted: [string-taints]
     {"KEY" | >$key}
       KEY
     {"x{$key}y{$z}" | string transform from "{$key}" to 123}
@@ -2950,7 +2950,7 @@ BASIC SYNTAX TESTS
     {( "{__ | add 1}" "{__ | times 7}" ) | >x | each block "{(1 2 3) | map block __in}"}
       [2,3,4][7,14,21]
 
-  quote, unquote, and run:
+  quote, unquote, and run: [quote-kills] [unquote-compiles] [run-evaluates]
     {"{__ | add 1}" | map data (1 2)}
       [2,3]
 
@@ -2977,7 +2977,7 @@ BASIC SYNTAX TESTS
 
   We use IEEE floating point under the hood (same as JS, among other languages), which has its pros and wats.
 
-    Naturals:
+    Naturals: [parse-number-lit]
       {0}
         0
       {1}
@@ -2985,7 +2985,7 @@ BASIC SYNTAX TESTS
       {65535}
         65535
 
-    Floats:
+    Floats: [parse-number-lit]
       {3.141591}
         3.141591
       {4.669200}
@@ -2993,7 +2993,7 @@ BASIC SYNTAX TESTS
       {2.685451}
         2.685451
 
-    Negatives:
+    Negatives: [parse-number-lit]
       {-0}
         0
       {-65535}
@@ -3001,7 +3001,7 @@ BASIC SYNTAX TESTS
       {-3.14159}
         -3.14159
 
-    Exponential (using this notation is not recommended):
+    Exponential (using this notation is not recommended): [parse-number-lit]
       {3e10}
         30000000000
       {3e+10}
@@ -3011,7 +3011,7 @@ BASIC SYNTAX TESTS
       {3e80}
         3e+80
 
-    Some IEEE implications:
+    Some IEEE implications: [parse-number-lit] [coerce-total]
       {11111111111111111111111}
         1.1111111111111111e+22
       {3.141592653589793238}
@@ -3019,7 +3019,7 @@ BASIC SYNTAX TESTS
       {1e53 | add 1}
         1e+53
 
-    Hex happens to convert, because we're using JS coercion under the hood. Don't use this, don't rely on it, don't try it at home.
+    Hex happens to convert, because we're using JS coercion under the hood. Don't use this, don't rely on it, don't try it at home. [parse-number-lit]
       {0x777}
         1911
 

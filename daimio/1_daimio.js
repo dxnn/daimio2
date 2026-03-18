@@ -904,9 +904,9 @@ D.import_fancy = function(ch, obj) {
   }
 
   D.Etc.FancyRegex = RegExp(Object.keys(D.Fancies)
-                                 .sort(function(a, b) {return a.length - b.length})
-                                 .map(function(str) {return '^' + D.regex_escape(str) + '\\w'})
-                                 .join('|'))
+                                  .sort(function(a, b) {return a.length - b.length})
+                                  .map(function(str) {return '^' + D.regex_escape(str) + '\\w'})
+                                  .join('|'))
 }
 
 D.import_fancy(':', {

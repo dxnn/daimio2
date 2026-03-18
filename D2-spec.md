@@ -1237,6 +1237,40 @@ This means: db effects are handled locally with a generous 30s timeout. (The 'db
 
 If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes a ghost.
 
+### Example: cross-boundary state access
+
+A subspace cannot read or write its parent's space variables
+directly (I8). To access the parent's state, it uses effectful
+commands that send requests through down-ports:
+
+```
+{var read-out name :foo}           — read parent's $foo via down-port
+{var write-out name :foo value 5}  — write parent's $foo via down-port
+```
+
+These are effectful commands with port type `var-read` / `var-write`.
+When invoked, they create down-port requests. The parent must wire
+these ports to handlers that perform the actual reads/writes on the
+parent's σ.
+
+Example wiring in the parent:
+```
+  S.@[handler:var method:read-out]   → varReadHandler
+  S.@[handler:var method:write-out]  → varWriteHandler
+```
+
+Where `varReadHandler` receives the request, reads the named
+variable from the parent's σ, and returns the value. If the
+parent doesn't wire these ports, the commands sploot — the
+subspace simply can't access the parent's state.
+
+This is deliberately verbose: crossing a space boundary to access
+state is a significant action that should be visible in the
+topology. Note that `$foo` and `>$foo` in DAML always access the
+LOCAL space's σ — they are pure segment types, not effectful
+commands. Only `var read-out` and `var write-out` cross
+boundaries, and only through ports [socket-crossboundary-var].
+
 
 ## 7. Async Boundaries
 
@@ -1441,24 +1475,10 @@ socket is a hot-swappable execution slot, not a state container.
 
 ### Cross-boundary space variable access
 
-A subspace that needs to read or write a parent's space variable
-does so through an explicit effectful command and a down port: [socket-crossboundary-var]
-
-```
-{var read name :foo}     — sends a request up through a down port
-{var write name :foo}    — sends a write request up through a down port
-```
-
-The parent space must wire these ports to a handler — typically a
-station that reads or writes the parent's own space variables and
-returns the result. This is deliberately verbose: crossing a space
-boundary to access state is a significant action that should be
-visible in the topology.
-
-Syntactic sugar may be added later, but the underlying mechanism
-is always a down-port round trip. This preserves the property that
-spaces are fully isolated — all cross-boundary communication goes
-through ports.
+Cross-boundary state access uses effectful commands through
+down-ports. See §6 "Example: cross-boundary state access" for the
+full worked example. The mechanism is always a down-port round
+trip, preserving space isolation (I8).
 
 
 # Part III: Blocks — The Inner Language

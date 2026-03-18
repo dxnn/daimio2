@@ -9,7 +9,7 @@ with a total (crash-free) execution model.
 ```bash
 node tests/d2_spec_test.mjs     # 332 spec alignment tests
 node tests/daimio_test.mjs       # 843 legacy tests (0 known failures)
-node tests/node_code.mjs         # 68 internal tests
+node tests/node_code.mjs         # 72 internal tests
 node tests/security_test.mjs    # 170 security tests (dialect, pollution, regex, senders)
 node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
 node tests/example_test.mjs     # 104 command example tests
@@ -208,14 +208,28 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 331/332 pass (1 flaky: `is-in` with `time stampwrap`)
+- **d2_spec_test**: 332/332 pass
 - **daimio_test**: 843/843 pass (0 known failures)
-- **node_code**: 68/68 pass
+- **node_code**: 72/72 pass
 - **security_test**: 170/170 pass
 - **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
 - **fuzz_test**: seed-dependent; stack overflows from self-referential blocks are the main finding
+
+## Test-spec traceability (Phase 20)
+
+Every spec-supported test is annotated with assertion IDs from D2-spec.md. The format
+is `[assertion-id]` in test labels or section comments. ~400 annotations across 5 files.
+
+**Assertion ID format**: Properties are `[P-total]`, invariants are `[I1]`–`[I15]`,
+fine-grained assertions are `[poke-key-update]`, `[parse-brace-structural]`, etc.
+Tests wrong per spec are marked `[WRONG:assertion-id]`.
+
+**6 wrong tests** (all in d2_spec_test.mjs): Key poke on unkeyed promotes to keyed
+instead of splooting (spec says `[poke-key-unkeyed-fail]`), and svar-path poke coerces
+scalars before poking instead of using the scalar rule. Root cause: two implementation
+bugs in poke. See the test-spec sweep report in memory.
 
 ## Fuzzer
 

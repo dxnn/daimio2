@@ -40,6 +40,12 @@ var known_failures = new Set([
   'wiring rules: first matching rule wins',
   // §7 Socket overlap: old state lost on transition
   'socket overlap: old space state lost on transition',
+  // §3 Dialect declarations in space syntax
+  'dialect declaration in space syntax restricts commands',
+  // §6 Up-port direction: sibling provides service
+  'up-port: sibling subspace provides service via up-port',
+  // §8 Serialized space excludes dialect and wiring
+  'serialized space excludes dialect and wiring',
 ])
 
 // ── Assert port flavour ──────────────────────────────────────────────
@@ -313,6 +319,7 @@ run_dm_tests('spacetests.dm')
 console.log('--- inline space tests ---')
 
 // Basic: in port to out port via collect
+// [spacesyn-route] [routing-out-deferred]
 space_test(
   'in to out passthrough',
   `outer
@@ -327,6 +334,7 @@ space_test(
 )
 
 // Anonymous station transforms value
+// [spacesyn-anon-station]
 space_test(
   'anonymous station transform',
   `outer
@@ -341,6 +349,7 @@ space_test(
 )
 
 // Multiple ships into different ports
+// [spacesyn-port]
 space_test(
   'multiple ports receive different ships',
   `outer
@@ -362,6 +371,7 @@ space_test(
 )
 
 // Multiple ships into same port
+// [serial-one-at-a-time] [queue-fifo]
 space_test(
   'multiple ships into same port',
   `outer
@@ -385,6 +395,7 @@ space_test(
 )
 
 // Subspace with named station
+// [P-compose] [spacesyn-station]
 space_test(
   'subspace with named station',
   `
@@ -406,6 +417,7 @@ space_test(
 )
 
 // Station with named out port (side-effect send)
+// [spacesyn-named-port-route] [station-portsend-passthru]
 space_test(
   'station with named out port',
   `outer
@@ -423,6 +435,7 @@ space_test(
 )
 
 // Soft error collection
+// [sploot-error-port] [sploot-pipeline-continues]
 space_test(
   'soft error routes to error collect port',
   `outer
@@ -443,6 +456,7 @@ space_test(
 )
 
 // Splitter: one station sends to multiple destinations
+// [spacesyn-route]
 space_test(
   'splitter sends to multiple destinations',
   `outer
@@ -461,6 +475,7 @@ space_test(
 )
 
 // Four levels deep
+// [P-compose]
 space_test(
   'four levels deep subspaces',
   `
@@ -554,6 +569,7 @@ function on_collect(space, port_name, callback) {
 console.log('--- concurrent space tests ---')
 
 // Two independent spaces running concurrently
+// [outer-independent]
 multi_space_test(
   'two independent spaces concurrent',
   [
@@ -586,6 +602,7 @@ multi_space_test(
 )
 
 // Space variable isolation: same $name in two spaces don't interfere
+// [P-spaceisolate] [subspace-own-state]
 multi_space_test(
   'space variable isolation',
   [
@@ -621,6 +638,7 @@ multi_space_test(
 )
 
 // Space A output triggers send into Space B
+// [outer-independent]
 multi_space_test(
   'space A output feeds space B',
   [
@@ -649,6 +667,7 @@ multi_space_test(
 )
 
 // Multiple ships into two spaces interleaved
+// [serial-one-at-a-time] [queue-fifo]
 multi_space_test(
   'interleaved ships into two spaces',
   [
@@ -700,6 +719,7 @@ multi_space_test(
 )
 
 // Two spaces with same topology but different state
+// [seed-share-instance] [subspace-own-state]
 multi_space_test(
   'same topology different initial state',
   [
@@ -738,6 +758,7 @@ multi_space_test(
 console.log('--- looping topology tests ---')
 
 // Simple loop: station output routes back to itself until condition met
+// [routing-portsend-deferred] [queue-deferred-dock]
 space_test(
   'loop: station feeds back to itself',
   `outer
@@ -757,6 +778,7 @@ space_test(
 )
 
 // Loop with accumulator: build up a list via union
+// [routing-portsend-deferred]
 space_test(
   'loop: accumulator builds list',
   `outer
@@ -776,6 +798,7 @@ space_test(
 )
 
 // Loop in subspace: subspace loops internally, parent sees final result
+// [P-compose] [routing-portsend-deferred]
 space_test(
   'loop: subspace loops internally',
   `
@@ -802,6 +825,7 @@ space_test(
 )
 
 // Two concurrent loops in different spaces
+// [outer-independent] [routing-portsend-deferred]
 multi_space_test(
   'loop: two spaces looping concurrently',
   [
@@ -848,6 +872,7 @@ multi_space_test(
 console.log('--- conditional routing tests ---')
 
 // Station sends to different named ports based on condition
+// [spacesyn-route]
 space_test(
   'conditional: route to different ports by value',
   `outer
@@ -865,6 +890,7 @@ space_test(
 )
 
 // Same topology, even number
+// [spacesyn-route]
 space_test(
   'conditional: even number routes to even port',
   `outer
@@ -882,6 +908,7 @@ space_test(
 )
 
 // Multiple ships, each routes to different port
+// [serial-one-at-a-time]
 space_test(
   'conditional: multiple ships route independently',
   `outer
@@ -907,6 +934,7 @@ space_test(
 
 // Fizzbuzz-style: three-way conditional routing (inspired by station_break.html)
 // Uses mod + then/else: 0 is falsy (divisible), non-zero is truthy (not divisible)
+// [spacesyn-route]
 space_test(
   'conditional: fizzbuzz three-way routing',
   `outer
@@ -940,6 +968,7 @@ space_test(
 )
 
 // Conditional routing in subspace, parent collects
+// [P-compose] [spacesyn-route]
 space_test(
   'conditional: subspace routes, parent collects',
   `
@@ -974,6 +1003,7 @@ space_test(
 console.log('--- state mutation tests ---')
 
 // §9: Serial execution guarantees each ship sees previous ship's state changes
+// [P-serial] [I6] [P-fresh]
 space_test(
   'state: sequential ships see accumulated state',
   `outer
@@ -999,6 +1029,7 @@ space_test(
 )
 
 // State mutation with conditional branching: different paths mutate same var
+// [I6]
 space_test(
   'state: different paths mutate same variable',
   `outer
@@ -1026,6 +1057,7 @@ space_test(
 )
 
 // State persists across ships entering different ports
+// [I6]
 space_test(
   'state: mutations from different entry ports accumulate',
   `outer
@@ -1048,6 +1080,7 @@ space_test(
 )
 
 // State mutation in subspace doesn't affect parent
+// [P-spaceisolate] [I8]
 space_test(
   'state: subspace mutation isolated from parent',
   `
@@ -1072,6 +1105,7 @@ space_test(
 )
 
 // Dead-end wiring: ship enters station with no outs, space stays healthy
+// [P-total]
 space_test(
   'dead end: station with no outs, space survives',
   `outer
@@ -1107,6 +1141,7 @@ console.log('--- known-failing spec tests ---')
 // completing process's output routing." If station A sends to @port
 // which routes to station B, and a ship is already queued for B,
 // the queued ship should dock first.
+// [queue-priority-routing] [I13]
 space_test(
   'deferred routing: queued ships before output-routed ships',
   `outer
@@ -1137,6 +1172,7 @@ space_test(
 // §6 Wiring rules: handler property matching
 // Spec says wiring rules can match on handler, method, type properties.
 // Currently match_wiring_rule only matches on portType exactly.
+// [wiring-pattern-match]
 space_test(
   'wiring rule matches on handler property',
   `outer
@@ -1160,6 +1196,7 @@ space_test(
 
 // §6 Wiring rules: negated patterns
 // Spec says: "Property values can be negated with ! to mean 'anything except this.'"
+// [wiring-negate]
 space_test(
   'wiring rule with negated handler pattern',
   `outer
@@ -1179,6 +1216,7 @@ space_test(
 // §6 Demand-creation of ports via wiring rules
 // Spec: "Ports are created on demand because block evaluation can invoke
 // arbitrary effectful commands at runtime"
+// [demandport-create] [demandport-wire]
 space_test(
   'demand-creation: effectful command creates port via wiring rule',
   `outer
@@ -1198,6 +1236,7 @@ space_test(
 
 // §6 /dev/null wiring target
 // Spec: "Null (/dev/null — the effect is silently swallowed, returns empty)"
+// [wiring-target-null]
 space_test(
   'dev-null wiring target swallows effect',
   `outer
@@ -1216,6 +1255,7 @@ space_test(
 
 // §6 Wiring rules: first matching rule wins
 // Spec: "Rules are evaluated in order. The first matching rule determines the target."
+// [wiring-first-match]
 space_test(
   'wiring rules: first matching rule wins',
   `outer
@@ -1238,6 +1278,7 @@ space_test(
 // Spec: "The effective timeout for any down-port round trip is the minimum
 // of all nominal timeouts along the chain from the requesting process to
 // the handler."
+// [I12] [timeout-min-chain]
 multi_space_test(
   'timeout inheritance: outer timeout is authoritative',
   [
@@ -1292,6 +1333,7 @@ multi_space_test(
 // §10 Effect locality: forwarding through parent boundary
 // Spec: "Port requests propagate outward (via down-port forwarding through
 // parent spaces) until they reach the outermost space, where real effects occur."
+// [P-effectlocal] [I10]
 multi_space_test(
   'effect locality: subspace effect forwarded to parent boundary',
   [
@@ -1348,6 +1390,7 @@ multi_space_test(
 // §10 Space isolation: subspace cannot read parent space vars
 // Spec: "A subspace cannot read or write its parent's space variables
 // directly — all cross-boundary communication goes through ports."
+// [I8] [P-spaceisolate]
 space_test(
   'space isolation: subspace cannot read parent vars directly',
   `
@@ -1373,6 +1416,7 @@ space_test(
 
 // §7 Socket overlap: old space state lost on transition
 // Spec: "old.σ is lost — state does not survive transitions"
+// [socket-overlap-state-lost]
 multi_space_test(
   'socket overlap: old space state lost on transition',
   [
@@ -1435,6 +1479,143 @@ multi_space_test(
     }
   }
 )
+
+// ── §1 I8 Space isolation: parent cannot read child-only var ─────────
+
+space_test(
+  'isolation: parent cannot read child-only var',
+  `
+  child
+    $child_secret 42
+    @in
+    @out
+    @in -> @out
+  outer
+    @init from-js
+    @out  collect
+    @init -> {$child_secret | logic if then :leaked else :isolated} -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    // Parent tries to read $child_secret — should be empty (not defined in parent σ)
+    assert_eq('isolation: parent cannot read child-only var',
+      collected.out[0], 'isolated')
+  }
+)
+
+// ── §7 Unwired effect: synchronous sploot, no async boundary ────────
+
+// When an effectful command's port is not wired, it falls through to the
+// default handler (the `fun` property) and runs synchronously. The pipeline
+// continues immediately without any async/timeout machinery.
+space_test(
+  'unwired effect: default handler runs synchronously',
+  `
+  outer
+    @init from-js
+    @out  collect
+    @init -> {time now | logic if then :got_time else :no_time} -> @out`,
+  [{port: 'init', value: 'test'}],
+  1,
+  function(collected) {
+    // time.now with no wired port uses default handler (synchronous fun)
+    // Should produce a truthy timestamp value, so logic if → :got_time
+    assert_eq('unwired effect: default handler runs synchronously',
+      collected.out[0], 'got_time')
+  }
+)
+
+
+// ── Known-failing: §3 Dialect declaration in space syntax ────────────
+
+// Spec §3 says space syntax supports dialect declarations as inline JSON:
+//   dialect_decl ::= '{' json_object '}'
+// This would allow restricting commands at the space level.
+space_test(
+  'dialect declaration in space syntax restricts commands',
+  `
+  outer
+    @init from-js
+    @out  collect
+    @init -> {math add value 1 to 2} -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    // If dialect declarations worked, adding {"blocked_methods":{"math":["add"]}}
+    // to the space def would cause math.add to sploot (return empty → 0).
+    // For now this just tests normal execution (returns 3).
+    // When implemented, expected output would be 0 (splooted).
+    assert_eq('dialect declaration in space syntax restricts commands',
+      collected.out[0], '0')
+  }
+)
+
+
+// ── Known-failing: §6 Up-port: sibling provides service ─────────────
+
+// Spec §6 says a wiring rule target can be "an up-port on a sibling subspace
+// (the sibling provides the service)". This means one subspace's effectful
+// command could be answered by another sibling subspace's up-port.
+space_test(
+  'up-port: sibling subspace provides service via up-port',
+  `
+  provider
+    @in
+    @out
+    @in -> {__ | math add value __ to 100} -> @out
+  consumer
+    @in
+    @out
+    @in -> {__ | time now} -> @out
+  outer
+    @init from-js
+    @out  collect
+    @init -> consumer.in
+    consumer.out -> @out`,
+  [{port: 'init', value: 'test'}],
+  1,
+  function(collected) {
+    // If up-port wiring worked, consumer's {time now} effect would route
+    // to provider's up-port, which would return the value + 100.
+    // Not currently implemented.
+    assert_eq('up-port: sibling subspace provides service via up-port',
+      collected.out[0], '100')
+  }
+)
+
+
+// ── Known-failing: §8 Serialized space format ───────────────────────
+
+// Spec §8 says "A serialized space does NOT include dialect or port wiring."
+// There's no serialize method yet, so this is a placeholder test.
+;(function() {
+  var seed_id = D.make_some_space(
+    'stest\n  $count 0\n  @init from-js\n  @out to-js\n  @init -> @out\n'
+  )
+  var space = new D.Space(seed_id)
+  if (typeof space.serialize === 'function') {
+    var serialized = space.serialize()
+    var has_dialect = /dialect/.test(serialized)
+    var has_wiring = /wiringRules/.test(serialized)
+    if (!has_dialect && !has_wiring) { pass++ }
+    else {
+      fail++
+      failures.push({
+        label: 'serialized space excludes dialect and wiring',
+        expected: 'no dialect or wiring in serialized output',
+        actual: 'dialect=' + has_dialect + ' wiring=' + has_wiring
+      })
+    }
+  } else {
+    fail++
+    failures.push({
+      label: 'serialized space excludes dialect and wiring',
+      expected: 'space.serialize() exists',
+      actual: 'method not found'
+    })
+  }
+})()
+
 
 // ── Done registering ─────────────────────────────────────────────────
 

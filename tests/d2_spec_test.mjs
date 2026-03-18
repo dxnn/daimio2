@@ -59,13 +59,13 @@ function report() {
 // =====================================================
 
 test(
-  'is-in coerces string to number',
+  'is-in coerces string to number [coerce-list] [P-total]',
   '{"2" | is in (1 2 3) | logic if then :yes else :no}',
   'yes'
 )
 
 test(
-  'is-in coerces number to string',
+  'is-in coerces number to string [coerce-list] [P-total]',
   '{2 | is in ("1" "2" "3") | logic if then :yes else :no}',
   'yes'
 )
@@ -74,98 +74,98 @@ test(
 
 // keyed list (object) as "in" — should search object values
 test(
-  'is-in: keyed list finds matching value',
+  'is-in: keyed list finds matching value [coerce-list] [P-total]',
   '{:x | time stampwrap | >data || logic is value 3 in _data | logic if then :yes else :no}',
   'yes'
 )
 
 test(
-  'is-in: keyed list rejects missing value',
+  'is-in: keyed list rejects missing value [coerce-list] [P-total]',
   '{:x | time stampwrap | >data || logic is value :nope in _data | logic if then :yes else :no}',
   'no'
 )
 
 // scalar "in" — list type coerces to single-element array
 test(
-  'is-in: scalar number matches itself',
+  'is-in: scalar number matches itself [coerce-list] [P-total]',
   '{logic is value 42 in 42 | logic if then :yes else :no}',
   'yes'
 )
 
 test(
-  'is-in: scalar number rejects non-match',
+  'is-in: scalar number rejects non-match [coerce-list] [P-total]',
   '{logic is value 42 in 99 | logic if then :yes else :no}',
   'no'
 )
 
 test(
-  'is-in: scalar string matches itself',
+  'is-in: scalar string matches itself [coerce-list] [P-total]',
   '{logic is value :a in :a | logic if then :yes else :no}',
   'yes'
 )
 
 test(
-  'is-in: scalar string rejects non-match',
+  'is-in: scalar string rejects non-match [coerce-list] [P-total]',
   '{logic is value :a in :b | logic if then :yes else :no}',
   'no'
 )
 
 // normal array — existing behavior preserved
 test(
-  'is-in: array finds member',
+  'is-in: array finds member [P-total]',
   '{logic is value 2 in (1 2 3) | logic if then :yes else :no}',
   'yes'
 )
 
 test(
-  'is-in: array rejects non-member',
+  'is-in: array rejects non-member [P-total]',
   '{logic is value 9 in (1 2 3) | logic if then :yes else :no}',
   'no'
 )
 
 // empty list — always false
 test(
-  'is-in: empty list returns false',
+  'is-in: empty list returns false [coerce-list] [P-total]',
   '{logic is value 1 in () | logic if then :yes else :no}',
   'no'
 )
 
 // block as "in" — coerced to empty array
 test(
-  'is-in: block as in returns false',
+  'is-in: block as in returns false [coerce-list] [P-total]',
   '{logic is value 1 in "{1}" | logic if then :yes else :no}',
   'no'
 )
 
 // loose equality (== not ===) for string/number coercion
 test(
-  'is-in: string value found in number list via coercion',
+  'is-in: string value found in number list via coercion [coerce-list] [P-total]',
   '{logic is value :2 in (1 2 3) | logic if then :yes else :no}',
   'yes'
 )
 
 test(
-  'is-in: number value found in string list via coercion',
+  'is-in: number value found in string list via coercion [coerce-list] [P-total]',
   '{logic is value 2 in (:1 :2 :3) | logic if then :yes else :no}',
   'yes'
 )
 
 // zero membership
 test(
-  'is-in: zero found in list containing zero',
+  'is-in: zero found in list containing zero [coerce-list] [P-total]',
   '{logic is value 0 in (0 1 2) | logic if then :yes else :no}',
   'yes'
 )
 
 test(
-  'is-in: zero not found in list without zero',
+  'is-in: zero not found in list without zero [coerce-list] [P-total]',
   '{logic is value 0 in (1 2 3) | logic if then :yes else :no}',
   'no'
 )
 
 // original crash: pipe value is object, fills "in" implicitly
 test(
-  'is-in: object via pipe does not crash',
+  'is-in: object via pipe does not crash [coerce-list] [P-total]',
   '{:x | time stampwrap | logic is value __in | logic if then :yes else :no}',
   'no'
 )
@@ -176,13 +176,13 @@ test(
 // =====================================================
 
 test(
-  'unknown command returns empty and continues pipeline',
+  'unknown command returns empty and continues pipeline [sploot-value-cmd] [sploot-pipeline-continues]',
   '{5 | 123 | math add value 10 to 20}',
   '30'
 )
 
 test(
-  'pipeline value unchanged when command not found',
+  'pipeline value unchanged when command not found [literal-produces-value]',
   '{42}',
   '42'
 )
@@ -193,13 +193,13 @@ test(
 // =====================================================
 
 test(
-  'time now returns a timestamp (unwired, uses default handler)',
+  'time now returns a timestamp (unwired, uses default handler) [effectful-unwired-sploot] [P-liveness]',
   '{time now | logic if then :yes else :no}',
   'yes'
 )
 
 test(
-  'effectful command result flows through pipeline',
+  'effectful command result flows through pipeline [pipe-flow] [P-total]',
   '{time now | __.stamp | logic is value __ like "/^[0-9]+$/" | logic if then :yes else :no}',
   'yes'
 )
@@ -211,6 +211,7 @@ test(
 
 // Programmatic test for effectful commands in spaces
 ;(function() {
+  // [P-duality] [handler-down-callback]
   pending++
 
   // make_some_space returns a seed ID (number), not an object
@@ -296,6 +297,7 @@ test(
 // When a down port is wired, the effectful command sends a request
 // through the port and waits for the callback response.
 ;(function() {
+  // [P-handlersub] [handler-substitute]
   pending++
 
   // Space with a down port for 'time-now' effect type
@@ -390,6 +392,7 @@ test(
 // When a wired down port never responds, the timeout fires and
 // the pipeline resumes with the effectful command's default value.
 ;(function() {
+  // [P-liveness] [timeout-resume-empty]
   pending++
 
   var seed_id = D.make_some_space(
@@ -468,6 +471,7 @@ test(
 // =====================================================
 
 ;(function() {
+  // [timeout-ghost-drop]
   pending++
 
   var seed_id = D.make_some_space(
@@ -555,6 +559,7 @@ test(
 // When a space has wiring rules, effectful commands get
 // automatically routed to handlers without manually declared ports.
 ;(function() {
+  // [wiring-pattern-match] [demandport-create]
   pending++
 
   // No @effect port declaration — wiring rules handle it
@@ -610,6 +615,7 @@ test(
 
 // The OTHER pattern matches any effect type not matched by a specific rule.
 ;(function() {
+  // [wiring-other-fallback]
   pending++
 
   var seed_id = D.make_some_space(
@@ -667,6 +673,7 @@ test(
 
 // When a space has an error port, soft errors should be sent to it.
 ;(function() {
+  // [sploot-error-port]
   pending++
 
   // Space with an error port
@@ -735,13 +742,13 @@ test(
 // When unwired, the default handler accesses the current space's state.
 
 test(
-  'var write sets space variable',
+  'var write sets space variable [socket-crossboundary-var] [svar-write-path]',
   '{var write name :testvar value 42 | var read name :testvar}',
   '42'
 )
 
 test(
-  'var read returns empty for unset variable',
+  'var read returns empty for unset variable [svar-read-unbound-sploot]',
   '{var read name :nonexistent}',
   ''
 )
@@ -753,6 +760,7 @@ test(
 
 // When wired, var read/write go through down ports to a parent handler.
 ;(function() {
+  // [socket-crossboundary-var] [P-spaceisolate]
   pending++
 
   var seed_id = D.make_some_space(
@@ -813,13 +821,13 @@ test(
 
 // Storing in $x then modifying should not affect $x
 test(
-  'space var copy: poke does not mutate original',
+  'space var copy: poke does not mutate original [P-copy] [I14]',
   '{(1 2 3) | >$x | poke 4 | >$y || $x | add}',
   '6'
 )
 
 test(
-  'space var copy: remove does not mutate original',
+  'space var copy: remove does not mutate original [P-copy] [I14]',
   '{(1 2 3) | >$x | list remove by_value 2 || $x | add}',
   '6'
 )
@@ -831,6 +839,7 @@ test(
 
 // loadSubspace parses DAML source and installs a new subspace at runtime.
 ;(function() {
+  // [socket-load]
   pending++
 
   // Parent space
@@ -925,6 +934,7 @@ test(
 // A loaded subspace's effectful commands should be routed
 // by the parent's wiring rules.
 ;(function() {
+  // [socket-load] [socket-wiring-demand]
   pending++
 
   // Parent space with wiring rules
@@ -991,6 +1001,7 @@ test(
 // Two ships entering the same space should execute sequentially.
 // Both increment a counter, so the final value should be 2.
 ;(function() {
+  // [serial-one-at-a-time] [queue-fifo]
   pending++
 
   var seed_id = D.make_some_space(
@@ -1044,26 +1055,26 @@ test(
 // value, not the full updated object).
 
 test(
-  '>$x.path passes through original value',
+  '>$x.path passes through original value [svar-write-path] [station-portsend-passthru]',
   '{* (:a 1) | >$pt1 | 42 | >$pt1.sub || $pt1}',
   '{"a":1,"sub":42}'
 )
 
 // The 42 should flow through, not the full {sub:42} object
 test(
-  '>$x.path passthrough value is the pipe input, not the poked object',
+  '>$x.path passthrough value is the pipe input, not the poked object [svar-write-path] [station-portsend-passthru]',
   '{* (:a 1) | >$pt2 | 55 | >$pt2.b}',
   '55'
 )
 
 test(
-  '>$x.path passthrough with nested path',
+  '>$x.path passthrough with nested path [svar-write-path] [station-portsend-passthru]',
   '{* (:a 1) | >$pt3 | :hello | >$pt3.b.c}',
   'hello'
 )
 
 test(
-  '>$x.path self-reference poke passes through original',
+  '>$x.path self-reference poke passes through original [svar-write-path] [station-portsend-passthru]',
   '{* (:a 1 :b 2) | >$pt4 | >$pt4.c}',
   '{"a":1,"b":2}'
 )
@@ -1075,28 +1086,28 @@ test(
 
 // Reverse on a keyed list should preserve keys (reverse insertion order).
 test(
-  'reverse preserves keys on keyed list',
+  'reverse preserves keys on keyed list [P-copy]',
   '{* (:x 3 :y 2 :z 4 :q 1) | list reverse}',
   '{"q":1,"z":4,"y":2,"x":3}'
 )
 
 // Reverse on an unkeyed list still returns an array.
 test(
-  'reverse on unkeyed list returns array',
+  'reverse on unkeyed list returns array [P-copy]',
   '{(3 2 4 1) | list reverse}',
   '[1,4,2,3]'
 )
 
 // Sort on a keyed list should preserve keys (reorder by value).
 test(
-  'sort preserves keys on keyed list',
+  'sort preserves keys on keyed list [P-copy]',
   '{* (:c 3 :b 2 :a 1) | list sort}',
   '{"a":1,"b":2,"c":3}'
 )
 
 // Sort on an unkeyed list still returns an array.
 test(
-  'sort on unkeyed list returns array',
+  'sort on unkeyed list returns array [P-copy]',
   '{(3 2 4 1) | list sort}',
   '[1,2,3,4]'
 )
@@ -1104,14 +1115,14 @@ test(
 // Group by always returns an object (keyed list), even with integer keys.
 // Note: integer-like string keys may be reordered by JS engines.
 test(
-  'group by with integer keys returns object',
+  'group by with integer keys returns object [P-copy]',
   '{(1 2 3 4 5 6) | list group by "{__ | mod 2}"}',
   '{"0":[2,4,6],"1":[1,3,5]}'
 )
 
 // Group by with string keys returns object.
 test(
-  'group by with string keys returns object',
+  'group by with string keys returns object [P-copy]',
   '{( {* (:a :x :b 1)} {* (:a :z :b 2)} {* (:a :x :b 3)} ) | list group by :a}',
   '{"x":[{"a":"x","b":1},{"a":"x","b":3}],"z":[{"a":"z","b":2}]}'
 )
@@ -1124,25 +1135,25 @@ test(
 // An undefined pipeline variable used as a math param should
 // act as zero (false), not cause the pipe value to leak through.
 test(
-  'undefined pipeline var in range acts as zero',
+  'undefined pipeline var in range acts as zero [pvar-unbound-empty]',
   '{9 | range _asdf}',
   '[]'
 )
 
 test(
-  'undefined pipeline var in subtract acts as zero',
+  'undefined pipeline var in subtract acts as zero [pvar-unbound-empty]',
   '{(1 2 3) | subtract _zxcv}',
   '[1,2,3]'
 )
 
 test(
-  'undefined space var in subtract acts as zero',
+  'undefined space var in subtract acts as zero [pvar-unbound-empty]',
   '{(1 2 3) | subtract $jklj}',
   '[1,2,3]'
 )
 
 test(
-  'undefined pipeline var in add acts as zero',
+  'undefined pipeline var in add acts as zero [pvar-unbound-empty]',
   '{5 | add _nope}',
   '5'
 )
@@ -1155,7 +1166,7 @@ test(
 // When the segment after || produces an error and is removed,
 // the pre-|| value should not leak through as output.
 test(
-  'double pipe blocks value leak on error',
+  'double pipe blocks value leak on error [pipe-barrier-vars] [compile-barrier-break]',
   '{123 | >foo || __foo}',
   ''
 )
@@ -1169,12 +1180,12 @@ test(
 // identical segment structures (same hash). quote should
 // return the source of THIS block, not the first-parsed synonym.
 test(
-  'quote preserves original source despite synonymization',
+  'quote preserves original source despite synonymization [blockid-same] [P-contentaddr]',
   '{"{777}" | quote}',
   '{777}'
 )
 test(
-  'quote preserves original source for alias-like blocks',
+  'quote preserves original source for alias-like blocks [blockid-same] [P-contentaddr]',
   '{"{xxx}" | quote}',
   '{xxx}'
 )
@@ -1186,42 +1197,42 @@ test(
 
 // Inner blocks should automatically inherit parent pipeline variables.
 test(
-  'inner block inherits parent pipeline var',
+  'inner block inherits parent pipeline var [scope-pvar-inherit]',
   '{5 | >foo | (1 2 3) | map block "{__ | add _foo}"}',
   '[6,7,8]'
 )
 
 // Nested inheritance: grandchild block gets grandparent variable.
 test(
-  'nested inheritance: grandchild gets grandparent var',
+  'nested inheritance: grandchild gets grandparent var [scope-pvar-inherit]',
   '{10 | >x | (1 2 3) | map block "{__ | >y | (1) | map block "{_y | add _x}"}"}',
   '[[11],[12],[13]]'
 )
 
 // Caller scope overrides inherited variable.
 test(
-  'caller scope overrides inherited var',
+  'caller scope overrides inherited var [scope-pvar-inherit]',
   '{99 | >x | (1 2 3) | map block "{_x}"}',
   '[99,99,99]'
 )
 
 // Pipeline var not used in same pipeline, only in inner block.
 test(
-  'pipeline var only used in inner block',
+  'pipeline var only used in inner block [scope-pvar-inherit] [P-blockscope]',
   '{42 | >secret | "{_secret}" | run}',
   '42'
 )
 
 // process.run with value param sets __in.
 test(
-  'process.run value param sets __in',
+  'process.run value param sets __in [pipe-dunderin]',
   '{"{__ | add 1}" | run value 7}',
   '8'
 )
 
 // Sort by keys using inherited variable.
 test(
-  'sort by keys via inherited variable',
+  'sort by keys via inherited variable [scope-pvar-inherit]',
   '{* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}"}',
   '[4,2,3]'
 )
@@ -1232,31 +1243,31 @@ test(
 // =====================================================
 
 test(
-  'peek Name: existing key',
+  'peek Name: existing key [peek-key-hit] [keycoerce-string-keyed]',
   '{* (:a 1 :b 2 :c 3) | list peek path :b}',
   '2'
 )
 
 test(
-  'peek Name: missing key returns empty',
+  'peek Name: missing key returns empty [peek-key-miss]',
   '{* (:a 1 :b 2) | list peek path :z}',
   ''
 )
 
 test(
-  'peek Name: nested key path',
+  'peek Name: nested key path [peek-key-hit]',
   '{* (:a {* (:x 10 :y 20)}) | list peek path (:a :y)}',
   '20'
 )
 
 test(
-  'peek Name: missing nested key returns empty',
+  'peek Name: missing nested key returns empty [peek-key-miss]',
   '{* (:a {* (:x 10)}) | list peek path (:a :z)}',
   ''
 )
 
 test(
-  'peek Name: on non-collection returns empty',
+  'peek Name: on non-collection returns empty [peek-scalar]',
   '{42 | list peek path :a}',
   ''
 )
@@ -1267,25 +1278,25 @@ test(
 // =====================================================
 
 test(
-  'peek Pos: existing position',
+  'peek Pos: existing position [peek-pos-hit] [pos-one-indexed]',
   '{(10 20 30) | list peek path "#2"}',
   '20'
 )
 
 test(
-  'peek Pos: negative position (from end)',
+  'peek Pos: negative position (from end) [peek-pos-hit] [pos-negative]',
   '{(10 20 30) | list peek path "#-1"}',
   '30'
 )
 
 test(
-  'peek Pos: out of bounds returns empty',
+  'peek Pos: out of bounds returns empty [peek-pos-miss]',
   '{(10 20 30) | list peek path "#5"}',
   ''
 )
 
 test(
-  'peek Pos: nested position path',
+  'peek Pos: nested position path [peek-pos-hit]',
   '{((1 2) (3 4) (5 6)) | list peek path ("#2" "#1")}',
   '3'
 )
@@ -1296,38 +1307,38 @@ test(
 // =====================================================
 
 test(
-  'peek Star: all children of list',
+  'peek Star: all children of list [peek-star]',
   '{(10 20 30) | list peek path "*"}',
   '[10,20,30]'
 )
 
 test(
-  'peek Star: all children of keyed list',
+  'peek Star: all children of keyed list [peek-star]',
   '{* (:a 1 :b 2) | list peek path "*"}',
   '[1,2]'
 )
 
 test(
-  'peek Star: empty list returns empty list',
+  'peek Star: empty list returns empty list [peek-star]',
   '{() | list peek path "*"}',
   '[]'
 )
 
 // Note: 42 is coerced to [42] by list type before peek sees it
 test(
-  'peek Star: on scalar (list-coerced) returns its children',
+  'peek Star: on scalar (list-coerced) returns its children [peek-star] [coerce-list]',
   '{42 | list peek path "*"}',
   '[42]'
 )
 
 test(
-  'peek Star: nested star-then-key',
+  'peek Star: nested star-then-key [peek-star] [peek-key-hit]',
   '{(  {* (:x 1)} {* (:x 2)} {* (:x 3)}  ) | list peek path ("*" :x)}',
   '[1,2,3]'
 )
 
 test(
-  'peek Star: nested star-then-pos',
+  'peek Star: nested star-then-pos [peek-star] [peek-pos-hit]',
   '{((10 20) (30 40) (50 60)) | list peek path ("*" "#2")}',
   '[20,40,60]'
 )
@@ -1335,7 +1346,7 @@ test(
 // Star expands children, then Name on scalars returns empty for each
 // Empty values stringify to nothing, so the result is an empty-looking list
 test(
-  'peek Star: star of scalars then Name returns empties',
+  'peek Star: star of scalars then Name returns empties [peek-star] [peek-scalar]',
   '{(1 2 3) | list peek path ("*" :a)}',
   '[]'
 )
@@ -1346,13 +1357,13 @@ test(
 // =====================================================
 
 test(
-  'peek Par: multiple keys',
+  'peek Par: multiple keys [peek-par]',
   '{* (:a 1 :b 2 :c 3) | list peek path ((:a :c))}',
   '[1,3]'
 )
 
 test(
-  'peek Par: multiple positions',
+  'peek Par: multiple positions [peek-par]',
   '{(10 20 30 40) | list peek path (("#1" "#3"))}',
   '[10,30]'
 )
@@ -1363,61 +1374,61 @@ test(
 // =====================================================
 
 test(
-  'poke Name: update existing key',
+  'poke Name: update existing key [poke-key-update]',
   '{* (:a 1 :b 2) | list poke path :b value 99}',
   '{"a":1,"b":99}'
 )
 
 test(
-  'poke Name: create missing key',
+  'poke Name: create missing key [poke-key-create]',
   '{* (:a 1) | list poke path :b value 99}',
   '{"a":1,"b":99}'
 )
 
 test(
-  'poke Name: create nested path from existing',
+  'poke Name: create nested path from existing [poke-key-create]',
   '{* (:a 1) | list poke path (:b :c) value 99}',
   '{"a":1,"b":{"c":99}}'
 )
 
 test(
-  'poke Name: into empty creates structure',
+  'poke Name: into empty creates structure [poke-key-empty]',
   '{() | list poke path (:x) value 42}',
   '{"x":42}'
 )
 
 test(
-  'poke Name: deep nested create from empty',
+  'poke Name: deep nested create from empty [poke-key-empty]',
   '{() | list poke path (:a :b :c) value 42}',
   '{"a":{"b":{"c":42}}}'
 )
 
 test(
-  'poke Name: key on array converts to object',
+  'poke Name: key on array converts to object [WRONG:poke-key-unkeyed-fail] [sploot-passthru-poke]',
   '{(1 2 3) | list poke path :x value 99}',
   '{"0":1,"1":2,"2":3,"x":99}'
 )
 
 test(
-  'poke Name: key on array mid-path converts to object',
+  'poke Name: key on array mid-path converts to object [WRONG:poke-key-unkeyed-fail] [sploot-passthru-poke]',
   '{(10 20) | list poke path (:x :y) value 99}',
   '{"0":10,"1":20,"x":{"y":99}}'
 )
 
 test(
-  'poke Name: scalar mid-path affine replaces with empty',
+  'poke Name: scalar mid-path affine replaces with empty [poke-key-scalar-affine]',
   '{* (:a 42) | list poke path (:a :b) value 99}',
   '{"a":{"b":99}}'
 )
 
 test(
-  'poke Name: scalar mid-path traversal skips',
+  'poke Name: scalar mid-path traversal skips [poke-key-scalar-traversal]',
   '{* (:a 42 :b 7) | list poke path ("*" :x) value 99}',
   '{"a":42,"b":7}'
 )
 
 test(
-  'poke Name: scalar mid-path traversal with objects skips scalars',
+  'poke Name: scalar mid-path traversal with objects skips scalars [poke-key-scalar-traversal]',
   '{* (:a {* (:z 1)} :b 7) | list poke path ("*" :x) value 99}',
   '{"a":{"z":1,"x":99},"b":7}'
 )
@@ -1428,55 +1439,55 @@ test(
 // =====================================================
 
 test(
-  'poke Pos: update existing position',
+  'poke Pos: update existing position [poke-pos-update] [pos-one-indexed]',
   '{(10 20 30) | list poke path "#2" value 99}',
   '[10,99,30]'
 )
 
 test(
-  'poke Pos: out-of-bounds position is no-op',
+  'poke Pos: out-of-bounds position is no-op [poke-pos-oob]',
   '{(10 20) | list poke path "#4" value 99}',
   '[10,20]'
 )
 
 test(
-  'poke Pos: position on empty list is no-op',
+  'poke Pos: position on empty list is no-op [poke-pos-empty]',
   '{() | list poke path "#2" value 99}',
   '[]'
 )
 
 test(
-  'poke Pos: nested position path',
+  'poke Pos: nested position path [poke-pos-update]',
   '{((1 2) (3 4)) | list poke path ("#2" "#1") value 99}',
   '[[1,2],[99,4]]'
 )
 
 test(
-  'poke Pos: keyed list by insertion order',
+  'poke Pos: keyed list by insertion order [poke-pos-update] [pos-one-indexed]',
   '{* (:a 10 :b 20 :c 30) | list poke path "#2" value 99}',
   '{"a":10,"b":99,"c":30}'
 )
 
 test(
-  'poke Pos: negative position from end',
+  'poke Pos: negative position from end [poke-pos-update] [pos-negative]',
   '{(10 20 30) | list poke path "#-1" value 99}',
   '[10,20,99]'
 )
 
 test(
-  'poke Pos: negative position second from end',
+  'poke Pos: negative position second from end [poke-pos-update] [pos-negative]',
   '{(10 20 30) | list poke path "#-2" value 99}',
   '[10,99,30]'
 )
 
 test(
-  'poke Pos: mid-path in bounds traverses child',
+  'poke Pos: mid-path in bounds traverses child [poke-pos-update]',
   '{((1 2) (3 4) (5 6)) | list poke path ("#2" "#2") value 99}',
   '[[1,2],[3,99],[5,6]]'
 )
 
 test(
-  'poke Pos: mid-path out of bounds is no-op',
+  'poke Pos: mid-path out of bounds is no-op [poke-pos-oob]',
   '{((1 2) (3 4)) | list poke path ("#5" "#1") value 99}',
   '[[1,2],[3,4]]'
 )
@@ -1487,25 +1498,25 @@ test(
 // =====================================================
 
 test(
-  'poke Star: set all children',
+  'poke Star: set all children [poke-star]',
   '{(1 2 3) | list poke path "*" value 0}',
   '[0,0,0]'
 )
 
 test(
-  'poke Star: set all children of keyed list',
+  'poke Star: set all children of keyed list [poke-star]',
   '{* (:a 1 :b 2) | list poke path "*" value 0}',
   '{"a":0,"b":0}'
 )
 
 test(
-  'poke Star: on empty list is no-op',
+  'poke Star: on empty list is no-op [poke-star-empty]',
   '{() | list poke path "*" value 99}',
   '[]'
 )
 
 test(
-  'poke Star: nested star-then-pos modifies existing children',
+  'poke Star: nested star-then-pos modifies existing children [poke-star]',
   '{((1 2) (3 4)) | list poke path ("*" "#1") value 99}',
   '[[99,2],[99,4]]'
 )
@@ -1514,61 +1525,61 @@ test(
 // poke([1,2,3], ["*", :a], 99) → [1,2,3] because 1,2,3 are scalars
 // and traversal (through Star) skips scalars.
 test(
-  'poke Star: star on scalars with further Name skips (traversal rule)',
+  'poke Star: star on scalars with further Name skips (traversal rule) [poke-star] [poke-star-scalar] [poke-key-scalar-traversal]',
   '{(1 2 3) | list poke path ("*" :a) value 99}',
   '[1,2,3]'
 )
 
 test(
-  'poke Star: nested star-star on collections modifies all',
+  'poke Star: nested star-star on collections modifies all [poke-star]',
   '{((1 2) (3 4)) | list poke path ("*" "*") value 0}',
   '[[0,0],[0,0]]'
 )
 
 test(
-  'poke Star: nested star-star on scalars is no-op',
+  'poke Star: nested star-star on scalars is no-op [poke-star] [poke-star-scalar] [poke-key-scalar-traversal]',
   '{(1 2 3) | list poke path ("*" "*") value 0}',
   '[1,2,3]'
 )
 
 test(
-  'poke Star: pos-then-star modifies one child',
+  'poke Star: pos-then-star modifies one child [poke-star]',
   '{((1 2) (3 4)) | list poke path ("#2" "*") value 0}',
   '[[1,2],[0,0]]'
 )
 
 test(
-  'poke Star: star into empty nested is no-op',
+  'poke Star: star into empty nested is no-op [poke-star] [poke-star-empty]',
   '{() | list poke path ("*" "*") value 99}',
   '[]'
 )
 
 test(
-  'poke Star: star then key on objects sets key on each',
+  'poke Star: star then key on objects sets key on each [poke-star] [poke-key-create]',
   '{({* (:x 1)} {* (:x 2)}) | list poke path ("*" :y) value 99}',
   '[{"x":1,"y":99},{"x":2,"y":99}]'
 )
 
 test(
-  'poke Star: star on single scalar element skips',
+  'poke Star: star on single scalar element skips [poke-star] [poke-star-scalar] [poke-midpath-local]',
   '{(42) | list poke path ("*" :a) value 99}',
   '[42]'
 )
 
 test(
-  'poke Star: star on mixed scalars and objects skips scalars',
+  'poke Star: star on mixed scalars and objects skips scalars [poke-star] [poke-star-scalar] [poke-midpath-local]',
   '{(1 {* (:a 2)} 3) | list poke path ("*" :x) value 99}',
   '[1,{"a":2,"x":99},3]'
 )
 
 test(
-  'poke Star: key then star sets all nested children',
+  'poke Star: key then star sets all nested children [poke-star]',
   '{* (:a (1 2 3)) | list poke path (:a "*") value 0}',
   '{"a":[0,0,0]}'
 )
 
 test(
-  'poke Star: star-star-star on nested collections',
+  'poke Star: star-star-star on nested collections [poke-star]',
   '{(((1 2) (3 4)) ((5 6))) | list poke path ("*" "*" "*") value 0}',
   '[[[0,0],[0,0]],[[0,0]]]'
 )
@@ -1582,7 +1593,7 @@ test(
 // The scalar-destroy behavior applies when D.poke receives a raw scalar (e.g. >$x.path).
 // Through list poke, the string is wrapped as ["hello"], so poke operates on an array.
 test(
-  'poke: scalar base via list poke (coerced to array)',
+  'poke: scalar base via list poke (coerced to array) [WRONG:poke-key-unkeyed-fail] [sploot-passthru-poke]',
   '{:hello | list poke path :a value 99}',
   '{"0":"hello","a":99}'
 )
@@ -1590,14 +1601,14 @@ test(
 // >$x.path desugars to list poke, which coerces string to [string].
 // So string scalars are preserved (wrapped), unlike blocks which coerce to [].
 test(
-  'poke: string base via >$x.path (coerced to array)',
+  'poke: string base via >$x.path (coerced to array) [WRONG:poke-key-scalar-affine]',
   '{:hello | >$sp1 || 99 | >$sp1.a || $sp1}',
   '{"0":"hello","a":99}'
 )
 
 // Block base is destroyed because list type coerces Block to []
 test(
-  'poke: block base via >$x.path (block destroyed)',
+  'poke: block base via >$x.path (block destroyed) [poke-key-scalar-affine]',
   '{"{:foo}x" | >$sp2 || 99 | >$sp2.a || $sp2}',
   '{"a":99}'
 )
@@ -1608,25 +1619,25 @@ test(
 // =====================================================
 
 test(
-  'poke Par: multiple existing keys',
+  'poke Par: multiple existing keys [poke-par-sequential]',
   '{* (:a 1 :b 2 :c 3) | list poke path ((:a :b)) value 99}',
   '{"a":99,"b":99,"c":3}'
 )
 
 test(
-  'poke Par: create missing keys',
+  'poke Par: create missing keys [poke-par-sequential]',
   '{* (:a 1) | list poke path ((:b :c)) value 99}',
   '{"a":1,"b":99,"c":99}'
 )
 
 test(
-  'poke Par: multiple existing positions',
+  'poke Par: multiple existing positions [poke-par-sequential]',
   '{(10 20 30 40) | list poke path (("#1" "#3")) value 99}',
   '[99,20,99,40]'
 )
 
 test(
-  'poke Par: mixed key and position',
+  'poke Par: mixed key and position [poke-par-sequential]',
   '{* (:a 1 :b 2 :c 3) | list poke path ((:a "#3")) value 99}',
   '{"a":99,"b":2,"c":99}'
 )
@@ -1634,67 +1645,67 @@ test(
 // Par is sequential: first sub-path sets #1 to 99, second sets #2 to 99
 // Verify via peek that both positions were set
 test(
-  'poke Par: sequential left-to-right',
+  'poke Par: sequential left-to-right [poke-par-sequential]',
   '{(10 20 30) | list poke path (("#1" "#2")) value 99}',
   '[99,99,30]'
 )
 
 test(
-  'poke Par: some out-of-bounds positions still set in-bounds',
+  'poke Par: some out-of-bounds positions still set in-bounds [poke-par-sequential]',
   '{* (:a 1 :b 2 :c 3) | list poke path ((:b "#6" "#4")) value 999}',
   '{"a":1,"b":999,"c":3}'
 )
 
 test(
-  'poke Par: mid-path then key on each',
+  'poke Par: mid-path then key on each [poke-par-sequential]',
   '{* (:a {* (:x 1)} :b {* (:x 2)}) | list poke path ((:a :b) :x) value 99}',
   '{"a":{"x":99},"b":{"x":99}}'
 )
 
 test(
-  'poke Par: nested Par (Par then Par)',
+  'poke Par: nested Par (Par then Par) [poke-par-sequential]',
   '{* (:a {* (:x 1 :y 2)} :b {* (:x 3 :y 4)}) | list poke path ((:a :b) (:x :y)) value 0}',
   '{"a":{"x":0,"y":0},"b":{"x":0,"y":0}}'
 )
 
 test(
-  'poke Par: Par then star',
+  'poke Par: Par then star [poke-par-sequential]',
   '{* (:a (1 2) :b (3 4)) | list poke path ((:a :b) "*") value 0}',
   '{"a":[0,0],"b":[0,0]}'
 )
 
 test(
-  'poke Par: star then Par',
+  'poke Par: star then Par [poke-par-sequential]',
   '{({* (:a 1 :b 2)} {* (:a 3 :b 4)}) | list poke path ("*" (:a :b)) value 0}',
   '[{"a":0,"b":0},{"a":0,"b":0}]'
 )
 
 test(
-  'poke Par: empty Par is no-op',
+  'poke Par: empty Par is no-op [poke-par-sequential]',
   '{(1 2 3) | list poke path (()) value 99}',
   '[1,2,3]'
 )
 
 test(
-  'poke Par: single-element Par same as plain key',
+  'poke Par: single-element Par same as plain key [poke-par-sequential]',
   '{* (:a 1 :b 2) | list poke path ((:a)) value 99}',
   '{"a":99,"b":2}'
 )
 
 test(
-  'poke Par: duplicate sub-paths (idempotent)',
+  'poke Par: duplicate sub-paths (idempotent) [poke-par-sequential]',
   '{* (:a 1 :b 2) | list poke path ((:a :a)) value 99}',
   '{"a":99,"b":2}'
 )
 
 test(
-  'poke Par: position on array then Par keys creates structure',
+  'poke Par: position on array then Par keys creates structure [poke-par-sequential]',
   '{* (:a 1 :b 2 :c 3) | list poke path ("#2" (:d :e)) value 999}',
   '{"a":1,"b":{"d":999,"e":999},"c":3}'
 )
 
 test(
-  'poke Par: nested Par on arrays',
+  'poke Par: nested Par on arrays [poke-par-sequential]',
   '{((2 1) (3 4) (4 5)) | list poke path (("#1" "#3") ("#2" "#4")) value 999}',
   '[[2,999],[3,4],[4,999]]'
 )
@@ -1705,25 +1716,25 @@ test(
 // =====================================================
 
 test(
-  'poke Combo: key then position',
+  'poke Combo: key then position [poke-key-hit] [poke-pos-update]',
   '{* (:a (10 20 30)) | list poke path (:a "#2") value 99}',
   '{"a":[10,99,30]}'
 )
 
 test(
-  'poke Combo: position then key',
+  'poke Combo: position then key [poke-pos-update] [poke-key-update]',
   '{({* (:x 1)} {* (:x 2)}) | list poke path ("#1" :x) value 99}',
   '[{"x":99},{"x":2}]'
 )
 
 test(
-  'poke Combo: key then star',
+  'poke Combo: key then star [poke-key-hit] [poke-star]',
   '{* (:a (1 2 3)) | list poke path (:a "*") value 0}',
   '{"a":[0,0,0]}'
 )
 
 test(
-  'poke Combo: deeply nested 4-level path',
+  'poke Combo: deeply nested 4-level path [poke-key-hit] [poke-pos-update]',
   '{* (:a {* (:b {* (:c (1 2))})}) | list poke path (:a :b :c "#1") value 99}',
   '{"a":{"b":{"c":[99,2]}}}'
 )
@@ -1731,14 +1742,14 @@ test(
 // >$xxx.#3 desugars to: save pipe, list poke data $xxx path ("#3") value pipe, >$xxx, restore pipe
 // "{:foo}x" is a block → list coerces to [] → poke at #3 on empty → out of bounds → no-op → $xxx = []
 test(
-  'poke Combo: >$var.path block base with position out of bounds is no-op',
+  'poke Combo: >$var.path block base with position out of bounds is no-op [WRONG:poke-pos-oob]',
   '{"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}',
   '[]'
 )
 
 // Same but with a plain string: list coerces "hello" to ["hello"] → #3 out of bounds → no-op
 test(
-  'poke Combo: >$var.path string base with position out of bounds is no-op',
+  'poke Combo: >$var.path string base with position out of bounds is no-op [WRONG:poke-pos-oob]',
   '{:hello | >$yyy || 123 | >$yyy.#3 | $yyy}',
   '["hello"]'
 )
@@ -1749,25 +1760,25 @@ test(
 // =====================================================
 
 test(
-  'PutGet: Name path',
+  'PutGet: Name path [law-putget]',
   '{* (:a 1 :b 2) | list poke path :b value 42 | list peek path :b}',
   '42'
 )
 
 test(
-  'PutGet: Pos path',
+  'PutGet: Pos path [law-putget]',
   '{(10 20 30) | list poke path "#2" value 42 | list peek path "#2"}',
   '42'
 )
 
 test(
-  'PutGet: nested Name path',
+  'PutGet: nested Name path [law-putget]',
   '{* (:a {* (:x 1)}) | list poke path (:a :x) value 42 | list peek path (:a :x)}',
   '42'
 )
 
 test(
-  'PutGet: Name path creates then reads back',
+  'PutGet: Name path creates then reads back [law-putget]',
   '{* (:a 1) | list poke path :z value 42 | list peek path :z}',
   '42'
 )
@@ -1778,13 +1789,13 @@ test(
 // =====================================================
 
 test(
-  'PutPut: last write wins for Name',
+  'PutPut: last write wins for Name [law-putput]',
   '{* (:a 1) | list poke path :a value 10 | list poke path :a value 20}',
   '{"a":20}'
 )
 
 test(
-  'PutPut: last write wins for Pos',
+  'PutPut: last write wins for Pos [law-putput]',
   '{(1 2 3) | list poke path "#1" value 10 | list poke path "#1" value 20}',
   '[20,2,3]'
 )
@@ -1799,13 +1810,13 @@ test(
 // Since star doesn't create, this is safe.
 
 test(
-  'Star PutGet: poke star then peek star',
+  'Star PutGet: poke star then peek star [law-putget] [poke-star] [peek-star]',
   '{(1 2 3) | list poke path "*" value 0 | list peek path "*"}',
   '[0,0,0]'
 )
 
 test(
-  'Star PutPut: double star poke, last wins',
+  'Star PutPut: double star poke, last wins [law-putput] [poke-star]',
   '{(1 2 3) | list poke path "*" value 5 | list poke path "*" value 9}',
   '[9,9,9]'
 )
@@ -1817,7 +1828,7 @@ test(
 
 // {begin $foo} has a non-\w+ name — parser should not crash
 test(
-  'parser: invalid block name does not crash',
+  'parser: invalid block name does not crash [P-total] [parse-command]',
   '{begin $foo}body{end $foo}',
   ''
 )
@@ -1838,13 +1849,13 @@ test(
 // --- Unmatched '{' is literal text ---
 
 test(
-  'parse: trailing unmatched { is literal text',
+  'parse: trailing unmatched { is literal text [parse-unmatched-open]',
   'hello { world',
   'hello { world'
 )
 
 test(
-  'parse: unmatched { among valid commands',
+  'parse: unmatched { among valid commands [parse-unmatched-open]',
   '{:ok} then { oops',
   'ok then { oops'
 )
@@ -1852,25 +1863,25 @@ test(
 // --- Unmatched '{' does NOT eat subsequent valid commands ---
 
 test(
-  'parse: unmatched { followed by valid command',
+  'parse: unmatched { followed by valid command [parse-unmatched-open]',
   'hey { wow {3 | math add value 2} bye',
   'hey { wow 5 bye'
 )
 
 test(
-  'parse: unmatched { between two valid commands',
+  'parse: unmatched { between two valid commands [parse-unmatched-open]',
   '{:a} { {3 | add 4}',
   'a { 7'
 )
 
 test(
-  'parse: multiple unmatched { each become literal text',
+  'parse: multiple unmatched { each become literal text [parse-unmatched-open]',
   'a { b { c',
   'a { b { c'
 )
 
 test(
-  'parse: unmatched { then valid command then unmatched {',
+  'parse: unmatched { then valid command then unmatched { [parse-unmatched-open]',
   '{ {3 | add 1} {',
   '{ 4 {'
 )
@@ -1878,19 +1889,19 @@ test(
 // --- Lone '}' is literal text ---
 
 test(
-  'parse: lone } is literal text',
+  'parse: lone } is literal text [parse-unmatched-close]',
   'hello } world',
   'hello } world'
 )
 
 test(
-  'parse: } before valid command',
+  'parse: } before valid command [parse-unmatched-close]',
   '} {3 | add 1}',
   '} 4'
 )
 
 test(
-  'parse: } after valid command',
+  'parse: } after valid command [parse-unmatched-close]',
   '{3 | add 1} }',
   '4 }'
 )
@@ -1901,49 +1912,49 @@ test(
 // surprising when braces appear inside string literals.
 
 test(
-  'parse: basic string in command',
+  'parse: basic string in command [parse-brace-structural]',
   '{"hello"}',
   'hello'
 )
 
 test(
-  'parse: { inside string breaks structural match',
+  'parse: { inside string breaks structural match [parse-brace-structural]',
   '{"he{lo"}',
   '{"he'
 )
 
 test(
-  'parse: } inside string closes structural match early',
+  'parse: } inside string closes structural match early [parse-brace-structural]',
   '{"he}lo"}',
   'lo"}'
 )
 
 test(
-  'parse: matched {} inside string balances structurally',
+  'parse: matched {} inside string balances structurally [parse-brace-structural]',
   '{"{}"}',
   ''
 )
 
 test(
-  'parse: lone quote in braces',
+  'parse: lone quote in braces [parse-brace-structural]',
   '{"}"}',
   '"}'
 )
 
 test(
-  'parse: nested braces inside string balance structurally',
+  'parse: nested braces inside string balance structurally [parse-brace-structural]',
   '{"a{b}c"}',
   'ac'
 )
 
 test(
-  'parse: block-like string evaluates',
+  'parse: block-like string evaluates [parse-block-quoted]',
   '{"{3 | add 1}"}',
   '4'
 )
 
 test(
-  'parse: lone } among text and commands',
+  'parse: lone } among text and commands [parse-unmatched-close]',
   'x}y{3 | add 1}z',
   'x}y4z'
 )
@@ -1952,19 +1963,19 @@ test(
 // misaligning the structural brace match.
 
 test(
-  'parse: } in string eats rest of pipeline',
+  'parse: } in string eats rest of pipeline [parse-brace-structural]',
   '{"x}y" | (1 2)}',
   'y" | (1 2)}'
 )
 
 test(
-  'parse: { in string eats rest of pipeline',
+  'parse: { in string eats rest of pipeline [parse-brace-structural]',
   '{"x{y" | (1 2)}',
   '{"x'
 )
 
 test(
-  'parse: matched {} in string preserves pipeline',
+  'parse: matched {} in string preserves pipeline [parse-brace-structural]',
   '{"x{}y" | (1 2)}',
   '[1,2]'
 )
@@ -1972,43 +1983,43 @@ test(
 // --- Trivial inputs ---
 
 test(
-  'parse: empty input returns empty',
+  'parse: empty input returns empty [P-total]',
   '',
   ''
 )
 
 test(
-  'parse: plain text no braces',
+  'parse: plain text no braces [literal-produces-value]',
   'hello world',
   'hello world'
 )
 
 test(
-  'parse: just whitespace',
+  'parse: just whitespace [literal-produces-value]',
   '   ',
   '   '
 )
 
 test(
-  'parse: empty command',
+  'parse: empty command [P-total]',
   '{}',
   ''
 )
 
 test(
-  'parse: double open brace',
+  'parse: double open brace [parse-unmatched-open]',
   '{{',
   '{{'
 )
 
 test(
-  'parse: double close brace',
+  'parse: double close brace [parse-unmatched-close]',
   '}}',
   '}}'
 )
 
 test(
-  'parse: close then open brace',
+  'parse: close then open brace [parse-unmatched-close] [parse-unmatched-open]',
   '}{',
   '}{'
 )
@@ -2016,19 +2027,19 @@ test(
 // --- Nested braces ---
 
 test(
-  'parse: double-wrapped command',
+  'parse: double-wrapped command [parse-brace-structural]',
   '{{3 | add 1}}',
   '4'
 )
 
 test(
-  'parse: adjacent commands',
+  'parse: adjacent commands [parse-brace-structural]',
   '{3 | add 1}{5 | add 2}',
   '47'
 )
 
 test(
-  'parse: three adjacent commands',
+  'parse: three adjacent commands [parse-brace-structural]',
   '{1}{2}{3}',
   '123'
 )
@@ -2036,55 +2047,55 @@ test(
 // --- Namedblock priority over regular command ---
 
 test(
-  'parse: namedblock takes priority',
+  'parse: namedblock takes priority [parse-begin-end-match]',
   '{begin foo}hello{end foo}',
   'hello'
 )
 
 test(
-  'parse: namedblock with commands inside',
+  'parse: namedblock with commands inside [parse-begin-end-match]',
   '{begin foo}x {3 | add 1} y{end foo}',
   'x 4 y'
 )
 
 test(
-  'parse: namedblock empty body',
+  'parse: namedblock empty body [parse-begin-end-match]',
   '{begin foo}{end foo}',
   ''
 )
 
 test(
-  'parse: namedblock with numeric name',
+  'parse: namedblock with numeric name [parse-begin-end-match]',
   '{begin 123}body{end 123}',
   'body'
 )
 
 test(
-  'parse: nested different-name namedblocks',
+  'parse: nested different-name namedblocks [parse-begin-end-match]',
   '{begin a}x{begin b}y{end b}z{end a}',
   'xyz'
 )
 
 test(
-  'parse: nested same-name takes first end tag',
+  'parse: nested same-name takes first end tag [parse-begin-end-match]',
   '{begin a}x{end a}y{end a}',
   'xy'
 )
 
 test(
-  'parse: end tag without begin is a command',
+  'parse: end tag without begin is a command [parse-command]',
   '{end foo}',
   ''
 )
 
 test(
-  'parse: begin with no space is regular command',
+  'parse: begin with no space is regular command [parse-command]',
   '{beginfoo}',
   ''
 )
 
 test(
-  'parse: namedblock end tag inside opening pipeline is not matched',
+  'parse: namedblock end tag inside opening pipeline is not matched [parse-begin-end-match]',
   '{begin name | "{end name}" | 123}yo{end name}',
   '123'
 )
@@ -2093,25 +2104,25 @@ test(
 // is treated as a regular command. 'begin' is not a handler, so it
 // soft-errors and produces empty. The rest is literal text.
 test(
-  'parse: namedblock missing end tag falls back to command',
+  'parse: namedblock missing end tag falls back to command [parse-begin-no-end]',
   '{begin foo} oops no end tag',
   ' oops no end tag'
 )
 
 test(
-  'parse: begin no end with valid command after',
+  'parse: begin no end with valid command after [parse-begin-no-end]',
   '{begin foo}body {3 | add 1} trail',
   'body 4 trail'
 )
 
 test(
-  'parse: mismatched begin/end names falls back to command',
+  'parse: mismatched begin/end names falls back to command [parse-begin-no-end]',
   '{begin foo}{end bar}',
   ''
 )
 
 test(
-  'parse: mismatched names with stuff after',
+  'parse: mismatched names with stuff after [parse-begin-no-end]',
   '{begin foo}{end bar} and {3 | add 1}',
   ' and 4'
 )
@@ -2119,13 +2130,13 @@ test(
 // --- Nested braces ---
 
 test(
-  'parse: nested braces match correctly',
+  'parse: nested braces match correctly [parse-brace-structural]',
   '{(1 2 3) | map block "{__ | add 1}"}',
   '[2,3,4]'
 )
 
 test(
-  'parse: adjacent commands both parse',
+  'parse: adjacent commands both parse [parse-brace-structural]',
   '{3 | add 1}{:x}',
   '4x'
 )
@@ -2133,7 +2144,7 @@ test(
 // --- Mixed unmatched and valid braces ---
 
 test(
-  'parse: text, command, unmatched, command, text',
+  'parse: text, command, unmatched, command, text [parse-unmatched-open] [parse-brace-structural]',
   'a {3 | add 1} { {5 | add 2} z',
   'a 4 { 7 z'
 )
@@ -2150,13 +2161,13 @@ test(
 )
 
 test(
-  'from code: open curly brace',
+  'from code: open curly brace [parse-code-curlies]',
   '{string from code 123}',
   '{'
 )
 
 test(
-  'from code: close curly brace',
+  'from code: close curly brace [parse-code-curlies]',
   '{string from code 125}',
   '}'
 )
@@ -2179,19 +2190,19 @@ test(
 // =====================================================
 
 test(
-  'from code: open curly stored in pipeline var',
+  'from code: open curly stored in pipeline var [parse-code-curlies]',
   '{string from code 123 | >brace || _brace}',
   '{'
 )
 
 test(
-  'from code: close curly stored in space var',
+  'from code: close curly stored in space var [parse-code-curlies]',
   '{string from code 125 | >$cb || $cb}',
   '}'
 )
 
 test(
-  'from code: both curlies round-trip through vars',
+  'from code: both curlies round-trip through vars [parse-code-curlies]',
   '{string from code 123 | >$ob || string from code 125 | >$cb || ($ob :hi $cb) | join}',
   '{hi}'
 )
@@ -2202,7 +2213,7 @@ test(
 // =====================================================
 
 test(
-  'from code: assemble DAML from curly chars and execute',
+  'from code: assemble DAML from curly chars and execute [parse-code-curlies] [P-uniformeval]',
   '{string from code 123 | >$op || string from code 125 | >$cl || ($op :3 " | " :add " " :4 $cl) | join | process unquote | process run}',
   '7'
 )
@@ -2390,31 +2401,31 @@ test('zip: nested arrays as elements',
 // =====================================================
 
 // map: source list unchanged after mapping
-test('map: no mutation',
+test('map: no mutation [P-copy] [I14]',
   '{(1 2 3) | >$x || $x | list map block "{__ | add 10}" || $x}',
   '[1,2,3]'
 )
 
 // filter: source list unchanged after filtering
-test('filter: no mutation',
+test('filter: no mutation [P-copy] [I14]',
   '{(1 2 3 4 5) | >$x || $x | list filter block "{__ | mod 2}" || $x}',
   '[1,2,3,4,5]'
 )
 
 // sort: source list unchanged after sorting
-test('sort: no mutation',
+test('sort: no mutation [P-copy] [I14]',
   '{(3 1 2) | >$x || $x | list sort || $x}',
   '[3,1,2]'
 )
 
 // rekey: source list unchanged after rekeying
-test('rekey: no mutation',
+test('rekey: no mutation [P-copy] [I14]',
   '{list pair data (:a 1 :b 2) | >$x || $x | list rekey by "{__ | add 10}" || $x}',
   '{"a":1,"b":2}'
 )
 
 // group: source list unchanged after grouping
-test('group: no mutation',
+test('group: no mutation [P-copy] [I14]',
   '{list pair data (:a 1 :b 2) | >$x || $x | list group by "{__ | mod 2}" || $x}',
   '{"a":1,"b":2}'
 )
@@ -2425,57 +2436,57 @@ test('group: no mutation',
 // =====================================================
 
 // Backward compatibility (no path = default star)
-test('map: no path, array',
+test('map: no path, array [map-default-star]',
   '{(1 2 3) | list map block "{__ | add 10}"}',
   '[11,12,13]'
 )
-test('map: no path, object',
+test('map: no path, object [map-default-star]',
   '{* (:x 1 :y 2) | list map block "{__ | add 10}"}',
   '{"x":11,"y":12}'
 )
 
 // Explicit star
-test('map: explicit star path',
+test('map: explicit star path [map-default-star]',
   '{(1 2 3) | list map path ("*") block "{__ | add 10}"}',
   '[11,12,13]'
 )
 
 // Key path
-test('map: key path hits',
+test('map: key path hits [map-no-add]',
   '{* (:a 1 :b 2) | list map path (:a) block "{__ | add 10}"}',
   '{"a":11,"b":2}'
 )
-test('map: key path misses',
+test('map: key path misses [map-no-add]',
   '{* (:a 1 :b 2) | list map path (:c) block "{__ | add 10}"}',
   '{"a":1,"b":2}'
 )
 
 // Position path
-test('map: position path',
+test('map: position path [map-no-add]',
   '{(10 20 30) | list map path ("#2") block "{__ | add 100}"}',
   '[10,120,30]'
 )
 
 // Nested paths
-test('map: nested key+star',
+test('map: nested key+star [map-no-add] [peek-star]',
   '{* (:items (1 2 3)) | list map path (:items "*") block "{__ | add 10}"}',
   '{"items":[11,12,13]}'
 )
-test('map: star+position',
+test('map: star+position [map-no-add] [peek-star]',
   '{((1 2) (3 4)) | list map path ("*" "#1") block "{__ | add 100}"}',
   '[[101,2],[103,4]]'
 )
-test('map: star+key across objects',
+test('map: star+key across objects [map-no-add] [peek-star]',
   '{* (:a {* (:x 1 :y 2)} :b {* (:x 3)}) | list map path ("*" :x) block "{__ | add 10}"}',
   '{"a":{"x":11,"y":2},"b":{"x":13}}'
 )
 
 // Scalar mid-path (unchanged)
-test('map: scalar mid-path, all scalars',
+test('map: scalar mid-path, all scalars [map-scalar-unchanged]',
   '{(1 2 3) | list map path ("*" :foo) block "{__ | add 10}"}',
   '[1,2,3]'
 )
-test('map: scalar mid-path, mixed',
+test('map: scalar mid-path, mixed [map-scalar-unchanged]',
   '{* (:a 42 :b {* (:x 1)}) | list map path ("*" :x) block "{__ | add 10}"}',
   '{"a":42,"b":{"x":11}}'
 )
@@ -2487,47 +2498,47 @@ test('map: par path',
 )
 
 // _path injection
-test('map: _path at top level',
+test('map: _path at top level [map-block-scope] [scope-inject-index]',
   '{(10 20 30) | list map block "{_path}"}',
   '[["0"],["1"],["2"]]'
 )
 
 // _index injection
-test('map: _index array',
+test('map: _index array [scope-inject-index]',
   '{(:x :y :z) | list map block "{_index}"}',
   '[0,1,2]'
 )
-test('map: _index object',
+test('map: _index object [scope-inject-index]',
   '{* (:a 10 :b 20) | list map block "{_index}"}',
   '{"a":0,"b":1}'
 )
 
 // _key injection (existing behavior preserved)
-test('map: _key object',
+test('map: _key object [scope-inject-key]',
   '{* (:a 1 :b 2) | list map block "{_key}"}',
   '{"a":"a","b":"b"}'
 )
 
 // Position resolves to 0-indexed key in _path
-test('map: position resolves in _path',
+test('map: position resolves in _path [map-block-scope]',
   '{(10 20 30) | list map path ("#2") block "{_path}"}',
   '[10,["1"],30]'
 )
 
 // Empty collection
-test('map: empty collection',
+test('map: empty collection [map-default-star]',
   '{() | list map path ("*") block "{__ | add 10}"}',
   '[]'
 )
 
 // Deep rebuild
-test('map: deep rebuild with position',
+test('map: deep rebuild with position [map-no-add]',
   '{* (:a (1 2 3) :b (4 5 6)) | list map path (:a "#2") block "{__ | math multiply value 10}"}',
   '{"a":[1,20,3],"b":[4,5,6]}'
 )
 
 // No mutation
-test('map: no mutation with path',
+test('map: no mutation with path [P-copy] [I14]',
   '{* (:a (1 2 3)) | >$x || $x | list map path (:a "*") block "{__ | add 10}" || $x}',
   '{"a":[1,2,3]}'
 )
@@ -2538,70 +2549,70 @@ test('map: no mutation with path',
 // =====================================================
 
 // normal array — existing behavior
-test('reduce: sum array',
+test('reduce: sum array [P-total]',
   '{(1 2 3 4) | list reduce block "{_total | add _value}"}',
   '10'
 )
 
-test('reduce: two elements',
+test('reduce: two elements [P-total]',
   '{(10 5) | list reduce block "{_total | add _value}"}',
   '15'
 )
 
 // single element — returned as-is, no block invocation
-test('reduce: single element array',
+test('reduce: single element array [P-total]',
   '{(42) | list reduce block "{_total | add _value}"}',
   '42'
 )
 
 // empty list — returns empty list
-test('reduce: empty list',
+test('reduce: empty list [P-total] [empty-coerce-list]',
   '{() | list reduce block "{_total | add _value}"}',
   '[]'
 )
 
 // scalar data — list coercion wraps in array, single element returned
-test('reduce: scalar number',
+test('reduce: scalar number [P-total] [coerce-list]',
   '{99 | list reduce block "{_total | add _value}"}',
   '99'
 )
 
-test('reduce: scalar string',
+test('reduce: scalar string [P-total] [coerce-list]',
   '{:hello | list reduce block "{_total | add _value}"}',
   'hello'
 )
 
 // keyed list (object) — values extracted and reduced
-test('reduce: keyed list sums values',
+test('reduce: keyed list sums values [P-total]',
   '{(:a 1 :b 2 :c 3) | * | list reduce block "{_total | add _value}"}',
   '6'
 )
 
-test('reduce: two-element keyed list',
+test('reduce: two-element keyed list [P-total]',
   '{(:x 10 :y 20) | * | list reduce block "{_total | add _value}"}',
   '30'
 )
 
 // keyed list with string values
-test('reduce: keyed list string concat',
+test('reduce: keyed list string concat [P-total]',
   '{(:a :foo :b :bar) | * | list reduce block "{(_total _value) | string join}"}',
   'foobar'
 )
 
 // reduce via pipeline var holding object
-test('reduce: object from pipeline var',
+test('reduce: object from pipeline var [P-total]',
   '{(:p 5 :q 3) | * | >obj || _obj | list reduce block "{_total | add _value}"}',
   '8'
 )
 
 // object from effectful command (the original crash pattern)
-test('reduce: object piped into reduce does not crash',
+test('reduce: object piped into reduce does not crash [P-total]',
   '{:x | time stampwrap | list reduce block "{_total | add _value}" | logic is value __ like "/^[0-9]+$/" | logic if then :yes else :no}',
   'yes'
 )
 
 // reduce preserves order of array
-test('reduce: subtraction is order-dependent',
+test('reduce: subtraction is order-dependent [P-total]',
   '{(100 30 20 10) | list reduce block "{_total | math subtract value _value}"}',
   '40'
 )
@@ -2611,88 +2622,88 @@ test('reduce: subtraction is order-dependent',
 // =====================================================
 
 // original bug: log(0) = -Infinity, -Infinity * 0 = NaN
-test('opt math: log then multiply 0',
+test('opt math: log then multiply 0 [P-total] [total-cmd-value]',
   '{math log | multiply 0}',
   '0'
 )
 
-test('opt math: log value 0 then multiply 0',
+test('opt math: log value 0 then multiply 0 [P-total] [total-cmd-value]',
   '{math log value 0 | multiply 0}',
   '0'
 )
 
 // +Infinity * 0 = NaN
-test('opt math: pow overflow then multiply 0',
+test('opt math: pow overflow then multiply 0 [P-total] [total-cmd-value]',
   '{math pow value 10 exp 999 | multiply 0}',
   '0'
 )
 
 // -Infinity from divide, then * 0
-test('opt math: negative infinity times 0',
+test('opt math: negative infinity times 0 [P-total] [total-cmd-value]',
   '{0 | math subtract value 1 | math divide value 0 | multiply 0}',
   '0'
 )
 
 // ±Infinity + 0 should stay ±Infinity (not NaN, not clamped)
-test('opt math: negative infinity add 0',
+test('opt math: negative infinity add 0 [P-total] [total-cmd-value]',
   '{math log | add 0}',
   '-Infinity'
 )
 
-test('opt math: positive infinity add 0',
+test('opt math: positive infinity add 0 [P-total] [total-cmd-value]',
   '{math pow value 10 exp 999 | add 0}',
   'Infinity'
 )
 
 // normal optimized multiply
-test('opt math: multiply normal',
+test('opt math: multiply normal [P-total] [total-cmd-value]',
   '{5 | multiply 3}',
   '15'
 )
 
-test('opt math: multiply negative',
+test('opt math: multiply negative [P-total] [total-cmd-value]',
   '{-5 | multiply 3}',
   '-15'
 )
 
-test('opt math: multiply by 0',
+test('opt math: multiply by 0 [P-total] [total-cmd-value]',
   '{999 | multiply 0}',
   '0'
 )
 
-test('opt math: multiply negative by 0',
+test('opt math: multiply negative by 0 [P-total] [total-cmd-value]',
   '{-999 | multiply 0}',
   '0'
 )
 
-test('opt math: zero times large',
+test('opt math: zero times large [P-total] [total-cmd-value]',
   '{0 | multiply 999}',
   '0'
 )
 
 // normal optimized add
-test('opt math: add normal',
+test('opt math: add normal [P-total] [total-cmd-value]',
   '{5 | add 3}',
   '8'
 )
 
-test('opt math: add to zero',
+test('opt math: add to zero [P-total] [total-cmd-value]',
   '{0 | add 0}',
   '0'
 )
 
-test('opt math: add cancellation',
+test('opt math: add cancellation [P-total] [total-cmd-value]',
   '{-3 | add 3}',
   '0'
 )
 
 // non-number pipe falls back to command (not optimized fast path)
-test('opt math: string times number',
+test('opt math: string times number [P-total] [total-cmd-value] [coerce-number]',
   '{:hello | multiply 5}',
   '0'
 )
 
-test('opt math: string plus number',
+test('opt math: string plus number [P-total] [total-cmd-value] [coerce-number]',
   '{:hello | add 5}',
   '5'
 )
@@ -2702,22 +2713,22 @@ test('opt math: string plus number',
 // =====================================================
 
 // original crash: star expands scalar children, poke tries to set property on null
-test('poke: star path on scalar does not crash',
+test('poke: star path on scalar does not crash [P-total] [poke-key-scalar-traversal]',
   '{-Infinity | list poke path ("*" :b) value 1}',
   '[""]'
 )
 
-test('poke: star path on number does not crash',
+test('poke: star path on number does not crash [P-total] [poke-key-scalar-traversal]',
   '{42 | list poke path ("*" :c) value 1}',
   '[42]'
 )
 
-test('poke: star path on string does not crash',
+test('poke: star path on string does not crash [P-total] [poke-key-scalar-traversal]',
   '{:hello | list poke path ("*" :b) value 1}',
   '["hello"]'
 )
 
-test('poke: deep star path on scalar does not crash',
+test('poke: deep star path on scalar does not crash [P-total] [poke-key-scalar-traversal]',
   '{-Infinity | list poke path ("*" -1 :c) value :y}',
   '[""]'
 )
@@ -2727,18 +2738,18 @@ test('poke: deep star path on scalar does not crash',
 // =====================================================
 
 // original crash: empty from → /(?:)/g, huge to string → "Invalid string length"
-test('transform: empty from returns value unchanged',
+test('transform: empty from returns value unchanged [P-total]',
   '{string transform value :hello to :X}',
   'hello'
 )
 
-test('transform: large to with empty from does not crash',
+test('transform: large to with empty from does not crash [P-total]',
   '{process dialect | string transform to __ | logic is value __ like "/list/" | logic if then :yes else :no}',
   'yes'
 )
 
 // normal transform still works
-test('transform: basic replacement',
+test('transform: basic replacement [P-total]',
   '{string transform value :abcabc from :b to :B}',
   'aBcaBc'
 )
@@ -2748,43 +2759,43 @@ test('transform: basic replacement',
 // =====================================================
 
 // original crash: Math.min.apply(null, hugeArray) blows the call stack
-test('min: large array does not stack overflow',
+test('min: large array does not stack overflow [P-total]',
   '{list range length 200000 | math min}',
   '1'
 )
 
-test('max: large array does not stack overflow',
+test('max: large array does not stack overflow [P-total]',
   '{list range length 200000 | math max}',
   '200000'
 )
 
 // normal behavior preserved
-test('min: small array',
+test('min: small array [P-total]',
   '{math min value (5 3 8 1)}',
   '1'
 )
 
-test('max: small array',
+test('max: small array [P-total]',
   '{math max value (5 3 8 1)}',
   '8'
 )
 
-test('min: with also param',
+test('min: with also param [P-total]',
   '{math min value 5 also 3}',
   '3'
 )
 
-test('max: with also param',
+test('max: with also param [P-total]',
   '{math max value 5 also 8}',
   '8'
 )
 
-test('min: single element',
+test('min: single element [P-total]',
   '{math min value 42}',
   '42'
 )
 
-test('max: single element',
+test('max: single element [P-total]',
   '{math max value 42}',
   '42'
 )
@@ -2794,29 +2805,29 @@ test('max: single element',
 // =====================================================
 
 // merge: null item from unset pipeline var via __
-test('merge: null item in data does not crash',
+test('merge: null item in data does not crash [P-total]',
   '{_x | list merge data (__ :a :b) block "{__}"}',
   'ab'
 )
 
-test('merge: null item mid-data',
+test('merge: null item mid-data [P-total]',
   '{_x | list merge data (:key 0.001 __ 42) block "{__}"}',
   'key0.00142'
 )
 
 // group: null item with string by path
-test('group: null item with string by does not crash',
+test('group: null item with string by does not crash [P-total]',
   '{_x | list group by :a data (:foo __ :bar) | logic if then :yes else :no}',
   'yes'
 )
 
-test('group: null item with numeric by path',
+test('group: null item with numeric by path [P-total]',
   '{>@result | list group by 999999 data (:a -100 __ -100) | logic if then :yes else :no}',
   'yes'
 )
 
 // rekey: null item with string by path
-test('rekey: null item with string by does not crash',
+test('rekey: null item with string by does not crash [P-total]',
   '{_x | list rekey data (__ :a :b) by :foo | logic if then :yes else :no}',
   'yes'
 )
@@ -2827,35 +2838,35 @@ test('rekey: null item with string by does not crash',
 
 // original crash: splooted object (null prototype) in value list, == throws on ToPrimitive
 // match comes AFTER the object entry, so crash prevents reaching it
-test('switch: null-proto object before match in value list',
+test('switch: null-proto object before match in value list [P-total]',
   '{(:x :y) | * | >obj || logic switch on :b value (_obj :wrong :b :yes)}',
   'yes'
 )
 
 // null-proto object as the "on" value compared against primitives
-test('switch: null-proto object as on value',
+test('switch: null-proto object as on value [P-total]',
   '{(:a :b) | * | logic switch value 1 | logic if then :yes else :no}',
   'no'
 )
 
 // object in value list with no match — should return false, not crash
-test('switch: null-proto object in value list no match',
+test('switch: null-proto object in value list no match [P-total]',
   '{(:x :y) | * | >obj || logic switch on :z value (_obj :wrong :b :also_wrong) | logic if then :yes else :no}',
   'no'
 )
 
 // normal switch still works
-test('switch: normal string match',
+test('switch: normal string match [P-total]',
   '{logic switch on :b value (:a :alpha :b :beta)}',
   'beta'
 )
 
-test('switch: normal number match',
+test('switch: normal number match [P-total]',
   '{logic switch on 2 value (1 :one 2 :two 3 :three)}',
   'two'
 )
 
-test('switch: no match returns false',
+test('switch: no match returns false [P-total]',
   '{logic switch on :z value (:a 1 :b 2) | logic if then :yes else :no}',
   'no'
 )
@@ -2865,32 +2876,32 @@ test('switch: no match returns false',
 // =====================================================
 
 // original crash: unset _key → null in list, sort by string path hits null["-1"]
-test('sort: null element with string by path',
+test('sort: null element with string by path [P-total]',
   '{_key | list sort data (__ :foo :bar) by -1}',
   '["bar","foo",""]'
 )
 
-test('sort: null element with block by',
+test('sort: null element with block by [P-total]',
   '{_key | list sort data (__ :foo :bar) by "{__ | multiply -1}"}',
   '["bar","foo",""]'
 )
 
-test('sort: null element no by (natural sort)',
+test('sort: null element no by (natural sort) [P-total]',
   '{_key | list sort data (__ :b :a)}',
   '["","a","b"]'
 )
 
-test('sort: null element mid-list',
+test('sort: null element mid-list [P-total]',
   '{_key | (3 __ 1) | list sort}',
   '["",1,3]'
 )
 
-test('sort: multiple null elements',
+test('sort: multiple null elements [P-total]',
   '{_key | (__ __ :a) | list sort}',
   '["","","a"]'
 )
 
-test('sort: null from pipe into sort with by',
+test('sort: null from pipe into sort with by [P-total]',
   '{_key | (__ :a :b) | list sort by -1}',
   '["b","a",""]'
 )
@@ -2900,93 +2911,93 @@ test('sort: null from pipe into sort with by',
 // =====================================================
 
 // original crash: >$x returns null, __ picks it up, union iterates null
-test('union: null element from >$ pipe value',
+test('union: null element from >$ pipe value [P-total]',
   '{>$data | union (__ -100 "abc def")}',
   '["",-100,"abc def"]'
 )
 
-test('union: null __ with number in list',
+test('union: null __ with number in list [P-total]',
   '{>$x | union (__ 2)}',
   '["",2]'
 )
 
-test('union: null __ mid-list',
+test('union: null __ mid-list [P-total]',
   '{>$x | union (1 __ 3)}',
   '[1,"",3]'
 )
 
-test('union: pre-evaluated list with null element',
+test('union: pre-evaluated list with null element [P-total]',
   '{>$x | (__ 1) | list union}',
   '["",1]'
 )
 
-test('union: multiple null elements',
+test('union: multiple null elements [P-total]',
   '{>$x | union (__ __)}',
   '["",""]'
 )
 
 // also param with null-bearing list
-test('union: also list contains null element',
+test('union: also list contains null element [P-total]',
   '{>$x | list union data (1 2) also (__ 3)}',
   '["",3,1,2]'
 )
 
 // nested lists with null
-test('union: nested lists with null element',
+test('union: nested lists with null element [P-total]',
   '{>$x | union ((__ 1) (2 3))}',
   '["",1,2,3]'
 )
 
 // --- existing behavior preserved ---
 
-test('union: basic list of lists',
+test('union: basic list of lists [P-total]',
   '{((1 2) (3 4)) | list union}',
   '[1,2,3,4]'
 )
 
-test('union: data + also',
+test('union: data + also [P-total]',
   '{(1 2 3) | list union also (4 5)}',
   '[4,5,1,2,3]'
 )
 
-test('union: empty string elements',
+test('union: empty string elements [P-total]',
   '{(("" 1) (2 3)) | list union}',
   '["",1,2,3]'
 )
 
-test('union: zero elements',
+test('union: zero elements [P-total]',
   '{((0 1) (2 3)) | list union}',
   '[0,1,2,3]'
 )
 
-test('union: scalar data',
+test('union: scalar data [P-total]',
   '{42 | list union}',
   '[42]'
 )
 
-test('union: empty list',
+test('union: empty list [P-total]',
   '{() | list union}',
   '[]'
 )
 
-test('union: no args',
+test('union: no args [P-total]',
   '{list union}',
   '[]'
 )
 
 // sparse array from poke — holes at indices 0-3
-test('union: sparse array does not crash',
+test('union: sparse array does not crash [P-total]',
   '{ list poke path (4) value () | union }',
   '[]'
 )
 
 // sparse array with object element — hits keyed-list union path
-test('union: sparse array with object does not crash',
+test('union: sparse array with object does not crash [P-total]',
   '{ list poke path (4 :0 :x) value :key | list union }',
   '{"0":{"x":"key"}}'
 )
 
-test('union: large array does not stack overflow',
+test('union: large array does not stack overflow [P-total]',
   '{range 200000 | union | list count}',
   '200000'
 )
@@ -2995,7 +3006,7 @@ test('union: large array does not stack overflow',
 // §I1 Effect separation: every command has fun XOR effect
 // =====================================================
 
-;(function() {
+;(function() { // [P-effectpartition]
   pending++
 
   // Known violations: commands that currently have BOTH fun and effect.
@@ -3058,7 +3069,7 @@ test('union: large array does not stack overflow',
 // that logs requests and replays the same canned response.
 // The request logs and outputs must be identical.
 
-;(function() {
+;(function() { // [P-handlersub] [handler-substitute]
   pending++
 
   var daml = '{time now | __.stamp | math add value 1}'
@@ -3166,7 +3177,7 @@ test('union: large array does not stack overflow',
 // Recording handlers provide identical canned responses.
 // Request logs and outputs must be identical.
 
-;(function() {
+;(function() { // [P-portable] [outer-independent]
   pending++
 
   var daml = '{time now | __.stamp | math add value 10}'
@@ -3260,6 +3271,139 @@ test('union: large array does not stack overflow',
     pending--
   }
 })()
+
+
+// =====================================================
+// §11 Required param missing → sploot
+// =====================================================
+
+test(
+  'required param missing: sploots to empty',
+  '{list remove by_value (1) | logic if then :got else :empty}',
+  'empty'
+)
+
+// =====================================================
+// §11 Unknown param names silently ignored
+// =====================================================
+
+test(
+  'unknown param name: does not affect result',
+  '{math add value 3 to 4 fakeparam 99}',
+  '7'
+)
+
+test(
+  'unknown param name: command still runs normally',
+  '{string uppercase value :hello extraparam :ignored}',
+  'HELLO'
+)
+
+
+// =====================================================
+// §10 Lens law: GetPut — poke(v, p, peek(v, p)) = v
+// =====================================================
+
+test(
+  'GetPut: Name path on existing key',
+  '{* (:a 1 :b 2) | >$v || $v.a | >peeked || $v | poke _peeked path :a}',
+  '{"a":1,"b":2}'
+)
+
+test(
+  'GetPut: Pos path on existing position',
+  '{(10 20 30) | >$v || $v | list peek path ("#2") | >peeked || $v | list poke value _peeked path ("#2")}',
+  '[10,20,30]'
+)
+
+
+// =====================================================
+// §10 Lens law: DeleteGet — peek(delete(v, p), p) = Empty
+// =====================================================
+
+test(
+  'DeleteGet: remove key then peek returns empty',
+  '{* (:a 1 :b 2 :c 3) | list remove by_key :b | list peek path (:b)}',
+  ''
+)
+
+
+// =====================================================
+// §10 Lens law: DeleteDel — delete(delete(v, p), p) = delete(v, p)
+// =====================================================
+
+test(
+  'DeleteDel: double remove is idempotent',
+  '{* (:a 1 :b 2) | list remove by_key :b | list remove by_key :b}',
+  '{"a":1}'
+)
+
+
+// =====================================================
+// §10 Lens law: MapId — map(v, p, "{__}") = v
+// =====================================================
+
+test(
+  'MapId: identity map preserves list',
+  '{(1 2 3) | list map block "{__}"}',
+  '[1,2,3]'
+)
+
+test(
+  'MapId: identity map preserves keyed list',
+  '{* (:a 1 :b 2) | list map block "{__}"}',
+  '{"a":1,"b":2}'
+)
+
+
+// =====================================================
+// §10 Lens law: PokeAsMap divergence
+// =====================================================
+
+test(
+  'PokeAsMap divergence: poke creates missing key',
+  '{* (:a 1) | poke 99 path :z}',
+  '{"a":1,"z":99}'
+)
+
+test(
+  'PokeAsMap divergence: map skips missing key',
+  '{* (:a 1) | list map path (:z) block "{99}"}',
+  '{"a":1}'
+)
+
+
+// =====================================================
+// §7/§10 Pipeline vars survive async boundary
+// =====================================================
+
+test(
+  'pipeline vars survive async: set before sleep, read after',
+  '{42 | >foo || :ok | process sleep for 0 || _foo | add _foo}',
+  '84'
+)
+
+
+// =====================================================
+// §1 Space var consistency across async
+// =====================================================
+
+test(
+  'space var consistent across async boundary',
+  '{99 | >$x || $x | process sleep for 0 || $x}',
+  '99'
+)
+
+
+// =====================================================
+// §11 Pipeline var SSA: rebinding produces error
+// =====================================================
+
+test(
+  'pipeline var SSA: double bind keeps first value',
+  '{1 | >x | 2 | >x || _x}',
+  '1'
+)
 
 
 // =====================================================

@@ -9,6 +9,7 @@ function test(name, condition) {
   else { console.log('  FAIL:', name); fail++ }
 }
 
+// [P-dialect] [I2]
 console.log('=== Dialect Configuration ===')
 test('D.DIALECTS.top exists', !!D.DIALECTS.top)
 test('D.DIALECTS.restricted exists', !!D.DIALECTS.restricted)
@@ -16,6 +17,7 @@ test('restricted has policy', !!D.DIALECTS.restricted.policy)
 test('restricted has restrict_unsafe_ports', D.DIALECTS.restricted.policy.restrict_unsafe_ports === true)
 test('restricted no_user_regex is true', D.DIALECTS.restricted.policy.no_user_regex === true)
 
+// [I4] [dialect-cmd-sploot]
 console.log('\n=== Command Gating ===')
 test('top allows process.unquote', !!D.DIALECTS.top.get_method('process', 'unquote'))
 test('restricted blocks process.unquote', !D.DIALECTS.restricted.get_method('process', 'unquote'))
@@ -26,6 +28,7 @@ test('restricted allows logic.is', !!D.DIALECTS.restricted.get_method('logic', '
 test('restricted allows process.run', !!D.DIALECTS.restricted.get_method('process', 'run'))
 test('restricted allows process.quote', !!D.DIALECTS.restricted.get_method('process', 'quote'))
 
+// [I11] [P-effectlocal]
 console.log('\n=== Unsafe Port Flavours ===')
 test('dom-set-raw-html is unsafe', D.PortFlavours['dom-set-raw-html'].unsafe === true)
 test('to-js is unsafe', D.PortFlavours['to-js'].unsafe === true)
@@ -38,6 +41,7 @@ test('dom-on-click is safe', !D.PortFlavours['dom-on-click'].unsafe)
 test('in is safe', !D.PortFlavours['in'].unsafe)
 test('from-js is safe', !D.PortFlavours['from-js'].unsafe)
 
+// [independent:prototype-pollution]
 console.log('\n=== Prototype Pollution Protection ===')
 test('is_banned_key blocks __proto__', D.is_banned_key('__proto__'))
 test('is_banned_key blocks constructor', D.is_banned_key('constructor'))
@@ -101,6 +105,7 @@ for(var key in merge_item) {
 }
 test('for-in without guard does leak inherited keys (control)', leaky_scope.inherited_key === 'should_not_leak')
 
+// [independent:regex-dos]
 console.log('\n=== Regex Safety ===')
 test('safe_string_to_regex works without process', D.safe_string_to_regex('hello', false, null) instanceof RegExp)
 test('string_to_regex still works for regex', D.string_to_regex('/test/i') instanceof RegExp)
@@ -115,15 +120,18 @@ var fake_process_top = {space: {dialect: D.DIALECTS.top}}
 var result2 = D.safe_string_to_regex('/test/', false, fake_process_top)
 test('safe_string_to_regex allows /regex/ in unrestricted mode', result2.source === 'test')
 
+// [independent:resource-limits]
 console.log('\n=== Resource Limits ===')
 test('max_range_length is 1M', D.Etc.max_range_length === 1000000)
 
+// [I2] [dialect-alias-expand] [alias-dialect-gate]
 console.log('\n=== Alias Gating ===')
 test('top has unquote alias', !!D.DIALECTS.top.aliases['unquote'])
 test('restricted blocks unquote alias', !D.DIALECTS.restricted.get_alias('unquote'))
 test('restricted keeps map alias', !!D.DIALECTS.restricted.get_alias('map'))
 test('restricted keeps reduce alias', !!D.DIALECTS.restricted.get_alias('reduce'))
 
+// [P-copy] [I14]
 console.log('\n=== Data Integrity ===')
 // list reduce mutates its input array via data.shift()
 var reduce_fn = D.Commands.list.methods.reduce.fun
@@ -151,6 +159,7 @@ reduce_fn(single, noop_block, null, noop_ps)
 test('list reduce does not empty single-element array', single.length === 1)
 test('list reduce preserves single element value', single[0] === 42)
 
+// [independent:strict-mode]
 console.log('\n=== Strict Mode (undeclared globals) ===')
 // daggr.js spewtime uses undeclared oldtime/newtime — crashes in ES modules (strict mode)
 var spewtime_ok = true
@@ -168,6 +177,7 @@ test('dagoba add_graph declares topics with var', /var topics/.test(add_graph_sr
 var set_data_src = D.Commands.dagoba.methods.set_data.fun.toString()
 test('dagoba set_data returns after Invalid id error', /if\(!thing\)\s*return/.test(set_data_src))
 
+// [independent:param-constraints]
 console.log('\n=== Param Constraints (allow/deny) ===')
 
 // Register a test command with allow/deny params
@@ -264,11 +274,13 @@ test('allow+deny rejects value not in allow',
 test('unconstrained param passes anything through',
   run('{ttest allow_only value "anything" mode "fast"}') === 'anything:fast')
 
+// [P-dialect]
 console.log('\n=== Dialect Identity ===')
 test('top dialect has a did', typeof D.DIALECTS.top.did === 'number')
 test('restricted dialect has a did', typeof D.DIALECTS.restricted.did === 'number')
 test('different dialects have different dids', D.DIALECTS.top.did !== D.DIALECTS.restricted.did)
 
+// [dialect-cmd-sploot] [I4]
 console.log('\n=== Segment Cache Isolation ===')
 // Two dialects: one blocks math.add, one allows it
 var no_math = D.make_restricted_dialect({blocked_methods: {'math': ['add']}})
@@ -300,6 +312,7 @@ test('top dialect executes math.add = 15', r3 === 15)
 var r4 = D.SegmentTypes.Command.execute(seg2, [5, 10], no_math, function(){}, fake_p)
 test('blocking dialect blocks after top cached', r4 === '')
 
+// [I3] [I4]
 console.log('\n=== Sender ===')
 test('D.Sender exists', typeof D.Sender === 'function')
 var sender_a = new D.Sender('alice')
@@ -309,6 +322,7 @@ test('Sender dialect is null by default', sender_a.dialect === null)
 var sender_b = new D.Sender('bob', {dialect: D.DIALECTS.restricted})
 test('Sender accepts dialect option', sender_b.dialect === D.DIALECTS.restricted)
 
+// [I4] [P-dialect]
 console.log('\n=== make_sender_dialect ===')
 test('D.make_sender_dialect exists', typeof D.make_sender_dialect === 'function')
 var app_dialect = D.DIALECTS.top
@@ -324,6 +338,7 @@ test('chained dialect blocks base restriction', !strict_actor.get_method('proces
 test('chained dialect blocks sender restriction', !strict_actor.get_method('math', 'add'))
 test('chained dialect allows unrestricted', !!strict_actor.get_method('list', 'map'))
 
+// [I4] [sender-effective-default]
 console.log('\n=== Closed Space ===')
 var closed_seed = D.spaceseed_add({
   dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}, closed: true
@@ -396,9 +411,10 @@ function sender_test(label, seedlike, sender, sends, expected_count, check) {
 
 var sender_actor = new D.Sender('alice', {dialect: D.DIALECTS.top})
 
+// [I3]
 console.log('\n=== Sender Preservation ===')
 
-// 1. Simple passthrough: ship enters station, exits. Sender preserved.
+// 1. Simple passthrough: ship enters station, exits. Sender preserved. [sender-propagate-out]
 await sender_test(
   'passthrough',
   `
@@ -417,7 +433,7 @@ await sender_test(
   }
 )
 
-// 2. Block evaluation: station runs list map. Sender preserved through sub-process.
+// 2. Block evaluation: station runs list map. Sender preserved through sub-process. [sender-propagate-subprocess]
 await sender_test(
   'block eval',
   `
@@ -436,7 +452,7 @@ await sender_test(
   }
 )
 
-// 3. Subspace crossing: ship routes through inner subspace. Sender preserved.
+// 3. Subspace crossing: ship routes through inner subspace. Sender preserved. [sender-propagate-out] [P-spaceisolate]
 await sender_test(
   'subspace crossing',
   `
@@ -460,7 +476,7 @@ await sender_test(
   }
 )
 
-// 4. Port send (>@name): station sends to named port. Sender preserved.
+// 4. Port send (>@name): station sends to named port. Sender preserved. [sender-propagate-portsend]
 await sender_test(
   'port send',
   `
@@ -479,7 +495,7 @@ await sender_test(
   }
 )
 
-// 5. Error routing: station triggers soft error. Error ship carries sender.
+// 5. Error routing: station triggers soft error. Error ship carries sender. [sender-propagate-error]
 await sender_test(
   'error routing',
   `
@@ -501,7 +517,7 @@ await sender_test(
   }
 )
 
-// 6. Multi-hop: ship traverses 3+ stations. Sender preserved at every hop.
+// 6. Multi-hop: ship traverses 3+ stations. Sender preserved at every hop. [sender-propagate-out]
 await sender_test(
   'multi-hop',
   `
@@ -522,7 +538,7 @@ await sender_test(
   }
 )
 
-// 7. Nested subspace crossing (2+ levels deep): sender survives multiple boundaries
+// 7. Nested subspace crossing (2+ levels deep): sender survives multiple boundaries [sender-propagate-out] [P-compose]
 await sender_test(
   'nested subspace crossing',
   `
@@ -551,7 +567,7 @@ await sender_test(
   }
 )
 
-// 8. No-dialect sender: sender with null dialect should use space dialect unchanged
+// 8. No-dialect sender: sender with null dialect should use space dialect unchanged [sender-effective-default]
 var no_dialect_actor = new D.Sender('plain-jane')
 await sender_test(
   'no-dialect sender',
@@ -571,7 +587,7 @@ await sender_test(
   }
 )
 
-// 9. No sender at all: ships without sender still work (regression)
+// 9. No sender at all: ships without sender still work (regression) [sender-effective-default]
 await sender_test(
   'no sender',
   `
@@ -590,6 +606,7 @@ await sender_test(
   }
 )
 
+// [I4] [dialect-cmd-sploot]
 console.log('\n=== Sender Confinement ===')
 
 // Sender with restricted dialect that blocks math.add
@@ -597,7 +614,7 @@ var restricted_actor = new D.Sender('restricted-bob', {
   dialect: D.make_sender_dialect(D.DIALECTS.top, {blocked_methods: {'math': ['add']}})
 })
 
-// 1. Blocked command sploots — verify the result IS empty
+// 1. Blocked command sploots — verify the result IS empty [dialect-cmd-sploot]
 await sender_test(
   'blocked command',
   `
@@ -617,7 +634,7 @@ await sender_test(
   }
 )
 
-// 2. Confinement INSIDE block eval — blocked command sploots inside list map
+// 2. Confinement INSIDE block eval — blocked command sploots inside list map [sender-propagate-subprocess] [dialect-cmd-sploot]
 await sender_test(
   'confinement inside block eval',
   `
@@ -640,7 +657,7 @@ await sender_test(
   }
 )
 
-// 3. Confinement through subspace — verify splooted value is empty
+// 3. Confinement through subspace — verify splooted value is empty [dialect-cmd-sploot] [dialect-inherit-parent]
 await sender_test(
   'confinement in subspace',
   `
@@ -664,7 +681,7 @@ await sender_test(
   }
 )
 
-// 4. Bidirectional intersection — sender blocks one thing, space dialect blocks another
+// 4. Bidirectional intersection — sender blocks one thing, space dialect blocks another [I4]
 // Both restrictions must apply simultaneously
 var space_restricts_unquote = D.make_restricted_dialect({blocked_methods: {'process': ['unquote']}})
 var sender_restricts_add = new D.Sender('bidirectional', {
@@ -694,7 +711,7 @@ await (function() {
   })
 })()
 
-// 5. process.dialect reflects effective dialect
+// 5. process.dialect reflects effective dialect [I4]
 await sender_test(
   'process.dialect confinement',
   `
@@ -714,7 +731,7 @@ await sender_test(
   }
 )
 
-// 6. process.aliases respects effective dialect
+// 6. process.aliases respects effective dialect [dialect-alias-expand] [I4]
 var no_unquote_actor = new D.Sender('no-unquote', {
   dialect: D.make_sender_dialect(D.DIALECTS.top, {
     blocked_methods: {'process': ['unquote']},
@@ -740,7 +757,7 @@ await sender_test(
   }
 )
 
-// 7. D.run with sender — direct entry point test
+// 7. D.run with sender — direct entry point test [I4] [dialect-cmd-sploot]
 await (function() {
   return new Promise(function(resolve) {
     D.run('{math add value 5 to 10}', D.ExecutionSpace, null, function(result) {
@@ -753,6 +770,7 @@ await (function() {
   })
 })()
 
+// [I4] [P-dialect]
 console.log('\n=== intersect_dialects ===')
 // Unit tests for the intersection function
 test('intersect_dialects exists', typeof D.intersect_dialects === 'function')
@@ -782,6 +800,7 @@ var with_policy = D.intersect_dialects(D.DIALECTS.top, D.DIALECTS.restricted)
 test('intersection inherits restrict_unsafe_ports', with_policy.policy.restrict_unsafe_ports === true)
 test('intersection inherits no_user_regex', with_policy.policy.no_user_regex === true)
 
+// [I2] [dialect-inherit-parent]
 console.log('\n=== Subspace Dialect Lockout ===')
 // Subspaces must inherit parent dialect, even if seed.dialect_instance is set
 var custom_dialect = new D.Dialect(null, null, {custom_flag: true})
@@ -807,6 +826,7 @@ var child_space = parent_space.subspaces[0]
 test('subspace ignores dialect_instance', child_space.dialect !== custom_dialect)
 test('subspace inherits parent dialect', child_space.dialect === parent_space.dialect)
 
+// [I3]
 console.log('\n=== process sender command ===')
 
 // process sender returns sender id when sender is present
@@ -868,6 +888,7 @@ await sender_test(
   }
 )
 
+// [I3] [I4] [P-uniformeval]
 console.log('\n=== Sender Confinement Through execute_then_stringify ===')
 
 // When D.run returns a block value (not a string), execute_then_stringify
@@ -903,6 +924,7 @@ await new Promise(function(resolve) {
   })
 })
 
+// [dialect-cmd-sploot] [I4]
 console.log('\n=== Optimizer Fast Path Confinement ===')
 
 // OPT_simple_math replaces {N | add M} at compile time with a fast-path segment.
@@ -956,6 +978,7 @@ await new Promise(function(resolve) {
   })
 })
 
+// [sender-propagate-subprocess] [I4]
 console.log('\n=== process.run Sender Confinement ===')
 
 // process.run executes a block via block(callback, scope, process).
@@ -976,6 +999,7 @@ await new Promise(function(resolve) {
   })
 })
 
+// [dialect-alias-expand] [dialect-cmd-sploot] [unquote-privilege]
 console.log('\n=== Alias Invocation Confinement ===')
 
 // Aliases expand at parse time (n_alias.js uses D.Aliases directly, not dialect).
@@ -1007,6 +1031,45 @@ await new Promise(function(resolve) {
     resolve()
   })
 })
+
+// §13 Block forgery: plain objects cannot be treated as blocks
+console.log('\n=== Block Forgery Prevention ===')
+
+var fake_block = {type: 'Block', value: {id: 123}}
+test('block forgery: plain object is not a block', !D.is_block(fake_block))
+
+var null_proto_fake = Object.create(null)
+null_proto_fake.type = 'Block'
+null_proto_fake.value = {id: 99999}
+test('block forgery: null-proto object is not a block', !D.is_block(null_proto_fake))
+
+var real_seg = D.Parser.string_to_block_segment('"{1}"')
+test('block forgery: real parsed segment is a block', D.is_block(real_seg))
+
+test('block forgery: non-object is not a block', !D.is_block('Block'))
+test('block forgery: number is not a block', !D.is_block(42))
+test('block forgery: null is not a block', !D.is_block(null))
+
+
+// §13 Sender not exposed: process.sender returns id string, not Sender object
+console.log('\n=== Sender Non-Exposure ===')
+
+await new Promise(function(resolve) {
+  var sender = new D.Sender('test-alice', {dialect: D.DIALECTS.top})
+  D.run('{process sender}', D.ExecutionSpace, null, function(result) {
+    test('sender non-exposure: returns string id', result === 'test-alice')
+    test('sender non-exposure: not an object', typeof result === 'string')
+    resolve()
+  }, sender)
+})
+
+await new Promise(function(resolve) {
+  D.run('{process sender}', D.ExecutionSpace, null, function(result) {
+    test('sender non-exposure: empty without sender', result === '')
+    resolve()
+  })
+})
+
 
 console.log('\n=== Summary ===')
 console.log(pass + ' passed, ' + fail + ' failed')
