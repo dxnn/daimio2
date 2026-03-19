@@ -1223,9 +1223,9 @@ D.poke = function(base, path, value) {
 
   path = D.to_array(path)
 
-  // THINK: no path works like push, because that's a reasonable use case for this...
+  // [poke-empty-path] empty path replaces entirely: poke(v, [], new) = new
   if(!path.length)
-    path = [base.length]
+    return value
 
   if(typeof base != 'object')
     base = []
@@ -2371,6 +2371,17 @@ D.Space = function(seed_id, parent) {
   this.dialect = parent
     ? parent.dialect
     : (seed.dialect_instance || D.DIALECTS.top)
+
+  // Apply seed dialect restrictions (§3 dialect declarations)
+  // Only outer space can declare dialect; subspace declarations are a soft error
+  if(seed.dialect && seed.dialect.blocked_methods) {
+    if(parent) {
+      D.set_error('Subspace cannot declare its own dialect restrictions')
+    } else {
+      var restricted = D.make_restricted_dialect(seed.dialect)
+      this.dialect = D.intersect_dialects(this.dialect, restricted)
+    }
+  }
 
 // NOTE: DON'T DELETE THIS YET -- decide what you're doing with dialects first.
 //  if(this.parent) {

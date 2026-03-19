@@ -19,10 +19,6 @@ var timeout_ms = 5000
 // Known failures — tests for spec behaviors not yet implemented.
 // If a failure's label is in this set, it's expected; otherwise it's a regression.
 var known_failures = new Set([
-  // §9 Scheduling: deferred port routing, queued ships have priority
-  'deferred routing: queued ships before output-routed ships',
-  // §6 Forward reference: subspace defined after outer references it
-  'Define subspace after referencing it (forward reference)',
   // §6 Wiring rules: handler property matching
   'wiring rule matches on handler property',
   // §6 Wiring rules: negated patterns
@@ -40,8 +36,6 @@ var known_failures = new Set([
   'wiring rules: first matching rule wins',
   // §7 Socket overlap: old state lost on transition
   'socket overlap: old space state lost on transition',
-  // §3 Dialect declarations in space syntax
-  'dialect declaration in space syntax restricts commands',
   // §6 Up-port direction: sibling provides service
   'up-port: sibling subspace provides service via up-port',
   // §8 Serialized space excludes dialect and wiring
@@ -1139,33 +1133,38 @@ console.log('--- known-failing spec tests ---')
 // §9 Scheduling: deferred port routing
 // Spec says: "queued ships have priority over ships produced by the
 // completing process's output routing." If station A sends to @port
-// which routes to station B, and a ship is already queued for B,
-// the queued ship should dock first.
 // [queue-priority-routing] [I13]
-space_test(
+// Ship A enters worker, B is queued. When A completes:
+//   B (queued) should dock at worker BEFORE A's output routes to recorder.
+// Correct (queue-first): worker(a), worker(b), recorder(a), recorder(b) → log = "abab"
+// Wrong (output-first):  worker(a), recorder(a), worker(b), recorder(b) → log = "aabb"
+multi_space_test(
   'deferred routing: queued ships before output-routed ships',
-  `outer
-    $log
-    @init from-js
-    @out  collect
-    producer {__ | >@produced | ""}
-    logger   {$log | string join value :- | >$log}
-    final    {$log | >@done}
-    @init -> producer
-    producer.produced -> logger
-    final.done -> @out`,
-  [
-    // Send two ships: first creates output-routed ship, second is queued
-    {port: 'init', value: 'A'},
-    {port: 'init', value: 'B'},
-  ],
-  1,
-  function(collected) {
-    // If deferred routing works correctly, the queued 'B' ship should
-    // be processed before the output-routed ship from 'A'.
-    // The log should show B was processed before A's output routing.
-    assert_eq('deferred routing: queued ships before output-routed ships',
-      collected.out[0], 'B-A')
+  [{ name: 'space', seedlike: `
+    outer
+      $log
+      @init from-js
+      @out  collect
+      worker    {__ | >workerval || ($log _workerval) | string join | >$log || _workerval}
+      recorder  {__ | >recval || ($log _recval) | string join | >$log || ""}
+      @init -> worker
+      worker -> recorder` }],
+  function(spaces, done) {
+    var space = spaces.space
+
+    // Send two ships — B will be queued while A processes
+    D.send_value_to_js_port(space, 'init', 'a')
+    D.send_value_to_js_port(space, 'init', 'b')
+
+    // Wait for all setImmediates to flush, then check $log directly
+    setTimeout(function() {
+      var log = space.get_state('log')
+      // queue-first: worker(a), worker(b), recorder(a), recorder(b) → log = "abab"
+      // output-first: worker(a), recorder(a), worker(b), recorder(b) → log = "aabb"
+      assert_eq('deferred routing: queued ships before output-routed ships',
+        log, 'abab')
+      done()
+    }, 500)
   }
 )
 
@@ -1531,22 +1530,44 @@ space_test(
 // Spec §3 says space syntax supports dialect declarations as inline JSON:
 //   dialect_decl ::= '{' json_object '}'
 // This would allow restricting commands at the space level.
+// [dialect-spacesyn-restrict]
 space_test(
   'dialect declaration in space syntax restricts commands',
-  `
-  outer
+  `outer
+    {"blocked_methods": {"math": ["add"]}}
     @init from-js
     @out  collect
     @init -> {math add value 1 to 2} -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
-    // If dialect declarations worked, adding {"blocked_methods":{"math":["add"]}}
-    // to the space def would cause math.add to sploot (return empty → 0).
-    // For now this just tests normal execution (returns 3).
-    // When implemented, expected output would be 0 (splooted).
+    // math add is blocked by dialect declaration → sploots to ""
     assert_eq('dialect declaration in space syntax restricts commands',
-      collected.out[0], '0')
+      collected.out[0], '')
+  }
+)
+
+// [dialect-spacesyn-subspace-error]
+// Subspace cannot restrict its own dialect — only parent controls it.
+// Dialect declaration in subspace should generate soft error and be ignored.
+space_test(
+  'subspace dialect declaration is ignored with soft error',
+  `inner
+  {"blocked_methods": {"math": ["add"]}}
+  @in
+  @out
+  @in -> {__ | math add value 1 to __} -> @out
+outer
+  @init from-js
+  @out  collect
+  @init -> inner.in
+  inner.out -> @out`,
+  [{port: 'init', value: '5'}],
+  1,
+  function(collected) {
+    // Subspace dialect declaration ignored → math add still works → 5 + 1 = 6
+    assert_eq('subspace dialect declaration is ignored with soft error',
+      collected.out[0], '6')
   }
 )
 

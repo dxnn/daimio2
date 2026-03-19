@@ -215,9 +215,9 @@
       {* (:a (1 2) :b (2 3) :c (3 4)) | __.b.#1}
         2
 
-    poke to push
+    poke with empty path replaces entirely [poke-empty-path]
       {(1 2 3) | list poke value 4}
-        [1,2,3,4]
+        4
 
     or otherwise modify
       {* (:a 1 :b 2 :c 3) | poke 4 path :d}
@@ -1147,17 +1147,17 @@
 </div>
   Poking is a lot like peeking, except it sets a value instead of reading it and fills any gaps it encounters with empty lists.
 
-  no path is like push
+  no path replaces entirely [poke-empty-path]
     {(1 2 3) | list poke value 999}
-      [1,2,3,999]
+      999
 
-  three ways to push a new value on a list
+  push via union; poke with no path replaces
     {(1 2 3 4) | >$ints}
       [1,2,3,4]
     {5 | >$ints.{$ints | count}}  {// (DATA BUG) //}
       5
     {$ints | poke 6}
-      [1,2,3,4,5,6]
+      6
     {$ints | union 6}
       [1,2,3,4,5,6]
 
@@ -2408,9 +2408,9 @@ Tests for pass-by-value. Changing a Daimio variable shouldn't change other varia
   {$x | >$y}
     [1,2,3,4]
   {$x | poke 5 | >$x}
-    [1,2,3,4,5]
+    5
   {$x} x {$y}
-    [1,2,3,4,5] x [1,2,3,4]
+    5 x [1,2,3,4]
 
 Tests for self-reference. PBV cures these ills.
 Poke should be returning the poked value, not the whole tree. (DATA BUG)
@@ -2422,7 +2422,7 @@ Poke should be returning the poked value, not the whole tree. (DATA BUG)
     {"a":1,"b":2,"c":{"a":1,"b":2},"d":{"a":1,"b":2,"c":{"a":1,"b":2}}}
 
   {(1 2 3) | >$x | poke $x | >$x}
-    [1,2,3,[1,2,3]]
+    [1,2,3]
 
 Tests for list compilation:
   {"{add ($counter 1) | >$counter}" | >$countblock}

@@ -307,16 +307,16 @@ Spacial tests and other fun stuff!
       catcher.out -> @out
   
   
-  Define subspace after referencing it (forward reference)
+  Subspace defined before outer (definition order)
+    late!!!
+      @in
+      @out
+      @in -> {__ | times 2} -> @out
     outer
       @init from-js 5
       @out  assert  10
       @init -> late.in
       late.out -> @out
-    late
-      @in
-      @out
-      @in -> {__ | times 2} -> @out
 
   Exec ports / virtual spaces
   move this test suite into daimio

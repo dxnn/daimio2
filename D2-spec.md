@@ -559,6 +559,10 @@ counter
   @button -> {1 | add $count | >$count} -> @display
 ```
 
+Subspaces must be defined before they are referenced. In the
+example below, `inner` is defined first, then `outer` references
+it in its routes [spacesyn-subspace-before-ref].
+
 A space with subspaces:
 ```
 inner
@@ -1087,7 +1091,8 @@ is computed: `sender.dialect ∩ space.dialect`. The process goes
 through these phases:
 
   1. **Dock**: ship arrives at station's in-port, process is created
-     with the ship's sender (if any) and effective dialect
+     with the ship's sender (if any), effective dialect, and
+     `__in` initialized to the ship's value [dunderin-dock]
   2. **Execute**: process runs the block's segments sequentially
   3. **Wait** (if effectful command): process waits for a response
      via a down-port — the space remains busy
@@ -1154,9 +1159,21 @@ for the aspirational concurrent model and its implications.
 
 ## 6. Ports, Wiring, and Demand-Creation
 
-### Port resolution
+### Port creation: explicit vs demand
 
-When an effectful command executes, the runtime resolves its port:
+There are two mechanisms for creating ports on a space:
+
+**Explicit ports** (`>@portname`) are created by routes in the
+space definition. A route like `station.foo -> @out` creates the
+`foo` port on that station. No route → no port → `>@foo` sploots.
+These are per-station.
+
+**Demand-created ports** (from effectful commands) are created at
+runtime when a process invokes an effectful command. The command
+has a port type (e.g., `time-now`). The runtime checks if a port
+of that type exists on the space [demandport-create]. If not, it
+creates one and matches it against the **parent's** wiring rules
+[demandport-wire]:
 
 ```
 resolveOrCreatePort(space, portType)
@@ -1165,14 +1182,32 @@ resolveOrCreatePort(space, portType)
 resolveOrCreatePort(space, portType)
   where portType ∉ space.ports = (p, space')
   where p      = new port(portType, Down)
-        wiring = matchRules(space.wiringRules, p)
-        space' = space with ports ∪ {p}, p wired by wiring  [demandport-wire]
+        wiring = matchRules(parent.wiringRules, p)
+        space' = space with ports ∪ {p}, p wired by wiring
 ```
 
-Ports are created on demand [demandport-create] because:
+The **parent's** wiring rules are the gate. The subspace never
+declares its effect surface — it just tries to use commands, and
+the parent decides which ones are wired. If no parent rule matches
+(and no OTHER fallback), the port is unwired and the command
+sploots.
+
+Demand-creation is necessary because:
   1. Block evaluation can invoke arbitrary effectful commands at
      runtime — the effect surface isn't known until the block runs
-  2. Serialized spaces loaded into sockets may have unknown effect surfaces
+  2. Serialized spaces loaded into sockets may have unknown effect
+     surfaces
+
+**Outer space limitation.** An outer space has no parent, so there
+are no wiring rules to gate its demand-created ports — all
+effectful commands in the dialect are available with their port
+handlers. Dialect restrictions still apply, but port-level
+restrictions do not. If you need to restrict which effects
+user-provided code can access, you MUST run that code in a
+**subspace** where the parent's wiring rules control the effect
+surface. In practice, this means all `process unquote` of
+untrusted content should happen inside a subspace, not in the
+outer space directly.
 
 ### Wiring rules
 
@@ -1213,29 +1248,86 @@ The space's `defaultTimeout` (from the space definition) applies to
 all wiring rules unless individually overridden. [wiring-default-timeout]
 
 The target of a wiring rule is one of:
-  - A handler function (the actual effect implementation)
-  - An up-port on a sibling subspace (the sibling provides the service)
-  - A down-port on the parent space's own boundary (forwarding the
-    effect outward — the parent's environment must handle it)
-  - Null (/dev/null — the effect is silently swallowed, returns empty) [wiring-target-null]
+  - A **station** in the same space (the station handles the
+    request or receives the ship) [wiring-target-station]
+  - An **up-port on a sibling subspace** (the sibling provides
+    the service — see Up-port mechanics below)
+    [wiring-target-upport]
+  - A **down-port on the parent's own boundary** (forwarding the
+    need outward — the parent's environment must handle it)
+    [wiring-target-forward]
+  - **Not wired** (no matching rule, no OTHER fallback — the
+    request sploots) [wiring-target-null]
+
+### Up-port mechanics
+
+An up-port is a **fused pair** — it has an in-side and an
+out-side:
+
+  - **In-side**: receives the incoming request (like an in-port).
+    The request becomes a ship that enters the space and docks
+    at whatever station is wired to the up-port's in-side.
+  - **Out-side**: captures the response (like an out-port). The
+    first ship that exits through a port wired to the up-port's
+    out-side becomes the response.
+
+The round-trip lifecycle [upport-roundtrip]:
+
+  1. Subspace A's process hits an effectful command. The request
+     goes out through A's down-port.
+  2. The parent's wiring routes the request to subspace B's
+     up-port.
+  3. The request enters B as a ship through the up-port's
+     in-side. The ship docks at B's station (B's own scheduling
+     applies — if B is busy, the ship queues).
+  4. B's station processes the request. The result exits through
+     a port wired to the up-port's out-side.
+  5. The first ship to exit through the out-side is the response.
+     It is delivered back to A's waiting process via the callback.
+
+The up-port's out-side has state: **open** or **closed**. When a
+request enters through the in-side, the out-side opens. The first
+ship to exit through the out-side is the response — the out-side
+closes and delivers the value to the requester's callback. Any
+subsequent ships that reach the closed out-side are ghosts (dropped
+with a soft error) [upport-ghost-after-first]. When the next
+request enters, the out-side opens again.
+
+Even under serial execution this can get complex: a single request
+may trigger multiple stations in B (via deferred port routing),
+and several of those may eventually produce ships that reach the
+up-port's out-side. Only the first counts; the rest are ghosts
+[upport-first-response].
+
+If B never produces a response (the processing sploots or routes
+elsewhere without reaching the out-side), A's process will
+eventually time out (§7.3).
 
 ### Example wiring
 
 ```
-Parent space A contains subspace S with a socket-in port.
+Parent space A contains subspaces S and T.
 A.defaultTimeout = 15s
 
 A's wiring rules for S:
-  S.@[handler:db]                → dbHandler             timeout: 30s
-  S.@[handler:time]              → up-port on sibling T  (inherits 15s)
-  S.@[handler:user type:write]   → dev-null              (no timeout needed)
-  S.@[handler:!user type:!write] → down-port on A        (inherits 15s)
-  OTHER                          → down-port on A        (inherits 15s)
+  S.@[handler:time]              → up-port on T           (inherits 15s)
+  S.@[handler:user type:write]   → not wired              (sploots)
+  OTHER                          → down-port on A         (inherits 15s)
 ```
 
-This means: db effects are handled locally with a generous 30s timeout. (The 'db' here is for 'dragon biscuits'. Alice would never give database access to Bob, she's not daft. I mean you know what he's like.) Time effects are served by subspace T with A's default 15s, user writes are suppressed (returns empty immediately, no async), and everything else is forwarded to A's parent environment with the default timeout.
+This means: time effects from S are served by sibling subspace T
+(T provides a time service via its up-port). User writes are
+blocked (sploot). Everything else is forwarded to A's parent
+environment with the default timeout. (You might notice we
+aren't wiring db effects here. The 'db' is for 'dragon biscuits'.
+Alice would never give database access to Bob, she's not daft.
+I mean you know what he's like.)
 
-If A is itself inside a space Z, and Z's wire to A has a timeout of 10s, then the effective timeout for any round trip through A is min(A's wire timeout, Z's wire timeout). Even though A gives the db handler 30s, Z will only wait 10s for the overall round trip. If Z times out first, A's in-flight db request becomes a ghost.
+If A is itself inside a space Z, and Z's wire to A has a timeout
+of 10s, then the effective timeout for any round trip through A is
+min(A's wire timeout, Z's wire timeout). Even though A gives T
+15s, Z will only wait 10s for the overall round trip. If Z times
+out first, A's in-flight request becomes a ghost.
 
 ### Example: cross-boundary state access
 
@@ -1670,6 +1762,30 @@ number [empty-coerce-number], `[]` when used as a list
 [empty-coerce-list]. This is why totality works without error values — a missing
 path, an unbound variable, or a timed-out effect all produce the empty
 value, which becomes whatever zero the consuming command expects.
+
+### Truthiness
+
+A value is **falsy** if it is the empty value in any of its forms:
+`0`, `""`, or `[]` (empty list) [truthy-falsy]. Everything else is
+**truthy**: non-zero numbers, non-empty strings, non-empty lists
+[truthy-truthy].
+
+This follows from the empty value being the universal "nothing."
+Truthiness is "are you something or nothing?" Commands like
+`logic if`, `then`/`else`, `and`/`or`/`not`, `filter`, and
+`first` all branch on truthiness.
+
+Examples:
+```
+0         → falsy                    (number zero)
+1         → truthy                   (non-zero)
+""        → falsy                    (empty string)
+"0"       → truthy                   (non-empty string)
+"[]"      → truthy                   (non-empty string)
+()        → falsy                    (empty list)
+(1)       → truthy                   (non-empty list)
+(()())    → truthy                   (non-empty list of empty lists)
+```
 
 ### Splooting
 
@@ -2134,6 +2250,22 @@ A process executes a block's segments sequentially. This section
 defines the transition relations for each segment type, pipe
 composition, and block invocation (sub-processes).
 
+### Template interpolation
+
+A DAML template mixes literal text and commands. When a template
+has multiple segments (text and/or commands), the compiler adds a
+**terminator** that concatenates all segment outputs into a single
+string [template-concat]. Each segment's output is stringified:
+numbers become their string representation, lists become JSON,
+empty becomes `""` [template-stringify].
+
+If a template contains a single command and no surrounding text,
+there is no terminator — the command's value passes through with
+its original type [template-single-passthru]. This is why
+`{math add value 1 to 2}` returns the number `3`, but
+`{math add value 1 to 2} ` (with trailing space) returns the
+string `"3 "`.
+
 ### The implicit pipe value
 
 The `|` operator sequences segments. It also automatically **fills
@@ -2572,8 +2704,16 @@ evaluated the same way — it's a block that gets run by a sub-process.
        `_index`       — the current item's index [scope-inject-index]
        `_total`       — accumulator value (for reduce/fold) [scope-inject-total]
      Injected vars shadow parent vars of the same name.
-  3. `__in` is the sub-process's input (typically `_value`). `__` is
-     the previous pipe segment's output — at the start, `__ = __in`. [pipe-dunderin-first]
+  3. `__in` is initialized based on context [pipe-dunderin-first]:
+     - **Station process** (dock): `__in` = the ship's value
+       [dunderin-dock]
+     - **`list map` / `list each`**: `__in` = the current element
+       (`_value`) [dunderin-map]
+     - **`list reduce`**: `__in` = the current element (`_value`)
+     - **`process run` with value param**: `__in` = the value
+       param [dunderin-run]
+     - **`process run` without value**: `__in` = empty
+     At the start of any pipeline, `__ = __in`.
   4. The sub-process executes in the same space as the parent, under
      the same effective dialect, with the same sender, and with
      access to the same space variables.

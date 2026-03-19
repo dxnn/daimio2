@@ -1370,6 +1370,40 @@ test(
 
 
 // =====================================================
+// §10 Poke: Empty path — replace entirely
+// =====================================================
+
+test(
+  'poke Empty: list base replaced entirely [poke-empty-path]',
+  '{(1 2 3) | list poke value 99}',
+  '99'
+)
+
+test(
+  'poke Empty: keyed base replaced entirely [poke-empty-path]',
+  '{* (:a 1) | list poke value 99}',
+  '99'
+)
+
+test(
+  'poke Empty: number base replaced entirely [poke-empty-path]',
+  '{5 | list poke value 99}',
+  '99'
+)
+
+test(
+  'poke Empty: empty base replaced entirely [poke-empty-path]',
+  '{"" | list poke value 99}',
+  '99'
+)
+
+test(
+  'poke Empty: string value replaces list [poke-empty-path]',
+  '{(1 2 3) | list poke value :hello}',
+  'hello'
+)
+
+// =====================================================
 // §1 Poke: Name selector — creates if missing
 // =====================================================
 

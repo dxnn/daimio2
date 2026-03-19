@@ -7,16 +7,25 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 332 spec alignment tests
+node tests/d2_spec_test.mjs     # 346 spec alignment tests
 node tests/daimio_test.mjs       # 843 legacy tests (0 known failures)
 node tests/node_code.mjs         # 72 internal tests
-node tests/security_test.mjs    # 170 security tests (dialect, pollution, regex, senders)
-node tests/space_test.mjs       # 91 space/topology tests (9 known failures)
+node tests/security_test.mjs    # 179 security tests (dialect, pollution, regex, senders)
+node tests/space_test.mjs       # 97 space/topology tests (9 known failures)
 node tests/example_test.mjs     # 104 command example tests
 node tests/perf_test.mjs        # 21 performance regression benchmarks
 ```
 
 All seven test suites must pass before any change is considered complete.
+
+## Test-driven development
+
+Always write a failing test first, before changing code, unless you can prove that a
+failing test already exists for the behavior being changed. Red test first, then green.
+
+Tests should be labelled with the spec assertion, property, or invariant they test for,
+whenever possible (usually an assertion ID). See the "Test-spec traceability" section
+below for the labelling format.
 
 ## Language overview
 
@@ -208,11 +217,11 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 332/332 pass
+- **d2_spec_test**: 351/351 pass
 - **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 72/72 pass
-- **security_test**: 170/170 pass
-- **space_test**: 82/91 pass (9 known failures for unimplemented spec behaviors)
+- **security_test**: 179/179 pass
+- **space_test**: 88/97 pass (9 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
 - **fuzz_test**: seed-dependent; stack overflows from self-referential blocks are the main finding
