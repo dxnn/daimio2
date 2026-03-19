@@ -691,7 +691,9 @@ A command definition is either:
   Effectful(c, params, portType)              — an effectful command
 ```
 
-Pure commands are total functions from params to Val.
+Pure commands are total functions from params to Val. `math random`
+is pure — it reads from the space's internal PRNG, which is
+deterministic given the seed (see Spaces, PRNG seed).
 
 Effectful commands have no fun — they have a port type. When
 invoked, the request is sent through a port of that type. If the
@@ -870,7 +872,7 @@ wiring    — how this port connects to the outside; determined by the
 
 ### Spaces
 ```
-space = (spaceseed, σ, queue, subspaces, parent?, dialect, portHandlers?)
+space = (spaceseed, σ, queue, subspaces, parent?, dialect, portHandlers?, prng)
   where spaceseed     : Spaceseed       — the compiled topology
         σ             : SVar → Val      — live space variable store
         queue         : [Ship]          — pending ships (FIFO)
@@ -878,6 +880,7 @@ space = (spaceseed, σ, queue, subspaces, parent?, dialect, portHandlers?)
         parent        : Space?          — enclosing space (null for outer space)
         dialect       : Dialect         — inherited from parent, or set explicitly
         portHandlers  : port → handler? — only on outer spaces
+        prng          : PRNGState       — seeded pseudo-random number generator
 ```
 
 A space is a **live instance** of a spaceseed. It has its own
@@ -932,6 +935,15 @@ The dialect says "these commands exist." The wiring says "these
 effects are connected." Both must be true for an effectful
 command to work. A command in the dialect but with an unwired
 port sploots.
+
+**PRNG seed.** Each space has an internal pseudo-random number
+generator. The seed is set at space creation time: the App
+provides a seed for the outer space, or Daimio injects a default
+random seed if none is provided. Subspaces inherit the parent's
+PRNG (they share the same sequence). `math random` is a pure
+command — it reads and advances the PRNG state deterministically
+[random-seeded]. For reproducible tests, provide a fixed seed.
+The PRNG state is internal — not accessible via `$` variables.
 
 A space is "self-reliant" — it brings its own programs and state.
 But it is not self-sufficient: without wiring, its effects go
