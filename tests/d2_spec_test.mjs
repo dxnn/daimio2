@@ -211,7 +211,7 @@ test(
 
 // Programmatic test for effectful commands in spaces
 ;(function() {
-  // [P-duality] [handler-down-callback]
+  // [P-duality] [singleresponse-one]
   pending++
 
   // make_some_space returns a seed ID (number), not an object
@@ -735,30 +735,30 @@ test(
 
 
 // =====================================================
-// §6 Cross-boundary state: var read/write (unwired)
+// §6 Cross-boundary state: var read-out/write-out (unwired)
 // =====================================================
 
-// var read and var write are effectful commands.
+// var read-out and var write-out are effectful commands.
 // When unwired, the default handler accesses the current space's state.
 
 test(
-  'var write sets space variable [socket-crossboundary-var] [svar-write-path]',
-  '{var write name :testvar value 42 | var read name :testvar}',
+  'var write-out sets space variable [socket-crossboundary-var] [svar-write-path]',
+  '{var write-out name :testvar value 42 | var read-out name :testvar}',
   '42'
 )
 
 test(
-  'var read returns empty for unset variable [svar-read-unbound-sploot]',
-  '{var read name :nonexistent}',
+  'var read-out returns empty for unset variable [svar-read-unbound-sploot]',
+  '{var read-out name :nonexistent}',
   ''
 )
 
 
 // =====================================================
-// §6 Cross-boundary state: var read/write (wired)
+// §6 Cross-boundary state: var read-out/write-out (wired)
 // =====================================================
 
-// When wired, var read/write go through down ports to a parent handler.
+// When wired, var read-out/write-out go through down ports to a parent handler.
 ;(function() {
   // [socket-crossboundary-var] [P-spaceisolate]
   pending++
@@ -767,7 +767,7 @@ test(
     'outer\n' +
     '  @init from-js start\n' +
     '  @out  to-js\n' +
-    '  @init -> {var write name :color value :blue | var read name :color} -> @out\n'
+    '  @init -> {var write-out name :color value :blue | var read-out name :color} -> @out\n'
   )
 
   var space = new D.Space(seed_id)
@@ -801,8 +801,8 @@ test(
     } else {
       fail++
       failures.push({
-        label: 'wired var read/write through parent',
-        input: '{var write name :color value :blue | var read name :color}',
+        label: 'wired var read-out/write-out through parent',
+        input: '{var write-out name :color value :blue | var read-out name :color}',
         expected: 'blue',
         actual: actual
       })
@@ -3046,7 +3046,7 @@ test('union: large array does not stack overflow [P-total]',
   // Known violations: commands that currently have BOTH fun and effect.
   // The spec says effectful commands have no fun (§4 line 629), but these
   // use fun as a default handler when the port is unwired.
-  var known_both = ['time.now', 'var.read', 'var.write']
+  var known_both = ['time.now', 'var.read-out', 'var.write-out']
 
   var pure = 0, effectful = 0, both = 0, neither = 0
   var unexpected_both = []

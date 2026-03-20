@@ -6,8 +6,8 @@ D.import_models({
     desc: "Commands for reading and writing space variables across boundaries",
     methods: {
 
-      read: {
-        desc: 'Read a space variable by name',
+      'read-out': {
+        desc: 'Read a space variable from the parent space via a down port',
         params: [
           {
             key: 'name',
@@ -27,8 +27,8 @@ D.import_models({
         },
       },
 
-      write: {
-        desc: 'Write a value to a space variable by name',
+      'write-out': {
+        desc: 'Write a value to a space variable in the parent space via a down port',
         params: [
           {
             key: 'name',

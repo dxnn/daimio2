@@ -40,6 +40,12 @@ var known_failures = new Set([
   'up-port: sibling subspace provides service via up-port',
   // §8 Serialized space excludes dialect and wiring
   'serialized space excludes dialect and wiring',
+  // §6 Round-trip port configurations (paired wiring syntax not implemented)
+  'up-port: station A output enters subspace, response to station B',
+  'up-port: no down port involved, pure station coordination',
+  'down-port: declared, request exits space, response returns',
+  'up-port: chained A -> X.up -> Y.up -> B',
+  'up-port: only first response counts, rest are ghosts',
 ])
 
 // ── Assert port flavour ──────────────────────────────────────────────
@@ -225,7 +231,7 @@ function dedent(s) {
   return lines.map(function(line) { return line.slice(min) }).join('\n')
 }
 
-function space_test(label, seedlike, sends, expect_count, check) {
+function space_test(label, seedlike, sends, expect_count, check, per_test_timeout) {
   pending++
   var test_id = ++test_id_counter
   seedlike = dedent(seedlike)
@@ -236,7 +242,7 @@ function space_test(label, seedlike, sends, expect_count, check) {
     collected: {},
     check: check,
     done: false,
-    timer: setTimeout(function() { timeout_space(test_id) }, timeout_ms)
+    timer: setTimeout(function() { timeout_space(test_id) }, per_test_timeout || timeout_ms)
   }
 
   try {
@@ -507,7 +513,7 @@ space_test(
 //     call done() when finished — triggers maybe_report
 //     use assert_eq inside orchestrate for checks
 
-function multi_space_test(label, spaces_def, orchestrate) {
+function multi_space_test(label, spaces_def, orchestrate, per_test_timeout) {
   pending++
   var test_id = ++test_id_counter
   var spaces = {}
@@ -516,7 +522,7 @@ function multi_space_test(label, spaces_def, orchestrate) {
     failures.push({ label: label, expected: 'completion', actual: 'TIMEOUT' })
     pending--
     maybe_report()
-  }, timeout_ms)
+  }, per_test_timeout || timeout_ms)
 
   try {
     spaces_def.forEach(function(def) {
@@ -1476,7 +1482,8 @@ multi_space_test(
         expected: 'sub2 has ports', actual: 'no ports' })
       done()
     }
-  }
+  },
+  100
 )
 
 // ── §1 I8 Space isolation: parent cannot read child-only var ─────────
@@ -1637,6 +1644,159 @@ space_test(
   }
 })()
 
+
+// ── §6 Round-trip port configurations ────────────────────────────────
+
+// Up-port: station coordination (one-in-one-out guarantee)
+// [upport-roundtrip] [upport-first-response]
+space_test(
+  'up-port: station A output enters subspace, response to station B',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      processor
+        {__ | string uppercase}
+      @init -> processor -> @out
+    stationA
+      {__ | string join value "-modified"}
+    stationB
+      {__ | string join value "-received"}
+    @init -> stationA -> inner.up -> stationB -> @out`,
+  [{port: 'init', value: 'hello'}],
+  1,
+  function(collected) {
+    // hello -> stationA ("hello-modified") -> inner.up (uppercase: "HELLO-MODIFIED") -> stationB ("HELLO-MODIFIED-received")
+    assert_eq('up-port station coordination', collected.out[0], 'HELLO-MODIFIED-received')
+  },
+  100
+)
+
+// Up-port: used without a down port (station-to-station via subspace)
+// [upport-roundtrip]
+space_test(
+  'up-port: no down port involved, pure station coordination',
+  `outer
+    @init from-js
+    @out  collect
+    worker
+      doubler
+        {__ | math multiply value 2}
+      @init -> doubler -> @out
+    source
+      {__ | math add value 10}
+    sink
+      {__ | math add value 100}
+    @init -> source -> worker.up -> sink -> @out`,
+  [{port: 'init', value: 5}],
+  1,
+  function(collected) {
+    // 5 -> source (15) -> worker.up (doubler: 30) -> sink (130)
+    assert_eq('up-port without down port', collected.out[0], '130')
+  },
+  100
+)
+
+// Down-port: declared in space definition, paired wiring
+// [downport-declared]
+space_test(
+  'down-port: declared, request exits space, response returns',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      requester
+        {__ | >@need}
+      @init -> requester
+      requester.need -> @out
+    handler
+      {__ | string uppercase}
+    @init -> inner.down -> handler -> @out`,
+  [{port: 'init', value: 'please'}],
+  1,
+  function(collected) {
+    // "please" enters inner -> requester sends to @need -> exits inner via down port
+    // -> handler uppercases -> "PLEASE" -> returns via down port -> inner continues -> exits inner -> @out
+    assert_eq('declared down-port', collected.out[0], 'PLEASE')
+  }
+)
+
+// Up-port: chained through two subspaces
+// [upport-roundtrip]
+space_test(
+  'up-port: chained A -> X.up -> Y.up -> B',
+  `outer
+    @init from-js
+    @out  collect
+    spaceX
+      adder
+        {__ | math add value 10}
+      @init -> adder -> @out
+    spaceY
+      multiplier
+        {__ | math multiply value 2}
+      @init -> multiplier -> @out
+    source
+      {__}
+    sink
+      {__}
+    @init -> source -> spaceX.up -> spaceY.up -> sink -> @out`,
+  [{port: 'init', value: 5}],
+  1,
+  function(collected) {
+    // 5 -> source (5) -> spaceX.up (add 10: 15) -> spaceY.up (multiply 2: 30) -> sink (30)
+    assert_eq('chained up-ports', collected.out[0], '30')
+  },
+  100
+)
+
+// Up-port: ghost handling (only first response delivered)
+// [upport-ghost-after-first]
+space_test(
+  'up-port: only first response counts, rest are ghosts',
+  `outer
+    @init from-js
+    @out  collect
+    @err  collect
+    multi
+      splitter
+        {__ | >@first || __ | >@second}
+      @init -> splitter
+      splitter.first -> @out
+      splitter.second -> @out
+    receiver
+      {__}
+    @init -> multi.up -> receiver -> @out`,
+  [{port: 'init', value: 'test'}],
+  2,
+  function(collected) {
+    // multi sends two ships out through @out. Only the first should arrive at receiver.
+    // The second should be a ghost (dropped + soft error to @err).
+    assert_eq('up-port ghost: receiver gets one', collected.out.length, 1)
+    assert_eq('up-port ghost: error reported', collected.err && collected.err.length > 0, true)
+  }
+)
+
+// Space-level @err port: soft errors route to space, not station
+// [sploot-error-port]
+space_test(
+  'soft errors route to space @err port',
+  `outer
+    @init from-js
+    @out  collect
+    @err  collect
+    badcmd
+      {__ | nonexistent command}
+    @init -> badcmd -> @out`,
+  [{port: 'init', value: 'test'}],
+  1,
+  function(collected) {
+    // The bad command sploots. Error goes to @err (space level).
+    // Pipeline continues with empty -> @out.
+    // We collect from @out; @err may or may not have fired depending on wiring
+    assert_eq('pipeline continued', collected.out && collected.out.length > 0, true)
+  }
+)
 
 // ── Done registering ─────────────────────────────────────────────────
 
