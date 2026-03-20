@@ -498,6 +498,94 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
 })()
 
 
+// =====================================================
+// Per-space PRNG seeding
+// =====================================================
+
+;(function() {
+  var seed_id = D.spaceseed_add(
+    {dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}})
+
+  // Space with explicit seed has rng function
+  var space = new D.Space(seed_id, false, 'test_seed')
+  if (typeof space.rng === 'function') pass++
+  else ERRORS.push({in: 'prng: space with seed has rng function', out: typeof space.rng, was: 'function'})
+
+  // rng returns number in [0, 1)
+  var val = space.rng()
+  if (typeof val === 'number' && val >= 0 && val < 1) pass++
+  else ERRORS.push({in: 'prng: rng returns number in [0, 1)', out: val, was: 'number in [0, 1)'})
+
+  // Same seed = same sequence
+  var space_a = new D.Space(seed_id, false, 'deterministic')
+  var space_b = new D.Space(seed_id, false, 'deterministic')
+  var a1 = space_a.rng(), b1 = space_b.rng()
+  var a2 = space_a.rng(), b2 = space_b.rng()
+  if (a1 === b1 && a2 === b2) pass++
+  else ERRORS.push({in: 'prng: same seed same sequence', out: [a1, a2], was: [b1, b2]})
+
+  // Different seed = different sequence
+  var space_c = new D.Space(seed_id, false, 'seed_one')
+  var space_d = new D.Space(seed_id, false, 'seed_two')
+  if (space_c.rng() !== space_d.rng()) pass++
+  else ERRORS.push({in: 'prng: different seeds different values', out: 'same', was: 'different'})
+
+  // No seed still gets rng
+  var space_e = new D.Space(seed_id)
+  if (typeof space_e.rng === 'function') pass++
+  else ERRORS.push({in: 'prng: no seed still has rng', out: typeof space_e.rng, was: 'function'})
+
+  // prng_seed is stored
+  if (space.prng_seed === 'test_seed') pass++
+  else ERRORS.push({in: 'prng: prng_seed stored on space', out: space.prng_seed, was: 'test_seed'})
+
+  // Subspace shares parent rng
+  var child_seed_id = D.spaceseed_add(
+    {dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}})
+  var parent_seed_id2 = D.spaceseed_add(
+    {dialect: {}, stations: [], subspaces: [child_seed_id], ports: [], routes: [], state: {}})
+  var parent_space = new D.Space(parent_seed_id2, false, 'parent_seed')
+  if (parent_space.subspaces.length && parent_space.subspaces[0].rng === parent_space.rng) pass++
+  else ERRORS.push({in: 'prng: subspace shares parent rng', out: 'different rng', was: 'same rng reference'})
+})()
+
+
+// =====================================================
+// math random uses per-space PRNG [random-pure] [random-seeded] [random-internal]
+// =====================================================
+
+;(function() {
+  var seed_id = D.spaceseed_add(
+    {dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}})
+
+  // [random-seeded] Same seed → same {math random} output
+  pending += 2
+  var result_a, result_b
+  D.run('{math random max 100}', new D.Space(seed_id, false, 'rng_test'), null, function(out) {
+    result_a = out
+    pending--
+    if(all_registered && pending === 0) report()
+  })
+  D.run('{math random max 100}', new D.Space(seed_id, false, 'rng_test'), null, function(out) {
+    result_b = out
+    // Both spaces seeded with 'rng_test' — first random value must match
+    if(result_a === result_b) pass++
+    else ERRORS.push({in: '[random-seeded] same seed same result', out: result_a, was: result_b})
+    pending--
+    if(all_registered && pending === 0) report()
+  })
+
+  // [random-internal] PRNG state not accessible as space variable
+  pending++
+  D.run('{$rng}', new D.Space(seed_id, false, 'rng_test'), null, function(out) {
+    if(out === '') pass++
+    else ERRORS.push({in: '[random-internal] prng not in space vars', out: out, was: ''})
+    pending--
+    if(all_registered && pending === 0) report()
+  })
+})()
+
+
 // WRAP IT ALL UP WITH A BOW
 
 var show_errors = function(error) {

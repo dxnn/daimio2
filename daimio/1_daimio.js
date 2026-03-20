@@ -2351,7 +2351,7 @@ D.Data = function(init) {
   8""88888P'  o888o        o88o     o8888o  `Y8bood8P'  o888oooooo*/
 
 
-D.Space = function(seed_id, parent) {
+D.Space = function(seed_id, parent, prng_seed) {
   // D.SPACESEEDS[seed_id] contains id, dialect, state, ports, stations, subspaces, routes
   // TODO: validate parent
   // THINK: validate seed_id?
@@ -2365,6 +2365,18 @@ D.Space = function(seed_id, parent) {
   this.seed = seed
   this.state = {}
   this.parent = parent || false // false is outer
+
+  // Per-space PRNG: subspaces share parent's rng; outer spaces create their own
+  if(parent && parent.rng) {
+    this.prng_seed = parent.prng_seed
+    this.rng = parent.rng
+  } else {
+    this.prng_seed = prng_seed || Math.random().toString(36)
+    var old_random = Math.random
+    Math.seedrandom(this.prng_seed)
+    this.rng = Math.random
+    Math.random = old_random
+  }
 
   // set dialect before ports so port whitelist check works
   // subspaces inherit parent dialect (I2: dialect monotonicity)

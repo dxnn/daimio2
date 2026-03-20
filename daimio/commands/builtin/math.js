@@ -264,7 +264,7 @@ D.import_models({
         ],
         fun: function(max) {
           if(!max) max = 1
-          return Math.floor(Math.random() * (max + 1))
+          return Math.floor(D.Etc.active_space.rng() * (max + 1))
         },
       },
 
