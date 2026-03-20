@@ -94,13 +94,10 @@ D.set_error = function(error) {
 }
 
 D.on_error = function(command, error) {
-  // use this to report errors in low-level daimio processes
-  console.log('error: ' + error, command)
-
-  // Route to space's error port if available
+  // Route to space's error port if available; silent no-op otherwise
   var space = D.Etc.active_space
   if(space) {
-    for(var i = 0, l = space.ports.length; i < l; i++) {
+    for(var i = 0, l = space.ports.length; i < l; i++) { // OPT: this is a slow way to find a port...
       var port = space.ports[i]
       if(port.flavour === 'err' && !port.station) {
         port.enter(error || command, D.Etc.active_process || null)  // enter → pair.exit → outside_exit
@@ -3403,7 +3400,6 @@ D.make_spaceseeds = function(seedlikes) {
       // add my ports
       port_key_to_index[key + '.in'] = newseed.ports.push({flavour: 'in', name: '_in', station: index})
       port_key_to_index[key + '.out'] = newseed.ports.push({flavour: 'out', name: '_out', station: index})
-      port_key_to_index[key + '.err'] = newseed.ports.push({flavour: 'err', name: '_error', station: index})
       // any extras?
       if(stations[key].extraports) {
         var extras = stations[key].extraports

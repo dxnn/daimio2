@@ -586,6 +586,38 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
 })()
 
 
+// =====================================================
+// [spacesyn-implicit-ports] Stations have exactly _in and _out, no _error
+// =====================================================
+
+;(function() {
+  var seed_id = D.make_some_space('stest\n  foo {__}\n  @init from-js\n  @out to-js\n  @init -> foo -> @out\n')
+  var space = new D.Space(seed_id)
+  var station_ports = space.ports.filter(function(p) { return p.station })
+  var names = station_ports.map(function(p) { return p.name }).sort()
+  if(JSON.stringify(names) === JSON.stringify(['_in', '_out'])) pass++
+  else ERRORS.push({in: '[spacesyn-implicit-ports] station ports are _in and _out only',
+    out: JSON.stringify(names), was: '["_in","_out"]'})
+})()
+
+
+// =====================================================
+// [error-silent-noop] on_error is silent when no @err port
+// =====================================================
+
+;(function() {
+  var logged = []
+  var orig_log = console.log
+  console.log = function() { logged.push([].slice.call(arguments)) }
+  D.on_error('test', 'silent error')
+  console.log = orig_log
+  var has_error_log = logged.some(function(args) { return /silent error/.test(args.join(' ')) })
+  if(!has_error_log) pass++
+  else ERRORS.push({in: '[error-silent-noop] on_error should not console.log without @err port',
+    out: 'logged: ' + JSON.stringify(logged), was: 'no output'})
+})()
+
+
 // WRAP IT ALL UP WITH A BOW
 
 var show_errors = function(error) {
