@@ -510,27 +510,34 @@ line       ::= port_decl
              | state_decl
              | dialect_decl
 
-port_decl  ::= '@' name flavour param*     -- @counter dom-set-text [spacesyn-port]
-                                           -- NB: cmd: flavours cannot be used here
+port_decl  ::= '@' dir ':' name (flavour param*)?  -- @in:click dom-on-click btn1 [spacesyn-port]
+                                                   -- flavour defaults to generic for direction
+                                                   -- cmd: ports cannot be declared here
+dir        ::= 'in' | 'out' | 'up' | 'down'
 station_decl ::= name NL indent daml       -- station name, then DAML block [spacesyn-station]
-route_decl ::= endpoint ('->' endpoint)+    -- chain of connections [spacesyn-route]
+wire_decl  ::= chain | roundtrip | cmd_wire
+chain      ::= endpoint ('->' endpoint)+            -- fire-and-forget [spacesyn-route]
+roundtrip  ::= endpoint '<->' endpoint              -- round-trip (OUT-N-IN <-> IN-N-OUT)
+cmd_wire   ::= subspace '@cmd:' pattern '<->' endpoint   -- command port wiring
+             | subspace '@cmd:' pattern '<->' '@cmd'     -- command port forwarding
 state_decl ::= '$' name json_value?         -- $count 0, $items [] [spacesyn-state]
 dialect_decl ::= '{' json_object '}'        -- inline JSON restrictions
 
-endpoint   ::= '@' name                    -- space-level port
-             | name                        -- station (auto-expands to .in/.out)
-             | name '.' name               -- station.port or subspace.port
+endpoint   ::= '@' dir ':' name            -- space-level port (@in:click, @out:display)
+             | name                        -- station (implicit _in/_out)
+             | name '@' name               -- station named port (splitter@left)
+             | name '@' dir ':' name       -- subspace port (sub@up:adder, sub@in:data)
              | '{' daml '}'                -- anonymous inline station
 ```
 
 Every station automatically gets two implicit ports: `_in` and
 `_out`. [spacesyn-implicit-ports] When a station name appears in a route
-without a `.port` suffix, it expands to `.in` (as a destination)
-or `.out` (as a source). [spacesyn-route-expand]
+without an `@port` suffix, it expands to `_in` (as a destination)
+or `_out` (as a source). [spacesyn-route-expand]
 
 Anonymous inline stations can appear in routes as `{DAML}`: [spacesyn-anon-station]
 ```
-@init -> {__ | add 1} -> {__ | times 2} -> @out
+@in:init -> {__ | add 1} -> {__ | times 2} -> @out:result
 ```
 These create unnamed stations with the given DAML block.
 
@@ -539,10 +546,10 @@ These create unnamed stations with the given DAML block.
 A simple counter app:
 ```
 counter
-  @button  dom-on-submit
-  @display dom-set-text
+  @in:button  dom-on-submit
+  @out:display dom-set-text
   $count 0
-  @button -> {1 | add $count | >$count} -> @display
+  @in:button -> {1 | add $count | >$count} -> @out:display
 ```
 
 Subspaces must be defined before they are referenced. In the
@@ -552,15 +559,15 @@ it in its routes [spacesyn-subspace-before-ref].
 A space with subspaces:
 ```
 inner
-  @in
-  @out
-  @in -> {__ | times 2} -> @out
+  @in:data
+  @out:result
+  @in:data -> {__ | times 2} -> @out:result
 
 outer
-  @init from-js 20
-  @out  assert  42
-  @init -> inner.in
-  inner.out -> @out
+  @in:init from-js 20
+  @out:result  assert  42
+  @in:init -> inner@in:data
+  inner@out:result -> @out:result
 ```
 
 A station with named out-ports:
@@ -569,19 +576,19 @@ splitter
   {__ | >@left | >@right}
 
 main
-  @init from-js
-  @out  assert
-  @init -> splitter
-  splitter.left -> {__ | add 1} -> @out
+  @in:init from-js
+  @out:result  assert
+  @in:init -> splitter
+  splitter@left -> {__ | add 1} -> @out:result
 ```
 
 Named ports on stations are created by **routes**, not by DAML. [spacesyn-named-port-route]
-The route `splitter.left -> {__ | add 1} -> @out` creates the
-`left` port on station `splitter`. The DAML `>@left` sends to
-that port -- but only because the route declared it. Without the
-route, the port doesn't exist and `>@left` sploots at runtime.
-This ensures the space definition controls which ports each
-station can access.
+The route `splitter@left -> {__ | add 1} -> @out:result` creates
+the `left` port on station `splitter`. The DAML `>@left` sends
+to that port -- but only because the route declared it. Without
+the route, the port doesn't exist and `>@left` sploots at
+runtime. This ensures the space definition controls which ports
+each station can access.
 
 ### Static declarations
 
@@ -615,7 +622,7 @@ spaceseed = {
 
 Each station contributes two implicit ports (`_in`, `_out`) to
 the ports array. Named out-ports declared by routes
-are added as extra ports: `station.left -> @out` creates a `left`
+are added as extra ports: `station@left -> @out:result` creates a `left`
 port on the station, for instance. Routes are pairs of
 port indices connecting the topology.
 
@@ -757,7 +764,7 @@ created to handle it (see section 10, Processes). When a process completes,
 it sends its result as a ship through the station's out-port. A
 single process may send multiple ships to different ports during its
 execution (via `>@portname`), and soft errors send ships to the
-space's `@err` port (if declared).
+space's `@out:err` port (if declared).
 
 All ships produced by a process inherit that process's sender. This
 includes ships sent through `>@portname`, the implicit `_out` ship,
@@ -837,13 +844,13 @@ Both are wireable via routes. If unwired, ships are silently
 dropped.
 
 Soft errors do NOT go through station ports. They route to the
-**space's** error port (`@err`), if one is declared in the space
+**space's** error port (`@out:err`), if one is declared in the space
 definition. See §12 for the full error model.
 
 **Named ports and `>@portname`.** A station's DAML can send ships
 to named ports using `>@portname`. But the port must be explicitly
 declared in the space definition's routes. The route
-`station.portname -> destination` creates the named port on the
+`station@portname -> destination` creates the named port on the
 station. Without a route declaring it, the port does not exist,
 and `>@portname` sploots at runtime. [station-port-requires-route]
 
@@ -853,30 +860,88 @@ ports each station can send to. Code running inside a station
 to arbitrary ports -- only to ports that the space definition
 explicitly wired. The wiring is the gate.
 
-Down ports are NOT station-level constructs. They arise from
-effectful commands: when a process invokes an effectful command,
-the runtime creates or uses a down port on the space (see section 6).
-
-The station itself is simple -- it's a block with in, out, and
-error ports, plus any named ports declared by routes. All the
-interesting port topology (down, up, wiring to subspaces,
-socket-in) lives at the space level.
+The station itself is simple -- it's a block with `_in`, `_out`,
+plus any named ports declared by routes. All the interesting port
+topology (down, up, command ports, wiring to subspaces) lives at
+the space level (see section 6).
 
 ### Ports
+
+Every port has a **direction** and a **name**. The direction is
+encoded as a prefix on the name:
+
 ```
-port = (id, direction, flavour, wiring)
+port = (name, flavour)
 
-direction ::= In | Out | Down | Up
+direction ::= in | out | up | down | cmd
 
-  In   -- fire-and-forget inward (ships enter the space)
-  Out  -- fire-and-forget outward (ships leave the space)
-  Down -- round-trip outward (request/response, the space needs something)
-  Up   -- round-trip inward (the space provides a service)
+Port names:     in:click, out:display, up:adder, down:sync, cmd:time:now
+```
 
-flavour   -- the port's type (e.g. "time-now", "socket-in")
+Ports come in two symmetric pairs, plus one special case:
 
-wiring    -- how this port connects to the outside; determined by the
-            parent space's wiring declarations (see section 6)
+**One-way ports** (`in`, `out`) — a ship goes one direction.
+`in` and `out` are the same mechanism viewed from opposite sides
+of a boundary.
+
+**Round-trip ports** (`up`, `down`) — a request goes one way, a
+response comes back. `up` and `down` are the same mechanism
+viewed from opposite sides of a boundary.
+
+**Command ports** (`cmd`) — transient round-trip ports,
+demand-created by effectful commands. Behave like `down` from
+the outside. Cannot appear in space definitions. See section 6.
+
+#### Signal types and perspective
+
+A port's **signal type** depends on which side of the boundary
+you're on. Every port flips when you cross:
+
+```
+Direction   Inside (@)     Outside (S@)
+─────────   ──────────     ────────────
+in          INPUT          OUTPUT
+out         OUTPUT         INPUT
+up          OUT-N-IN       IN-N-OUT
+down        IN-N-OUT       OUT-N-IN
+cmd         (n/a)          OUT-N-IN
+```
+
+Four signal types:
+  - **INPUT**: one-way source of ships (goes on LHS of `->`)
+  - **OUTPUT**: one-way destination for ships (goes on RHS of `->`)
+  - **OUT-N-IN**: sends a request, expects a response back
+    (goes on LHS of `<->`)
+  - **IN-N-OUT**: receives a request, produces a response
+    (goes on RHS of `<->`, or MID in a `->` chain)
+
+The flipping is consistent: `@in:foo` is INPUT (ships come in)
+but `S@in:foo` is OUTPUT (you push ships into the subspace).
+`@down:foo` is IN-N-OUT (you receive requests from inside) but
+`S@down:foo` is OUT-N-IN (requests come out of the subspace).
+
+#### Declaring ports
+
+```
+@in:init                           -- generic in flavour (default)
+@in:click dom-on-click button1     -- dom-click flavour, bound to element
+@out:display dom-set-text counter  -- dom flavour, bound to element
+@out:result                        -- generic out flavour
+@out:err                           -- error port (matched by name)
+@up:adder                          -- generic up flavour
+@down:sync                         -- generic down flavour
+```
+
+If no flavour is specified, the port uses the generic flavour for
+its direction (`in`, `out`, `up`, `down`). The `@` prefix marks
+space-level ports (distinct from station ports like
+`station@portname`).
+
+**Error routing:** soft errors route to the port named `out:err`
+(if declared). The runtime matches by name, not by flavour.
+
+```
+flavour   -- the port's behaviour (e.g. "dom-on-click", "in")
 ```
 
 ### Spaces
@@ -1032,13 +1097,13 @@ methods. Default implementations are provided for common patterns
 
 **Built-in flavours:**
 
-  - `in`, `out`, `err`, `up`, `down` — internal flavours for
-    the standard port directions. These use the default
+  - `in`, `out`, `up`, `down` — internal flavours for the
+    standard port directions. These use the default
     implementations and have no outside behavior.
   - `from-js` — in-port: the App calls `port.enter(value)` to
     push ships in from JavaScript.
   - `to-js` — out-port: calls a registered JS function when a
-    ship exits. [handler-down-callback]
+    ship exits.
   - `dom-on-click`, `dom-on-change`, `dom-on-keypress`, etc. —
     in-ports: bind DOM event listeners, push events as ships.
   - `dom-set-text`, `dom-set-value`, `dom-set-raw-html` —
@@ -1144,7 +1209,7 @@ process goes through these phases:
 
 A process may also send ships to named ports during execution
 (via `>@portname`), and soft errors send ships to the space's
-`@err` port (if declared). All ships produced by the process carry
+`@out:err` port (if declared). All ships produced by the process carry
 the process's sender. All port routing is deferred -- the ships
 arrive at their destinations after the current process completes.
 
@@ -1200,98 +1265,171 @@ for the full aspirational model.
 
 ## 6. Ports, Wiring, and Demand-Creation
 
-### Port creation: declared vs command
+### Port wiring
 
-There are two mechanisms for creating ports on a space:
+Wiring uses two arrow types (see §3 grammar):
 
-**Declared ports** (`@out`, `@in`, etc.) are explicitly declared
-on the space in the space definition. These are the space's
-external interface — its visible ports. Routes connect station
-ports to declared ports (e.g., `station.foo -> @out`). Station
-ports like `foo` are created when a route references them. The
-DAML `>@foo` sends to the station port, but only because the
-route declared it. No route means no port, and `>@foo` sploots.
-
-**Command ports** (from effectful commands) are created at
-runtime when a process invokes an effectful command. These use
-`cmd:` prefixed flavours (e.g., `cmd:time-now`) and can ONLY
-be created by the command itself — they cannot appear in port
-declarations or routes. The runtime checks if a port of that
-type exists on the space [demandport-create]. If not, it
-creates one and matches it against the **parent's** wiring rules
-[demandport-wire]:
+**`->`** (fire-and-forget chain): ships flow left to right.
+Stations and IN-N-OUT ports can appear in the middle as
+processors.
 
 ```
-resolveOrCreatePort(space, portType)
-  where portType in space.ports = existing port of that type
-
-resolveOrCreatePort(space, portType)
-  where portType not in space.ports = (p, space')
-  where p      = new port(portType, Down)
-        wiring = matchRules(parent.wiringRules, p)
-        space' = space with ports union {p}, p wired by wiring
+@in:click -> processor -> @out:display
+@in:data -> stationA -> @down:sync -> stationB -> @out:result
 ```
+
+**`<->`** (round-trip): request goes one way, response comes
+back. Exactly two endpoints. OUT-N-IN on the left, IN-N-OUT
+on the right.
+
+```
+S@down:sync   <-> T@up:handler     -- subspace down <-> sibling up
+S@cmd:time:*  <-> T@up:time        -- command port <-> sibling up
+@up:service   <-> stationA         -- parent's up <-> station (from inside)
+S@down:sync   <-> @down:parent-fwd -- forward to parent's parent
+S@cmd:*:*     <-> @cmd             -- command port forwarding
+```
+
+**Valid positions by signal type:**
+
+```
+Signal type   In -> chain              In <-> roundtrip
+───────────   ──────────               ────────────────
+INPUT         LHS (source)             (not valid)
+OUTPUT        RHS (destination)        (not valid)
+OUT-N-IN      (not valid)              LHS only
+IN-N-OUT      MID or RHS              RHS only
+station       LHS, MID, or RHS        RHS only
+station@foo   LHS only (output)       (not valid)
+```
+
+### One-way ports (`in`, `out`)
+
+`in` and `out` are symmetric — the same mechanism from opposite
+sides of a boundary. An `in` port is INPUT from inside, OUTPUT
+from outside. An `out` port is the reverse.
+
+```
+@in:click dom-on-click button1    -- DOM clicks enter space
+@out:display dom-set-text counter -- ships update the DOM
+@out:err                          -- soft errors (see §12)
+```
+
+One-way ports appear in `->` chains only. They cannot participate
+in `<->` round-trips.
+
+### Round-trip ports (`up`, `down`)
+
+`up` and `down` are symmetric — the same mechanism from opposite
+sides of a boundary. A `down` port is IN-N-OUT from inside (it
+receives requests from the space's own processes), OUT-N-IN from
+outside (requests come out of the subspace). An `up` port is
+the reverse.
+
+Round-trip ports have an in-side and an out-side fused together.
+The first ship to exit through the out-side is the response;
+subsequent ships are ghosts (dropped with soft error to
+`@out:err`). [upport-ghost-after-first]
+
+**From outside (parent wiring):** OUT-N-IN ports (`S@down:`,
+`S@cmd:`) use `<->` to connect to IN-N-OUT ports (`S@up:`,
+`@down:`, station):
+
+```
+S@down:sync <-> T@up:handler       -- subspace needs -> sibling serves
+S@down:sync <-> @down:fwd          -- forward outward to parent's parent
+```
+
+**From inside:** IN-N-OUT ports (`@down:`, `S@up:`) can appear
+in `->` chains as transparent processors. OUT-N-IN ports (`@up:`)
+use `<->`:
+
+```
+@up:service <-> stationA           -- up-port round-trip to station
+@in:data -> @down:foo -> @out:bar  -- down-port as processor in chain
+```
+
+### Command ports (`cmd`)
+
+**Transient** — created fresh for each effectful command
+invocation and destroyed when the response (or timeout) arrives.
+`cmd:` ports use `cmd:handler:method` naming (e.g.,
+`cmd:time:now`) and CANNOT appear in space definitions — they
+can only be created by the command itself. [demandport-create]
+
+When a process invokes an effectful command:
+
+  1. The runtime matches the command's port type against the
+     **parent's** wiring rules [demandport-wire]
+  2. No match (and no OTHER fallback) → the command sploots
+     immediately. No port is created.
+  3. Match → a transient port is created, the request is sent
+     through it, and the process waits.
+  4. Response arrives → delivered to the process, port destroyed.
+  5. Timeout → process sploots, port destroyed.
+
+Command ports are never cached or reused. Each invocation creates
+a fresh port and re-evaluates the parent's wiring rules. This
+means if the parent's rules change (e.g., via a socket
+transition), the next command automatically gets the new wiring.
 
 The **parent's** wiring rules are the gate. The subspace never
-declares its effect surface -- it just tries to use commands, and
-the parent decides which ones are wired. If no parent rule matches
-(and no OTHER fallback), the port is unwired and the command
-sploots.
+declares its effect surface — it just tries to use commands,
+and the parent decides which ones are wired.
+
+Command ports behave like down ports (round-trip, single-shot,
+process waits for response) but differ in how they're created
+(demand-created vs declared) and wired (pattern-matched vs
+explicit route).
 
 Demand-creation is necessary because:
   1. Block evaluation can invoke arbitrary effectful commands at
-     runtime -- the effect surface isn't known until the block runs
+     runtime — the effect surface isn't known until the block runs
   2. Serialized spaces loaded into sockets may have unknown effect
      surfaces
 
-**Outer space limitation.** An outer space has no parent, so there
-are no wiring rules to gate its demand-created ports -- all
-effectful commands in the dialect are available with their port
-handlers. Dialect restrictions still apply, but port-level
+**Outer space limitation.** An outer space has no parent, so
+there are no wiring rules to gate its command ports — all
+effectful commands in the dialect are available via their port
+flavours. Dialect restrictions still apply, but port-level
 restrictions do not. If you need to restrict which effects
 user-provided code can access, you MUST run that code in a
 **subspace** where the parent's wiring rules control the effect
-surface. In practice, this means all `process unquote` of
-untrusted content should happen inside a subspace, not in the
-outer space directly.
+surface.
 
 ### Wiring rules
 
-Wiring rules are declared in the parent space and pattern-match against
-port properties: [wiring-pattern-match]
+Wiring rules govern command ports. They are declared in the
+parent space and pattern-match against the command port name
+(`cmd:handler:method`). [wiring-pattern-match]
 
 ```
 WiringRule = (pattern, target, timeout?)
 
-pattern ::= Match(properties)   -- match ports with these properties
-           | OTHER              -- default fallback (everything unmatched)
-
-properties = {
-  handler? : string | !string,  -- e.g. user, logic, or !math (NOT math)
-  method?  : string | !string,  -- e.g. add, twitterpate, or !remove
-  type?    : Read | Write,      -- polarity of the effect
-}
-
+pattern  ::= glob               -- e.g. cmd:time:*, cmd:*:*, cmd:var:read-out
 timeout? : Duration             -- explicit timeout for this wire
                                    (if absent, inherited from nearest outer
                                    wire with a value, or system default 10s)
 ```
 
-Property values can be negated with `!` to mean "anything except this." [wiring-negate]
-Multiple properties in a single Match are conjunctive (all must hold). [wiring-conjunctive]
+Patterns use `*` as a wildcard. Matching is simple string
+matching on the port name:
 
-Concrete syntax example:
 ```
-S.@[handler:math]                 -> match all math commands
-S.@[handler:!user type:read]      -> match reads that are NOT user commands
-S.@[handler:math method:fizzbuzz] -> you can only fizzbuzz nothing else
+S@cmd:time:*    <-> T@up:time       -- all time commands to sibling T
+S@cmd:time:now  <-> T@up:time       -- just time now
+S@cmd:var:*                         -- not wired (sploots)
+S@cmd:*:*       <-> @down:fwd       -- forward everything else outward
 ```
 
-Rules are evaluated in order. The first matching rule determines the
-target. [wiring-first-match] OTHER matches anything not matched by a previous rule. [wiring-other-fallback]
+Rules are evaluated in order. The first matching rule determines
+the target. [wiring-first-match] A trailing `S@cmd:*:*` catches
+anything not matched by a previous rule (equivalent to OTHER).
+[wiring-other-fallback]
 
-The space's `defaultTimeout` (from the space definition) applies to
-all wiring rules unless individually overridden. [wiring-default-timeout]
+The space's `defaultTimeout` (from the space definition) applies
+to all wiring rules unless individually overridden.
+[wiring-default-timeout]
 
 The target of a wiring rule is one of:
   - A **station** in the same space (the station handles the
@@ -1307,28 +1445,35 @@ The target of a wiring rule is one of:
 
 ### Down-port mechanics
 
-A down-port is a **request/response channel** pointing outward.
-It is created on demand when a process invokes an effectful
-command (see "Port creation: declared vs command" above).
+A down-port is a **round-trip channel pointing outward**. It can
+be declared in the space definition or created on demand by
+effectful commands (command port). Both share the same round-trip
+semantics.
 
-The round-trip lifecycle:
+**Wiring** (from the parent, using `<->`):
+```
+S@down:sync   <-> T@up:handler     -- sibling serves
+S@down:sync   <-> @down:parent-fwd -- forward to parent's parent
+S@cmd:time:*  <-> T@up:time        -- command port to sibling
+```
 
-  1. A process hits an effectful command. The runtime resolves or
-     creates a down-port for the command's port type.
-  2. The request (value + sender) is sent out through the down-port.
+**Round-trip lifecycle:**
+
+  1. A request enters the down-port's in-side (from a station's
+     `>@portname`, from output routing, or from a command port).
+  2. The request (value + sender) exits the space through the
+     down-port's out-side.
   3. The process waits. The space remains busy (serial exclusion).
      Pipeline vars and sender are preserved across the wait.
-  4. The parent's wiring determines what happens to the request:
-     - **Handler function** (outer space): the handler receives
-       `(request, callback)` and must call the callback exactly
-       once with a response value.
+  4. The destination handles the request and produces a response:
+     - **Port flavour handler** (outer space): the flavour's
+       `sync` or `outside_exit` method handles it.
      - **Up-port on a sibling**: the request enters the sibling
        (see Up-port mechanics below).
      - **Forwarded outward**: the request propagates to the
        parent's parent, recursively.
-     - **Not wired**: the command sploots immediately (no wait).
-  5. The response arrives via the callback. The process resumes
-     with the response value as `process.v`.
+  5. The response arrives. The process resumes with the response
+     value as `process.v`.
   6. If no response arrives within the timeout, the process
      sploots (see section 7.3).
 
@@ -1338,36 +1483,40 @@ waits and freed when the response (or timeout) arrives.
 
 ### Up-port mechanics
 
-An up-port is a **fused pair** -- it has an in-side and an
-out-side:
+An up-port is the mirror of a down-port: a **round-trip channel
+pointing inward**. It has an in-side (receives requests) and an
+out-side (captures the first response).
 
-  - **In-side**: receives the incoming request (like an in-port).
-    The request becomes a ship that enters the space and docks
-    at whatever station is wired to the up-port's in-side.
-  - **Out-side**: captures the response (like an out-port). The
-    first ship that exits through a port wired to the up-port's
-    out-side becomes the response.
+**Wiring** — from outside (the parent) an up-port is IN-N-OUT,
+so it appears as the RHS of `<->`:
+```
+S@down:sync   <-> T@up:handler    -- sibling down <-> this up
+S@cmd:time:*  <-> T@up:time       -- command port <-> this up
+```
 
-The round-trip lifecycle [upport-roundtrip]:
+From inside, an up-port is OUT-N-IN, so it uses `<->`:
+```
+@up:service <-> stationA          -- up-port round-trip to station
+```
 
-  1. Subspace A's process hits an effectful command. The request
-     goes out through A's down-port.
-  2. The parent's wiring routes the request to subspace B's
-     up-port.
-  3. The request enters B as a ship through the up-port's
-     in-side. The ship docks at B's station (B's own scheduling
-     applies -- if B is busy, the ship queues).
-  4. B's station processes the request. The result exits through
+**Round-trip lifecycle** [upport-roundtrip]:
+
+  1. A request arrives at the up-port's in-side (from a station,
+     a sibling's output, or the parent's in-port).
+  2. The request enters the space as a ship. The ship docks at
+     the station wired to the in-side (the space's own scheduling
+     applies — if busy, the ship queues).
+  3. The space processes the request. The result exits through
      a port wired to the up-port's out-side.
-  5. The first ship to exit through the out-side is the response.
-     It is delivered back to A's waiting process via the callback.
+  4. The first ship to exit through the out-side is the response.
+     It is delivered to the destination wired to the out-side.
 
 The up-port's out-side has state: **open** or **closed**. When a
 request enters through the in-side, the out-side opens. The first
 ship to exit through the out-side is the response -- the out-side
 closes and delivers the value to the requester's callback. Any
 subsequent ships that reach the closed out-side are ghosts (dropped
-with a soft error to `@err`) [upport-ghost-after-first]. When the next
+with a soft error to `@out:err`) [upport-ghost-after-first]. When the next
 request enters, the out-side opens again.
 
 Even under serial execution this can get complex: a single request
@@ -1382,23 +1531,55 @@ eventually time out (section 7.3).
 
 ### Example wiring
 
+**Command port wiring** (pattern matching):
 ```
 Parent space A contains subspaces S and T.
 A.defaultTimeout = 15s
 
 A's wiring rules for S:
-  S.@[handler:time]              -> up-port on T           (inherits 15s)
-  S.@[handler:user type:write]   -> not wired              (sploots)
-  OTHER                          -> down-port on A         (inherits 15s)
+  S@cmd:time:*  <-> T@up:time              -- sibling serves time
+  S@cmd:var:*                              -- not wired (sploots)
+  S@cmd:*:*     <-> @down:fwd              -- forward everything else
 ```
 
-This means: time effects from S are served by sibling subspace T
-(T provides a time service via its up-port). User writes are
-blocked (sploot). Everything else is forwarded to A's parent
-environment with the default timeout. (You might notice we
-aren't wiring db effects here. The 'db' is for 'dragon biscuits'.
-Alice would never give database access to Bob, she's not daft.
-I mean you know what he's like.)
+Time commands from S are served by sibling T. Var commands are
+blocked. Everything else is forwarded outward through A's own
+`@down:fwd` port.
+
+**Declared up-port** (station coordination via `->` chain):
+```
+outer
+  stationA
+    {__ | string uppercase}
+  stationB
+    {__ | string reverse}
+  subspace inner_def
+  stationA -> inner@up:process -> stationB
+```
+
+stationA's output enters `inner` via `up:process`. The subspace
+processes it. The first response goes to stationB. The up-port
+guarantees one-in-one-out: stationB gets exactly one ship per
+stationA output.
+
+**Declared down-port** (subspace requesting external service):
+
+Inside `inner`:
+```
+inner
+  processor
+    {__ | >@out:need}
+  @in:init -> processor -> @out:result
+  @up:service <-> processor
+```
+
+In the parent, wiring inner's down port:
+```
+  inner@down:fetch <-> T@up:handler
+```
+
+The parent wires `inner@down:fetch` to sibling T's up-port via
+`<->`.
 
 If A is itself inside a space Z, and Z's wire to A has a timeout
 of 10s, then the effective timeout for any round trip through A is
@@ -1417,15 +1598,15 @@ commands that send requests through down-ports:
 {var write-out name :foo value 5}  -- write parent's $foo via down-port
 ```
 
-These are effectful commands with port type `var-read` / `var-write`.
-When invoked, they create down-port requests. The parent must wire
-these ports to handlers that perform the actual reads/writes on the
-parent's state store.
+These are effectful commands that create transient command ports
+(`cmd:var:read-out`, `cmd:var:write-out`). The parent must wire
+these ports to handlers that perform the actual reads/writes on
+the parent's state store.
 
 Example wiring in the parent:
 ```
-  S.@[handler:var method:read-out]   -> varReadHandler
-  S.@[handler:var method:write-out]  -> varWriteHandler
+  S@cmd:var:read-out   <-> varReadHandler
+  S@cmd:var:write-out  <-> varWriteHandler
 ```
 
 Where `varReadHandler` receives the request, reads the named
@@ -1474,7 +1655,7 @@ unchanged from the time of waiting -- no other process can modify space state
 while this process holds the space. The "fresh reads" property is
 trivially satisfied (see section 1).
 
-### 7.3 Timeouts
+### 7.2 Timeouts
 
 Every down-port wire has a **timeout**: the maximum duration the runtime
 will wait for a response before splooting.
@@ -1527,7 +1708,7 @@ The request is marked completed.
 
 If a response later arrives for an already-completed request (a
 **ghost response**), it is dropped and a soft error is sent to
-the space's `@err` port. [timeout-ghost-drop]
+the space's `@out:err` port. [timeout-ghost-drop]
 
 #### Unwired ports
 
@@ -1856,7 +2037,7 @@ Examples:
 
 To **sploot** is to emit a soft error and continue. The pipeline
 is never halted [sploot-pipeline-continues]. The error is routed
-to the space's `@err` port (if declared) [sploot-error-port]; the pipeline continues with a value determined by
+to the space's `@out:err` port (if declared) [sploot-error-port]; the pipeline continues with a value determined by
 the operation type.
 
 Splooting is the mechanism behind totality: every operation that
@@ -2723,7 +2904,7 @@ effectful command or a missing required param).
 ```
 
 If s is unbound in state, or path doesn't match, the result sploots
-(empty value + soft error to the space's `@err` port). [svar-read-unbound-sploot] This aids debugging --
+(empty value + soft error to the space's `@out:err` port). [svar-read-unbound-sploot] This aids debugging --
 a typo in a variable name produces an observable error -- while
 the pipeline continues normally with the empty value.
 
@@ -2921,29 +3102,29 @@ Dropped (no pipeline to continue):
 ```
 
 When splooting:
-  1. A soft error is emitted as a ship to the space's `@err` port
+  1. A soft error is emitted as a ship to the space's `@out:err` port
      (if declared). The error ship carries the process's sender.
   2. The pipeline is NOT halted.
   3. The pipeline continues -- with empty for value-producing
      operations, or with the unchanged value for pass-through
      operations.
 
-**Error routing.** Soft errors route to the **space's** `@err`
-port, not to a per-station port. The `@err` port is a declared
+**Error routing.** Soft errors route to the **space's** `@out:err`
+port, not to a per-station port. The `@out:err` port is a declared
 port in the space definition, like any other:
 
 ```
-@err err
-@err -> {__ | >@log}               -- route errors to a logger
-@err -> @error_out                  -- forward to space boundary
+@out:err                                    -- generic out flavour
+@out:err -> {__ | >@out:log}               -- route errors to a logger
+@out:err -> @out:error_fwd                 -- forward to space boundary
 ```
 
-If no `@err` port is declared, errors are silently dropped. The
-pipeline continues either way -- `@err` is for observability,
+If no `@out:err` port is declared, errors are silently dropped. The
+pipeline continues either way -- `@out:err` is for observability,
 not control flow. [error-unwired-dropped]
 
 Ghost responses (ships arriving after a completed request) also
-send a soft error to `@err` before being dropped.
+send a soft error to `@out:err` before being dropped.
 [timeout-ghost-drop]
 
 This is analogous to IEEE 754 NaN propagation: errors flow
@@ -3165,6 +3346,17 @@ own further-restricted dialects, giving finer-grained control.
 This would require dialect intersection at each space boundary
 instead of once at dock time.
 
+### Virtual round-trip pairing
+
+Currently, an up-port from inside can only `<->` with a single
+station. For complex resolution (multi-station pipelines), you
+must push the complexity into a sub-subspace. A future extension
+could allow composing an ad-hoc round-trip from two FAF ports:
+`S@cmd:time:* <-> T@in:request+T@out:response`. This would let
+any space with an in and out port serve round-trips without
+declaring an up-port. Deferred because the up-port abstraction
+handles most cases and the `+` syntax adds complexity.
+
 ### Per-space PRNG
 
 Currently, the PRNG is per-instance — all spaces in the hierarchy
@@ -3228,7 +3420,7 @@ Open questions:
     strange results.
 
   - **Error reporting.** Does killing emit a soft error to the
-    space's `@err` port? How does the App learn
+    space's `@out:err` port? How does the App learn
     that a process was killed for energy exhaustion vs completing
     normally?
 
