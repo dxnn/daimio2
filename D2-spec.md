@@ -511,6 +511,7 @@ line       ::= port_decl
              | dialect_decl
 
 port_decl  ::= '@' name flavour param*     -- @counter dom-set-text [spacesyn-port]
+                                           -- NB: cmd: flavours cannot be used here
 station_decl ::= name NL indent daml       -- station name, then DAML block [spacesyn-station]
 route_decl ::= endpoint ('->' endpoint)+    -- chain of connections [spacesyn-route]
 state_decl ::= '$' name json_value?         -- $count 0, $items [] [spacesyn-state]
@@ -522,8 +523,8 @@ endpoint   ::= '@' name                    -- space-level port
              | '{' daml '}'                -- anonymous inline station
 ```
 
-Every station automatically gets three implicit ports: `_in`,
-`_out`, and `_error`. [spacesyn-implicit-ports] When a station name appears in a route
+Every station automatically gets two implicit ports: `_in` and
+`_out`. [spacesyn-implicit-ports] When a station name appears in a route
 without a `.port` suffix, it expands to `.in` (as a destination)
 or `.out` (as a source). [spacesyn-route-expand]
 
@@ -612,8 +613,8 @@ spaceseed = {
 }
 ```
 
-Each station contributes three implicit ports (`_in`, `_out`,
-`_error`) to the ports array. Named out-ports declared by routes
+Each station contributes two implicit ports (`_in`, `_out`) to
+the ports array. Named out-ports declared by routes
 are added as extra ports: `station.left -> @out` creates a `left`
 port on the station, for instance. Routes are pairs of
 port indices connecting the topology.
@@ -666,8 +667,8 @@ d in Dialect = (commands, aliases)
 
 A dialect determines what commands can be invoked and what shorthand
 is available within an outer space. Dialects are partially ordered:
-d_Bob is a subset of d_Alice means Bob's command set is a subset of Alice's AND
-Bob's alias set is a subset of Alice's.
+d_Bob is a subset of d_Alice means Bob's command set is a subset of
+Alice's AND Bob's alias set is a subset of Alice's.
 
 **Aliases** are compile-time substitutions. An alias name expands to a
 fixed pipeline fragment before execution. They are part of the dialect
@@ -683,13 +684,27 @@ A command definition is either:
 ```
 
 Pure commands are total functions from params to Val. `math random`
-is pure -- it reads from the space's internal PRNG, which is
-deterministic given the seed (see Spaces, PRNG seed).
+is pure [random-pure] -- it reads from the instance's PRNG, which
+is deterministic given the seed (see Spaces, PRNG).
 
 Effectful commands have no fun -- they have a port type. When
-invoked, the request is sent through a port of that type. If the
-port is wired, the process waits for the response. If the port is
-not wired, the command sploots. [effectful-unwired-sploot] No effects without wiring.
+an effectful command is registered, it also registers a port
+flavour with the `cmd:` prefix (e.g., `time now` registers
+`cmd:time-now`). This namespace prevents collisions with
+built-in environment flavours like `dom-on-click`.
+
+`cmd:` ports can ONLY be created by the effectful command
+itself — they cannot be declared in routes or created manually
+in the space definition. This means the dialect check on the
+command is the sole gate: if the command isn't in the dialect,
+it sploots, and the port is never created. The `cmd:` flavour
+may exist globally (other senders or subspaces may use the same
+command), but it's inert until a command activates it.
+
+When invoked, the request is sent through a port of that type.
+If the port is wired, the process waits for the response. If
+the port is not wired, the command sploots.
+[effectful-unwired-sploot] No effects without wiring.
 
 ### Programs
 
@@ -742,7 +757,7 @@ created to handle it (see section 10, Processes). When a process completes,
 it sends its result as a ship through the station's out-port. A
 single process may send multiple ships to different ports during its
 execution (via `>@portname`), and soft errors send ships to the
-station's `_error` port.
+space's `@err` port (if declared).
 
 All ships produced by a process inherit that process's sender. This
 includes ships sent through `>@portname`, the implicit `_out` ship,
@@ -814,14 +829,16 @@ station = (name, block)
         block    : Block           -- the compiled DAML for this station
 ```
 
-A station has exactly three built-in ports, created automatically:
+A station has exactly two built-in ports, created automatically:
   - **_in**:    receives ships (fire-and-forget inward)
   - **_out**:   sends the process's result (fire-and-forget outward)
-  - **_error**: sends soft errors from this station's execution
-    (fire-and-forget outward) [station-error-port]
 
-All three are wireable via routes. If unwired, ships are silently
+Both are wireable via routes. If unwired, ships are silently
 dropped.
+
+Soft errors do NOT go through station ports. They route to the
+**space's** error port (`@err`), if one is declared in the space
+definition. See §12 for the full error model.
 
 **Named ports and `>@portname`.** A station's DAML can send ships
 to named ports using `>@portname`. But the port must be explicitly
@@ -864,15 +881,13 @@ wiring    -- how this port connects to the outside; determined by the
 
 ### Spaces
 ```
-space = (spaceseed, state, queue, subspaces, parent?, dialect, portHandlers?, prng)
+space = (spaceseed, state, queue, subspaces, parent?, dialect)
   where spaceseed     : Spaceseed       -- the compiled topology
         state         : SVar -> Val     -- live space variable store
         queue         : [Ship]          -- pending ships (FIFO)
         subspaces     : [Space]         -- live subspace instances
         parent        : Space?          -- enclosing space (null for outer space)
         dialect       : Dialect         -- inherited from parent, or set explicitly
-        portHandlers  : port -> handler? -- only on outer spaces
-        prng          : PRNGState       -- seeded pseudo-random number generator
 ```
 
 A space is a **live instance** of a spaceseed. It has its own
@@ -928,14 +943,13 @@ effects are connected." Both must be true for an effectful
 command to work. A command in the dialect but with an unwired
 port sploots.
 
-**PRNG seed.** Each space has an internal pseudo-random number
-generator. The seed is set at space creation time: the App
-provides a seed for the outer space, or Daimio injects a default
-random seed if none is provided. Subspaces inherit the parent's
-PRNG (they share the same sequence). `math random` is a pure
-command -- it reads and advances the PRNG state deterministically
-[random-seeded]. For reproducible tests, provide a fixed seed.
-The PRNG state is internal -- not accessible via `$` variables.
+**PRNG.** The Daimio instance has a single pseudo-random number
+generator, shared by all spaces in the hierarchy. The seed is set
+at instance creation time: the App provides a seed, or Daimio
+injects a default. `math random` is a pure command -- it reads
+and advances the PRNG state deterministically. Same seed produces
+the same sequence across runs [random-seeded]. The PRNG state is
+internal -- not accessible via `$` variables [random-internal].
 
 A space is "self-reliant" -- it brings its own programs and state.
 But it is not self-sufficient: without wiring, its effects go
@@ -949,21 +963,26 @@ around loading, transitions, and state ephemerality -- see section 8.
 
 An **outer space** is any space that is not a subspace of another
 space. It's on the outside -- there's no parent to wire its ports,
-so port handlers must be provided directly.
+so its port flavours connect directly to the real world.
 
 The outer application creates an outer space by:
   1. Choosing a spaceseed (the compiled topology)
   2. Instantiating it into a live space (recursively creating
      subspaces, initializing state stores and queues)
   3. Assigning a base dialect (what commands are available)
-  4. Wiring the outermost ports to effect handlers (DOM, network,
-     database, filesystem, etc.)
+  4. Providing a PRNG seed (or accepting the default)
 
-This wiring is what makes effects real. Inside the space, an
-effectful command like `{time now}` produces a port request that
-propagates outward. At the outermost boundary, the port handler
-executes the actual effect and returns the response. Without this
-wiring, the request would sploot.
+The outermost ports get their behavior from their **port
+flavours** (see "Port flavours" above). An in-port with
+flavour `dom-on-click` binds to a DOM element; an out-port
+with flavour `dom-set-text` updates the DOM. The space
+definition declares which flavours it needs, and the
+flavours provide the bridge to the real world. Inside the
+space, effectful commands produce port requests that
+propagate outward. At the outermost boundary, the port
+flavour's `outside_exit` or `sync` method executes the
+actual effect. If a port's flavour is not loaded, the port
+can't be created and the command sploots.
 
 **Multiple outer spaces.** An application can create as many outer
 spaces as it needs. Each is a completely independent universe -- no
@@ -984,55 +1003,77 @@ Daimio's perspective, the sender is metadata -- the App is the
 authority on who sent what.
 
 
-### Port handlers
+### Port flavours
 
-Port handlers are the boundary between Daimio and the outside
-world. They are the only place where real effects occur (I10).
-A handler is a function provided by the App when creating an
-outer space. The interface depends on the port direction:
+Port flavours define how ports interact with the outside world.
+They are registered globally via `D.import_port_flavour(name,
+definition)` and referenced by name in space definitions. A port
+flavour provides:
 
-**Down-port handler** (request/response):
-```
-handler(request, callback)
-  where request  : {value, handler, method, params, sender?}
-        callback : (response : Val) -> void
-```
+  - **dir**: the port direction (`in`, `out`, `down`, `up`)
+  - **settings**: parameters for port construction (e.g., a DOM
+    selector, a socket channel name)
+  - **Lifecycle methods** that the runtime calls:
+    - `outside_add()` — setup when the port is created on the
+      outside (e.g., bind a DOM event listener, connect a socket)
+    - `outside_exit(ship)` — handle a ship exiting to the real
+      world (e.g., set DOM text, call a JS function)
+    - `enter(ship)` — handle a ship entering from the outside
+      (e.g., push a click event into the space)
+    - `sync(ship, callback)` — handle a down-port round-trip
+      (request/response)
 
-The handler receives the request (including the sender, if
-present) and MUST call the callback exactly once with a response
-value. [handler-down-callback] The calling process is waiting -- it resumes when the
-callback fires. If the handler never calls the callback, the
-timeout (section 7) will eventually sploot.
+When a port is created (`new D.Port(template, space)`), it
+inherits from its flavour via prototype chain
+(`Object.create(pflav)`). The flavour's methods become the port's
+methods. Default implementations are provided for common patterns
+(`port_standard_exit`, `port_standard_enter`,
+`port_standard_sync`).
 
-**Out-port handler** (fire-and-forget outward):
-```
-handler(ship)
-  where ship : {value, sender?}
-```
+**Built-in flavours:**
 
-The handler receives the ship and returns nothing. The process
-has already moved on -- out-port routing is deferred and
-fire-and-forget. The handler may trigger external side effects
-(update the DOM, send a network message, write to a log) but
-Daimio does not wait for or observe the result.
+  - `in`, `out`, `err`, `up`, `down` — internal flavours for
+    the standard port directions. These use the default
+    implementations and have no outside behavior.
+  - `from-js` — in-port: the App calls `port.enter(value)` to
+    push ships in from JavaScript.
+  - `to-js` — out-port: calls a registered JS function when a
+    ship exits. [handler-down-callback]
+  - `dom-on-click`, `dom-on-change`, `dom-on-keypress`, etc. —
+    in-ports: bind DOM event listeners, push events as ships.
+  - `dom-set-text`, `dom-set-value`, `dom-set-raw-html` —
+    out-ports: update DOM elements when ships exit.
+  - `socket-in`, `socket-out` — in/out-ports for socket.io
+    communication.
+  - `socket-add-user`, `socket-remove-user` — out-ports for
+    socket user management.
 
-**In-port handler** (fire-and-forget inward):
-```
-handler.enter(ship)
-  -- called by the App to push a ship into the space
-```
+**The flavour IS the handler.** There is no separate "handler
+map" passed in at space creation time. A space definition
+declares which flavours its ports use, and the flavour provides
+the behavior. This makes space definitions self-describing — a
+space says what it needs (DOM access, socket communication, etc.)
+by declaring port flavours.
 
-In-port handlers are inverted: the App calls `port.enter(ship)`
-when an external event occurs (user click, network message,
-timer). The ship enters the space's queue through the normal
-docking mechanism. The App is responsible for constructing the
-ship (value + optional sender).
+**Substitutability.** To override a port's behavior (for testing,
+mocking, or reconfiguration), load the space as a subspace and
+wire its ports via the parent's wiring rules. [handler-substitute]
+The subspace's ports connect to whatever the parent wires — mock
+handlers, proxies, or sibling subspaces. The subspace doesn't
+know the difference (P-duality).
 
-**Substitutability.** Any handler can be replaced with a
-different implementation -- mock, stub, logger, proxy to a remote
-service -- without the space knowing. [handler-substitute] This is the mechanism behind
-testability and the command/port duality (P-duality): the space
-sees only the port interface, never the handler.
+The App also controls which flavours are available. If the App
+doesn't load `dom-set-text`, no port of that flavour can be
+created. This is a coarse-grained security control at the
+environment level.
+
+**No hot-rewiring.** Wiring rules are set at space creation time
+from the spaceseed. There is no mechanism to modify wiring on a
+live space. To change behavior at runtime, use a socket transition
+(§8) to replace the subspace, or have the App route ships to a
+different outer space entirely.
+
+
 
 
 ## 5. Space Execution (Scheduling)
@@ -1102,8 +1143,8 @@ process goes through these phases:
      space becomes available for the next queued ship
 
 A process may also send ships to named ports during execution
-(via `>@portname`), and soft errors send ships to the current
-station's `_error` port (if wired). All ships produced by the process carry
+(via `>@portname`), and soft errors send ships to the space's
+`@err` port (if declared). All ships produced by the process carry
 the process's sender. All port routing is deferred -- the ships
 arrive at their destinations after the current process completes.
 
@@ -1172,9 +1213,11 @@ DAML `>@foo` sends to the station port, but only because the
 route declared it. No route means no port, and `>@foo` sploots.
 
 **Command ports** (from effectful commands) are created at
-runtime when a process invokes an effectful command. The command
-has a port type (e.g., `time-now`). The runtime checks if a port
-of that type exists on the space [demandport-create]. If not, it
+runtime when a process invokes an effectful command. These use
+`cmd:` prefixed flavours (e.g., `cmd:time-now`) and can ONLY
+be created by the command itself — they cannot appear in port
+declarations or routes. The runtime checks if a port of that
+type exists on the space [demandport-create]. If not, it
 creates one and matches it against the **parent's** wiring rules
 [demandport-wire]:
 
@@ -1323,8 +1366,8 @@ The up-port's out-side has state: **open** or **closed**. When a
 request enters through the in-side, the out-side opens. The first
 ship to exit through the out-side is the response -- the out-side
 closes and delivers the value to the requester's callback. Any
-subsequent ships that reach the closed out-side are ghosts (silently
-dropped) [upport-ghost-after-first]. When the next
+subsequent ships that reach the closed out-side are ghosts (dropped
+with a soft error to `@err`) [upport-ghost-after-first]. When the next
 request enters, the out-side opens again.
 
 Even under serial execution this can get complex: a single request
@@ -1483,8 +1526,8 @@ When a timeout fires, the waiting process sploots. [timeout-resume-empty]
 The request is marked completed.
 
 If a response later arrives for an already-completed request (a
-**ghost response**), it is silently dropped. There is no station
-context to route an error to — the process has moved on. [timeout-ghost-drop]
+**ghost response**), it is dropped and a soft error is sent to
+the space's `@err` port. [timeout-ghost-drop]
 
 #### Unwired ports
 
@@ -1813,7 +1856,7 @@ Examples:
 
 To **sploot** is to emit a soft error and continue. The pipeline
 is never halted [sploot-pipeline-continues]. The error is routed
-to the current station's `_error` port (if wired) [sploot-error-port]; the pipeline continues with a value determined by
+to the space's `@err` port (if declared) [sploot-error-port]; the pipeline continues with a value determined by
 the operation type.
 
 Splooting is the mechanism behind totality: every operation that
@@ -2407,13 +2450,10 @@ $foo       -- space variable (set with >$foo)
 
 ### The `||` barrier
 
-`||` (double pipe) breaks the implicit pipe edge entirely. After `||`,
-no implicit parameter filling occurs for the next segment -- unfilled
-parameters receive their declared fallback values (not the empty value).
-This is the same "absent" state as the first segment of a pipeline,
-where nothing feeds in implicitly. Pipeline variables (`_foo`) still
-cross the barrier -- only the implicit pipe edge is broken.
-[pipe-barrier-vars]
+`||` (double pipe) breaks the implicit pipe edge entirely (see
+the `list range` example above for why this matters). Pipeline
+variables (`_foo`) still cross the barrier -- only the implicit
+pipe edge is broken. [pipe-barrier-vars]
 
 This is how you run independent computations in sequence within one
 pipeline, using pipeline vars to stash results:
@@ -2683,7 +2723,7 @@ effectful command or a missing required param).
 ```
 
 If s is unbound in state, or path doesn't match, the result sploots
-(empty value + soft error to the station's `_error` port). [svar-read-unbound-sploot] This aids debugging --
+(empty value + soft error to the space's `@err` port). [svar-read-unbound-sploot] This aids debugging --
 a typo in a variable name produces an observable error -- while
 the pipeline continues normally with the empty value.
 
@@ -2881,39 +2921,34 @@ Dropped (no pipeline to continue):
 ```
 
 When splooting:
-  1. A soft error is emitted as a ship to the current station's
-     `_error` port (if wired). The error ship carries the process's
-     sender.
+  1. A soft error is emitted as a ship to the space's `@err` port
+     (if declared). The error ship carries the process's sender.
   2. The pipeline is NOT halted.
   3. The pipeline continues -- with empty for value-producing
      operations, or with the unchanged value for pass-through
      operations.
 
-**Error routing details.** Every station has an `_error` port
-(see section 4, Stations). When a soft error occurs during a
-station's process execution, the error ship is sent to *that*
-station's `_error` port -- not to some space-level error port
-(there is no such thing). The `_error` port is a fire-and-forget
-out-port, just like `_out`. It can be wired like any other
-station port:
+**Error routing.** Soft errors route to the **space's** `@err`
+port, not to a per-station port. The `@err` port is a declared
+port in the space definition, like any other:
 
 ```
-station._error -> {__ | >@log}     -- route errors to a logger
-station._error -> @error_out       -- forward to space boundary
+@err err
+@err -> {__ | >@log}               -- route errors to a logger
+@err -> @error_out                  -- forward to space boundary
 ```
 
-If the `_error` port is not wired (no route connects it to
-anything), the error ship is silently dropped. The pipeline
-continues either way -- wiring `_error` is for observability,
+If no `@err` port is declared, errors are silently dropped. The
+pipeline continues either way -- `@err` is for observability,
 not control flow. [error-unwired-dropped]
 
-For sub-processes (blocks evaluated by commands like `list map`
-or `process run`), errors route to the same station's `_error`
-port as the parent process, since sub-processes execute within
-the same station context.
+Ghost responses (ships arriving after a completed request) also
+send a soft error to `@err` before being dropped.
+[timeout-ghost-drop]
 
-This is analogous to IEEE 754 NaN propagation: errors flow through the
-pipeline as values, rather than interrupting control flow.
+This is analogous to IEEE 754 NaN propagation: errors flow
+through the pipeline as values, rather than interrupting control
+flow.
 
 
 ## 13. Security Analysis
@@ -3080,8 +3115,8 @@ a command outside D_eff.
   Senders are App-level only.
 - `intersect_dialects` uses AND logic: both sender and space must
   allow a command for it to execute.
-- Policy flags (`restrict_unsafe_ports`, `no_user_regex`) merge
-  with OR logic: either restriction wins.
+- Policy flags (e.g. `no_user_regex`) merge with OR logic:
+  either restriction wins.
 
 **What this does NOT cover:**
 
@@ -3129,6 +3164,19 @@ wiring. A future extension could allow subspaces to have their
 own further-restricted dialects, giving finer-grained control.
 This would require dialect intersection at each space boundary
 instead of once at dock time.
+
+### Per-space PRNG
+
+Currently, the PRNG is per-instance — all spaces in the hierarchy
+share one sequence. This means a subspace's random values depend
+on how many `math random` calls other spaces have made. A
+per-space PRNG would give each space its own sequence, seeded from
+the parent's PRNG at instantiation time. Advantages: a subspace's
+random sequence depends only on its own execution, not on sibling
+activity. The same spaceseed loaded into different contexts
+produces the same random sequence (supporting P-portable). This
+matters most for socketed spaces, where the same space definition
+should behave identically regardless of surrounding context.
 
 ### Sender authentication
 
@@ -3179,8 +3227,8 @@ Open questions:
     but without soft errors for each)? Fast-forwarding may produce
     strange results.
 
-  - **Error reporting.** Does killing emit one soft error to the
-    station's `_error` port? Multiple? How does the App learn
+  - **Error reporting.** Does killing emit a soft error to the
+    space's `@err` port? How does the App learn
     that a process was killed for energy exhaustion vs completing
     normally?
 
