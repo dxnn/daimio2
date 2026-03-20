@@ -215,6 +215,24 @@ Part III — Blocks (inner language):
 - §13: Security analysis (privilege escalation, TOCTOU, DoS, spoofing)
 - §14: Future work (concurrent scheduling, editor, auth, TODA, apps)
 
+## Current work: D2-spec.md revision (2025-03-19)
+
+An academic review loop (9 rounds, Reviewer + PostDoc agents) produced a revised spec
+draft at `extra/drafts/draft-round9.md`. All 9 intermediate drafts are in `extra/drafts/`.
+
+**Issues found and fixed in the draft:**
+1. P-blockscope: false "write-once" safety justification -> corrected to copy + synchronous execution
+2. Dialect-cmd-sploot: section 11 said pass-through, section 12 said empty -> unified to empty
+3. Named port creation: section 3 contradiction (routes vs DAML scanning) -> route-based rule
+4. Barrier pipe `||`: transition relation contradicted worked example -> introduced absent vs empty
+5. DeleteDel/DeleteGet: idempotence claim false for Pos selectors -> qualified with counterexample
+6. "Space's error port": referenced but never defined -> corrected to station's `_error` port
+7. WriteSVar/WritePVar/PortSend: undefined when `process.v = absent` -> added `val()` coercion
+8. Effectful command arity: inconsistent 3-tuple vs 4-tuple -> unified to 4-tuple with defaultHandler
+
+**Next step:** Review `extra/drafts/draft-round9.md` against the original D2-spec.md,
+decide which changes to adopt, and replace D2-spec.md with the final version.
+
 ## Test status
 
 - **d2_spec_test**: 351/351 pass

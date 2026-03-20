@@ -100,17 +100,12 @@ no future references exist (linear types style), but the observable
 behavior is always as-if copied.
 
 ### Dialect confinement [P-dialect]
-Every process runs under an effective dialect: the intersection of
-the sender's dialect (if the ship carries a sender) and the outer
-space's base dialect. The effective dialect is computed once at dock
-time and inherited by all sub-processes, block evaluations, and port
-routing. There is no mechanism for privilege escalation during
-execution -- a received program, a block passed as data, or a space
-loaded into a socket all run under the effective dialect. Commands
-outside the effective dialect sploot. This is the core security
-property: the space owner controls the base dialect, the App
-controls sender dialects, and the intersection guarantees neither
-party can escalate beyond the other.
+Every process runs under an **effective dialect** (defined in §4
+Senders), computed once at dock time and inherited by all
+sub-processes, block evaluations, and port routing. Commands
+outside the effective dialect sploot. No mechanism exists for
+privilege escalation during execution -- received programs, blocks
+as data, and socketed spaces all run under the effective dialect.
 
 ### Serial execution [P-serial]
 Each space processes one ship at a time (see section 5). The active
@@ -206,15 +201,11 @@ downward: an invited actor or loaded subspace can never exceed the
 host's permissions. This composes recursively to arbitrary depth.
 
 ### Content-addressed deduplication [P-contentaddr]
-Blocks and spaces are content-addressed: identical code compiles
-to the same identity. Copy and paste is a civilized operation --
-the engine deduplicates automatically. No need for premature
-abstraction. Just paste the code where you need it and the engine
-recognizes the shared structure. When you modify a copy, the
-editor can track the relationship: is this a specialization for
-one case, or a change to propagate to all instances? The
-content-address graph is a version history of structural sharing,
-where changes can flow through the graph like merging branches.
+The compiler produces a **structural normal form** for blocks and
+spaceseeds, then hashes the result. Structurally equivalent code
+compiles to the same identity — the engine deduplicates
+automatically. See section 10 "Block identity and normal form" and
+section 3 "Spaceseeds" for the normalization details.
 
 ### Liveness [P-liveness]
 No process waits forever. Every down-port request has a finite
@@ -332,12 +323,10 @@ exiting through `_out`, down-port requests, and error ships.
 The sender exits all ports, including the outermost boundary
 to the App.
 
-**I4. Sender confinement.** For any process P with sender S in
-outer space X: `P.effective_dialect = S.dialect ∩ X.dialect`.
-The process can never do more than the sender allows AND the
-outer space allows. This is computed once at dock time and
-inherited by all sub-processes. A command outside the effective
-dialect sploots.
+**I4. Sender confinement.** A process can never do more than
+both the sender and the space allow. The effective dialect (§4
+Senders) enforces this. Computed once at dock time, inherited by
+all sub-processes.
 
 **I5. Serial exclusion.** At most one process is active in a
 space at any time. A waiting process holds the space -- no other
@@ -424,7 +413,7 @@ storage), not in space variables.
 ### Why is cross-boundary state access verbose?
 Crossing a space boundary to access state is a significant action
 that should be visible in the topology, not hidden behind sugar.
-The explicit `{var read name :foo}` through a down port makes it
+The explicit `{var read-out name :foo}` through a down port makes it
 clear where isolation boundaries are being crossed. Syntactic sugar
 may be added later, but the underlying mechanism will always be a
 port round trip.
@@ -447,11 +436,8 @@ strategy fits its needs.
 ### Why do blocks inherit parent pipeline vars?
 The alternative is requiring explicit parameter passing (e.g. a
 `with` param on every command that takes a block). Lexical
-inheritance was chosen because it is safe and simple, since
-pipeline vars are write-once (immutable bindings). The block gets a frozen
-snapshot, and new vars bound inside the block don't propagate back.
-This eliminates boilerplate in the common case of accessing outer
-pipeline vars from inner blocks.
+inheritance is safe (P-blockscope) and eliminates boilerplate in
+the common case of accessing outer pipeline vars from inner blocks.
 
 ### Why programmable applications?
 The alternative is traditional APIs: the application exposes
@@ -643,11 +629,17 @@ A spaceseed's identity is the hash of its serialized form:
 spaceseed.id = hash(JSON.stringify(spaceseed))
 ```
 
-Identical space definitions produce the same spaceseed ID.
-[seed-content-addr] Since station blocks are themselves
-content-addressed (see section 10 "Block identity"), the hash
-transitively covers the full content of the space -- topology,
-blocks, and nested subspaces.
+Station blocks are referenced by their normalized block IDs
+(see section 10 "Block identity and normal form"), and subspaces
+are referenced by their seed IDs. So the hash transitively
+covers the full structural normal form — topology, blocks, and
+nested subspaces. Identical space definitions produce the same
+spaceseed ID. [seed-content-addr]
+
+Note: unlike blocks, spaceseeds are not currently normalized
+beyond block and subspace content-addressing. Reordering
+stations or routes in the space definition would produce a
+different seed ID even if the topology is equivalent.
 
 Multiple spaces can share the same spaceseed -- each is
 instantiated into a live space (see Spaces below) with its own
@@ -702,9 +694,8 @@ not wired, the command sploots. [effectful-unwired-sploot] No effects without wi
 ### Programs
 
 A program is a pipeline, serialized as DAML source text. It enters
-an outer space as a ship payload. A station's process may evaluate it
-as a block, through the ordinary block evaluation mechanisms like
-`process run`, thereby creating a sub-process.
+an outer space as a ship payload and may be evaluated as a block
+via `process run`, creating a sub-process (P-uniformeval).
 
 Formally, a program is a **free monad over the effect signature,
 composed with a state monad** for space variables:
@@ -734,10 +725,9 @@ signature -- the set of possible effects isn't known until the
 block runs. Daimio handles this through demand-created ports and
 wiring rules with OTHER fallbacks (section 6).
 
-Requires: the effective dialect (sender's dialect intersection with the outer space's
-dialect) must include whatever commands the program invokes, and
-port wiring must exist (or be demand-creatable) for any effects
-used.
+Requires: the effective dialect must include whatever commands the
+program invokes, and port wiring must exist (or be
+demand-creatable) for any effects used.
 
 ### Ships
 ```
@@ -984,11 +974,8 @@ spaceseeds. The application is responsible for routing data between
 them (via whatever external systems it chooses).
 
 **Senders.** Multiple senders can send ships into the same outer
-space. Each sender carries their own dialect -- a restricted subset
-of the space's base dialect. When a ship with a sender docks at a
-station, the process runs under the effective dialect:
-`sender.dialect intersection space.dialect`. This intersection is computed
-once at dock time and inherited by all sub-processes.
+space, each with their own dialect (see §4 Senders). The effective
+dialect governs all processes triggered by that sender's ships.
 
 Daimio does not authenticate senders. The App validates identity
 externally (HMAC, capability tokens, session auth, etc.) and
@@ -1099,9 +1086,8 @@ ships are queued, those queued ships dock first.
 ### Process lifecycle
 
 When a ship docks at a station, a process is created to run the
-station's block. If the ship carries a sender, the effective dialect
-is computed: `sender.dialect intersection space.dialect`. The process goes
-through these phases:
+station's block with the effective dialect (see §4 Senders). The
+process goes through these phases:
 
   1. **Dock**: ship arrives at station's in-port, process is created
      with the ship's sender (if any), effective dialect, and
@@ -1514,8 +1500,7 @@ timeout:
   emit soft error: {type: "unwired_port", port: p}
 ```
 
-This is synchronous -- the process does not wait. The pipeline
-continues immediately with the empty value. No effects without wiring.
+This is synchronous -- the process does not wait.
 
 
 ## 8. Sockets and Space Serialization
@@ -1693,6 +1678,21 @@ dot-paths: `$foo.{(:a :b)}` evaluates the list `(:a :b)`, which
 becomes a Par selector [path-eval-selector]. There is no bare `()`
 in dot-path syntax -- Par requires evaluation, so it uses curlies
 [path-par-curlies].
+
+### Comments
+
+Inside a pipeline, `/` and `//` introduce comments:
+
+  - **`/text`** — comments out one segment. The pipeline
+    continues past it. `{401 /comment | add 1}` → `402`.
+    [comment-single]
+  - **`//text`** — comments out all remaining segments in
+    the pipeline. `{401 //comment | add 1}` → `401`.
+    [comment-rest]
+
+Comments are a compile-time feature — commented segments are
+removed during compilation and do not appear in the normalized
+block.
 
 ### No escape sequences
 
@@ -2222,25 +2222,38 @@ point to previously stored outputs. The first segment of a
 pipeline has no incoming flow edges (nothing feeds into it
 implicitly).
 
-### Block identity
+### Block identity and normal form
 
-Before hashing, the compiler normalizes segment keys to sequential
-indices (`wash_keys`) [compile-normalize]. This ensures that two
-blocks compiled from the same DAML produce identical normalized
-structures regardless of the compilation context. The block is then JSON-serialized and
-hashed. The hash is the block's identity:
+The compiler produces a **structural normal form** before
+hashing. The normalization (`wash_keys`) does:
+
+  1. **Dead code elimination**: segments not linked to the final
+     output are removed, except side-effectful segments
+     (VariableSet, PortSend, `run`) which are retained.
+  2. **Key renormalization**: segment keys are rebuilt as
+     sequential indices (0, 1, 2...) and wiring references are
+     rewritten to match. This strips parse-order keys, which
+     depend on the token counter and compilation context.
+  3. **Metadata stripping**: token metadata (prevkey, names,
+     inputs, original key) is removed. Only segment type and
+     value survive. [compile-normalize]
+
+The normalized block is JSON-serialized and hashed:
 
 ```
 block.id = hash(JSON.stringify(normalized_block))
 ```
 
-Identical DAML always produces the same block ID [blockid-same].
-Blocks are stored in a global table (`D.BLOCKS`) keyed by ID -- if
-a block with the same hash already exists, the existing one is
-reused [blockid-dedup].
-This means every station, every block parameter, and every named block
-that contains the same DAML shares the same compiled block. The
-deduplication is automatic and invisible to the programmer.
+Two DAML strings that compile to the same sequence of segment
+types, values, and wiring produce the same block ID —
+regardless of surrounding context or compilation order.
+[blockid-same] Blocks are stored in `D.BLOCKS` keyed by ID;
+duplicates reuse the existing block. [blockid-dedup]
+
+Note: this is structural equivalence, not full semantic
+equivalence. Different variable names (`_a` vs `_b`) or
+reordered operations produce different IDs even if they compute
+the same result.
 
 ### Processes
 ```
@@ -2261,11 +2274,9 @@ at a station, and destroyed when the block completes. A process
 executes its block's segments sequentially, maintaining pipeline
 variable bindings and tracking its position.
 
-The effective dialect is computed at process creation: if the ship
-carries a sender, `effective_dialect = sender.dialect intersection
-space.dialect`. If no sender, `effective_dialect =
-space.dialect`. All command invocations within the process
-(and its sub-processes) are checked against this effective dialect.
+The effective dialect is computed at process creation (see §4
+Senders) and applies to all command invocations within the process
+and its sub-processes.
 
 **Pipeline variable scope:** pipeline variables are scoped to a
 single process. When a block is evaluated by a command (like
@@ -2756,19 +2767,11 @@ but does not implicitly fill any parameter of the first segment. [pipe-fill-firs
   (process, state) --[seg1 || seg2]--> (process2, state2)
 ```
 
-The key difference from `|`: setting `process.v` to `absent` (not
-`empty`) means `fillImplicit` skips the implicit filling step entirely.
-Unfilled parameters get their declared fallback values, not the empty
-value coerced to the parameter's type. This is what makes
-`{2 || list range length 3 step __}` produce `(1 3 5)`: the `start`
-param is unfilled and receives its fallback of `1`, not `0` (which
-would be empty coerced to number). [pipe-barrier-absent]
-
-Note that `__` still works across `||` because `__` references are
-compiled into direct flow edges (section 10, "Block compilation"),
-not runtime reads of `process.v`. The barrier breaks only the
-*implicit* parameter filling; explicit `__` references are wired
-directly to the upstream segment's output in the flow graph.
+Setting `process.v` to `absent` (not `empty`) means `fillImplicit`
+skips entirely — see "The `||` barrier" above for the rationale
+and examples. [pipe-barrier-absent] `__` still works across `||`
+because `__` references are compiled into direct flow edges
+(section 10), not runtime reads of `process.v`.
 
 A trailing `||` with no following segment returns empty:
 ```
@@ -2777,9 +2780,8 @@ A trailing `||` with no following segment returns empty:
   (process, state) --[seg1 ||]--> (process1{v := empty}, state1)
 ```
 
-(Trailing `||` produces the empty *value*, not absent. There is no
-subsequent segment to fill, so the distinction doesn't matter for
-parameter filling -- the pipeline simply returns empty.)
+(Trailing `||` returns `empty`, not `absent` — no subsequent
+segment needs the distinction.) [pipe-trailing-empty]
 
 **Literal:**
 ```
@@ -2788,21 +2790,14 @@ parameter filling -- the pipeline simply returns empty.)
 
 ### Block invocation
 
-A Block segment produces a DAML string as a value. Commands that
-accept block parameters (`list map`, `list reduce`, `if then`, etc.)
-evaluate the block by creating a **sub-process**. There is no special
-"eval" mechanism -- evaluating a block IS creating a sub-process that
-runs the block, subject to the same rules as any other process.
-Sub-processes are synchronous and depth-first: the parent process
-waits for the sub-process to complete before continuing.
+Commands that accept block parameters (`list map`, `list reduce`,
+`if then`, etc.) evaluate the block by creating a synchronous,
+depth-first **sub-process** (P-uniformeval).
 
 ```
 {(1 2 3) | list map block "{__ | math add value 1}"}
 {$items | list reduce block "{_total | math add value _value}" with 0}
 ```
-
-A program received as data (a ship carrying a DAML string) is
-evaluated the same way -- it's a block that gets run by a sub-process.
 
 **Scope** when a command creates a sub-process for a block:
 
@@ -2833,20 +2828,15 @@ evaluated the same way -- it's a block that gets run by a sub-process.
   5. Pipeline vars bound inside the sub-process (via `>x`) do NOT
      propagate back to the parent. [scope-pvar-no-propagate] The sub-process's env is its own.
 
-Every process runs under its effective dialect (sender.dialect intersection
-space.dialect, computed at dock time). There is no mechanism
-for escalating or changing the dialect mid-execution. A program
-received as data inherits the sender and effective dialect of
-whatever process evaluates it -- the sender's restrictions apply
-to all code, whether built-in or received as data.
+Every process runs under its effective dialect (§4 Senders). A
+program received as data inherits the sender and effective dialect
+of whatever process evaluates it.
 
 ### Atomicity guarantee
 
-A space processes one ship at a time (section 5). The active process has
-exclusive access to space state for its entire lifetime -- not just
-within a synchronous segment, but across async boundaries as well.
-No other process may read or write space variables while the active
-process exists.
+Under serial execution (§5), the active process has exclusive
+access to space state for its entire lifetime -- including across
+async boundaries (I6).
 
 #### Pipeline Segments
 ```
@@ -3024,7 +3014,7 @@ directly, bypassing the port interface.
 **Defense:** Space boundary opacity (I8). All cross-boundary
 communication goes through ports. A subspace cannot read or write
 its parent's state store directly. Cross-boundary state access requires
-an explicit effectful command (`var read`, `var write`) through a
+an explicit effectful command (`var read-out`, `var write-out`) through a
 down port, which the parent must wire to a handler. If the parent
 doesn't wire it, the request sploots.
 
