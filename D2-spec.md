@@ -587,7 +587,7 @@ blank        ::= WS? NL                 -- ignored
 subspace must be defined earlier in the file than the space that
 references it [spacesyn-subspace-before-ref]. The space named
 `outer` (if present) is the root; otherwise the last space
-defined.
+defined. [spacesyn-outer-root]
 
 **Implicit port creation.** If a port endpoint (`@dir:name` or
 bare `@dir`) appears in wiring but was not explicitly declared,
@@ -595,8 +595,8 @@ it is created with the default flavour for its direction.
 [port-implicit-create]
 
 **Station DAML restrictions.** A continuation line containing
-`->` is treated as a wire, not as station DAML. Avoid `->` in
-station blocks.
+`->` is treated as a wire, not as station DAML.
+[spacesyn-no-arrow-in-daml]
 
 Every station automatically gets two implicit ports: `_in` and
 `_out`. [spacesyn-implicit-ports] When a station name appears in a route
@@ -677,15 +677,12 @@ An Astroglot definition is a static declaration -- it describes topology,
 not behavior. Behavior lives in the station blocks (section 9) and in the
 wiring rules that determine how effects are routed (section 6).
 
-### Space definition errors
+### Space definition errors (borks)
 
-A malformed Astroglot definition is a **hard error** [spacedef-hard-error]
-— the space fails to compile and no spaceseed is created. This is different
-from DAML pipeline errors, which just sploot. The space
-definition is static topology; there is no pipeline to continue
-with empty.
+A malformed Astroglot definition **borks** [spacedef-hard-error]
+— the space fails to compile and no spaceseed is created.
 
-Hard errors include:
+Borks include:
   - Multiple wires to a round-trip port's in-side or out-side
     (up/down ports are point-to-point)
   - An OUT-N-IN port in a FAF `->` chain
@@ -1200,28 +1197,65 @@ authority on who sent what.
 
 Port flavours define how ports interact with the outside world.
 They are registered globally via `D.import_port_flavour(name,
-definition)` and referenced by name in space definitions. A port
+definition)` and referenced by name in Astroglot. A port
 flavour provides:
 
   - **dir**: the port direction (`in`, `out`, `down`, `up`)
-  - **settings**: parameters for port construction (e.g., a DOM
-    selector, a socket channel name)
-  - **Lifecycle methods** that the runtime calls:
-    - `outside_add()` — setup when the port is created on the
-      outside (e.g., bind a DOM event listener, connect a socket)
-    - `outside_exit(ship)` — handle a ship exiting to the real
-      world (e.g., set DOM text, call a JS function)
-    - `enter(ship)` — handle a ship entering from the outside
-      (e.g., push a click event into the space)
-    - `sync(ship, callback)` — handle a down-port round-trip
-      (request/response)
+  - **settings**: whitespace-delimited strings from the Astroglot
+    port declaration (e.g., `@in:click dom-on-click button1` →
+    settings are `button1`). The first setting is the primary
+    binding target. All settings are strings. The flavour
+    interprets them however it needs (DOM selector, channel name,
+    etc.).
+  - **Lifecycle methods** (see below)
 
-When a port is created (`new D.Port(template, space)`), it
-inherits from its flavour via prototype chain
-(`Object.create(pflav)`). The flavour's methods become the port's
-methods. Default implementations are provided for common patterns
-(`port_standard_exit`, `port_standard_enter`,
-`port_standard_sync`).
+#### Port lifecycle
+
+Every port has an **inside** (facing the space) and an
+**outside** (facing the parent or real world). The runtime
+creates ports in pairs: an inside port (with a `space`) and
+an outside port (without). The pair is linked via `pairup`.
+
+**Creation** — when a space is instantiated from a spaceseed
+[flavour-create]:
+
+  1. For each port in the spaceseed, the inside port is created.
+  2. On the outer space (no parent), an outside port is also
+     created for each space-level port. The flavour's
+     `outside_add()` method is called — this is where the
+     flavour connects to the real world (bind a DOM listener,
+     open a socket connection, etc.).
+  3. The inside and outside ports are paired.
+
+**Ship flow** — when a ship reaches a port [flavour-ship-flow]:
+
+  - **`exit(ship)`** — called on the inside port when a ship
+    exits the space. Default: delivers to each downstream
+    connection via `enter()` (deferred). At the outermost
+    boundary (no downstream), calls `outside_exit(ship)` on
+    the paired outside port. [flavour-exit-deferred]
+  - **`enter(ship)`** — called on the inside port when a ship
+    arrives from outside. Default: if paired, calls
+    `pair.exit()`. If no pair but has a station, docks the
+    ship. If neither, soft error (ship is lost).
+    [flavour-enter-dock]
+  - **`outside_exit(ship)`** — called on the outside port at
+    the outermost boundary. The real-world effect. Default:
+    no-op. [flavour-outside-exit]
+  - **`sync(ship, callback)`** — called for down-port
+    round-trips. Routes the request to the paired port or
+    downstream, and `callback` is invoked with the response.
+    Default: delegates to paired port's `sync`.
+    [flavour-sync-callback]
+
+**Error handling** — if a lifecycle method throws, the error
+is caught and routed to `@out:err` as a soft error. The port
+operation fails gracefully; the space continues.
+[flavour-error-soft]
+
+**Teardown** — there is no explicit teardown method. Ports are
+garbage collected when the space is collected (e.g., after a
+socket transition drains the old subspace).
 
 **Built-in flavours:**
 
@@ -2251,10 +2285,11 @@ Examples:
 
 ### Splooting
 
-To **sploot** is to emit a soft error and continue. The pipeline
-is never halted [sploot-pipeline-continues]. The error is routed
-to the space's `@out:err` port (if declared) [sploot-error-port]; the pipeline continues with a value determined by
-the operation type.
+To **sploot** is to emit a soft error and continue the pipeline
+(see §12 for the full error taxonomy: bork/sploot/ghost). The
+pipeline is never halted [sploot-pipeline-continues]. The error
+is routed to `@out:err` (if declared) [sploot-error-port]; the
+pipeline continues with a value determined by the operation type.
 
 Splooting is the mechanism behind totality: every operation that
 "fails" actually succeeds -- it just succeeds with a soft error
@@ -3294,40 +3329,61 @@ pipe     ::= '|' or '||'             -- normal pipe or barrier pipe
 
 ## 12. Errors
 
-Daimio is total. Commands do not throw exceptions. When something
-goes wrong, the operation **sploots**: it emits a soft error and
-continues (see section 10, "Splooting").
+Daimio has three error mechanisms, one per level:
 
-Conditions that sploot, with their continuation value:
+### Bork (Astroglot hard error)
+
+A malformed space definition fails to compile. No spaceseed is
+produced. See §3 "Space definition errors" for the full list.
+Borks are detected at parse/compile time. The space never runs.
+
+### Sploot (pipeline soft error)
+
+A pipeline operation fails but the pipeline continues. A soft
+error is emitted to `@out:err`; the pipeline receives a
+continuation value.
 
 ```
-Value-producing (continue with empty):
+Value-producing sploots (continue with empty):
   - command not in effective dialect                         [dialect-cmd-sploot]
   - effectful command with unwired port (no async)          [effectful-unwired-sploot]
-  - timeout on down-port response                           [timeout-resume-default]
+  - timeout on down-port response                           [timeout-resume-empty]
   - unbound space variable read                             [svar-read-unbound-sploot]
   - required param missing                                  [param-required-sploot]
 
-Pass-through (continue with unchanged value):
+Pass-through sploots (continue with unchanged value):
   - port send to nonexistent port                           [portsend-missing-sploot]
   - key coercion failure in poke/delete                     [poke-key-unkeyed-fail]
   - Key poke on unkeyed list (no promotion)                 [sploot-passthru-poke]
-
-Dropped (no pipeline to continue):
-  - ghost response (arrived after completion)               [timeout-ghost-drop]
 ```
 
 When splooting:
-  1. A soft error is emitted as a ship to the space's `@out:err` port
-     (if declared). The error ship carries the process's sender.
-  2. The pipeline is NOT halted.
-  3. The pipeline continues -- with empty for value-producing
+  1. A soft error is emitted as a ship to the space's `@out:err`
+     port (if declared). The error ship carries the process's
+     sender.
+  2. The pipeline is NOT halted. [sploot-pipeline-continues]
+  3. The pipeline continues — with empty for value-producing
      operations, or with the unchanged value for pass-through
      operations.
 
-**Error routing.** Soft errors route to the **space's** `@out:err`
-port, not to a per-station port. The `@out:err` port is a declared
-port in the space definition, like any other:
+### Ghost (ship soft error)
+
+A ship arrives somewhere that can't accept it. A soft error is
+emitted to `@out:err`; the ship is dropped. There is no pipeline
+to continue.
+
+```
+Ghost conditions:
+  - response arrives after timeout                          [timeout-ghost-drop]
+  - extra response to an OUT-N-IN contract                  [upport-ghost-after-first]
+  - ship enters an unpaired, unstated port                  [flavour-enter-dock]
+```
+
+### Error routing
+
+All soft errors (sploots and ghosts) route to the **space's**
+`@out:err` port, not to a per-station port. The `@out:err` port
+is a declared port in the space definition, like any other:
 
 ```
 @out:err                                    -- generic out flavour
@@ -3335,16 +3391,9 @@ port in the space definition, like any other:
 @out:err -> @out:error_fwd                 -- forward to space boundary
 ```
 
-If no `@out:err` port is declared, errors are silently dropped. The
-pipeline continues either way -- `@out:err` is for observability,
-not control flow. [error-unwired-dropped]
-
-Ghost ships (see §6 "Ghost ships") also send a soft error to
-`@out:err` before being dropped.
-
-This is analogous to IEEE 754 NaN propagation: errors flow
-through the pipeline as values, rather than interrupting control
-flow.
+If no `@out:err` port is declared, errors are silently dropped.
+[error-unwired-dropped] The pipeline continues either way —
+`@out:err` is for observability, not control flow.
 
 
 ## 13. Security Analysis
