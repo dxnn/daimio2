@@ -1,4 +1,5 @@
 import D from '../daimio/daimio.js'
+import '../daimio/editor.js'
 import { readFileSync, appendFileSync, existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -199,6 +200,13 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
 
   var C_DESC = '\x1b[38;5;250m'
   var C_HELP = '\x1b[38;5;243m'
+  var C_SEL  = '\x1b[7m'       // inverse video for selected completion
+  var C_NSEL = '\x1b[27m'      // reset inverse
+
+  // Tab-cycling state
+  var selIdx = null        // null = no selection, 0+ = cycling index
+  var selHits = null       // completions array frozen at selection start
+  var selPartial = null    // partial word at selection start
 
   // Build everything shown below the prompt using D.editor_context
   function build_below(text) {
@@ -208,7 +216,7 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
 
     var lines = []
 
-    // 1. Completion columns (on top)
+    // 1. Completion columns (on top), with selection highlight
     var hits = ctx.completions
     if (hits.length > 0 && !(hits.length === 1 && hits[0] === ctx.partial)) {
       var maxLen = Math.max(...hits.map(function(h) { return h.length })) + 2
@@ -216,8 +224,12 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
       var colCount = Math.max(1, Math.floor(termCols / maxLen))
       for (var i = 0; i < hits.length; i += colCount) {
         var row = ''
-        for (var j = i; j < Math.min(i + colCount, hits.length); j++)
-          row += hits[j].padEnd(maxLen)
+        for (var j = i; j < Math.min(i + colCount, hits.length); j++) {
+          var cell = hits[j].padEnd(maxLen)
+          if (selIdx !== null && j === selIdx)
+            cell = C_SEL + cell + C_NSEL
+          row += cell
+        }
         lines.push(row.trimEnd())
       }
     }
@@ -234,15 +246,47 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
     return lines.length > 0 ? lines : null
   }
 
-  // Tab: insert first match
+  // Tab: single match inserts directly, multiple matches cycle with highlight
   rl._tabComplete = function() {
     var text = this.line.slice(0, this.cursor)
     var ctx = D.editor_context(text, text.length)
     if (!ctx.completions.length) return
 
-    var completion = ctx.completions[0].slice(ctx.partial.length)
-    if (!completion.endsWith(' ')) completion += ' '
-    this._insertString(completion)
+    if (ctx.completions.length === 1) {
+      var completion = ctx.completions[0].slice(ctx.partial.length)
+      if (!completion.endsWith(' ')) completion += ' '
+      selIdx = null; selHits = null; selPartial = null
+      this._insertString(completion)
+      return
+    }
+
+    if (selIdx === null) {
+      selHits = ctx.completions
+      selPartial = ctx.partial
+      selIdx = 0
+    } else {
+      selIdx = (selIdx + 1) % selHits.length
+    }
+    this._refreshLine()
+  }
+
+  // Intercept keys during tab-cycling: space confirms, escape/other cancels
+  var origTtyWrite = rl._ttyWrite.bind(rl)
+  rl._ttyWrite = function(s, key) {
+    if (selIdx !== null) {
+      if (key && key.name === 'tab') {
+        return origTtyWrite.call(this, s, key)
+      }
+      if (s === ' ') {
+        var completion = selHits[selIdx].slice(selPartial.length) + ' '
+        selIdx = null; selHits = null; selPartial = null
+        this._insertString(completion)
+        return
+      }
+      // Any other key: cancel selection, process normally
+      selIdx = null; selHits = null; selPartial = null
+    }
+    origTtyWrite.call(this, s, key)
   }
   let buf = ''
 

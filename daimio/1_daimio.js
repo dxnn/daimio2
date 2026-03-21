@@ -3199,7 +3199,7 @@ D.seedlikes_from_string = function(stringlike, templates) {
     continuation = line.slice(name.length).replace(/^\s+|\s+$/g, '')
 
     if(name[0] == '@' && line.indexOf('->') == -1) {
-      action_name = name.slice(1)
+      action_name = name.slice(1)                   // e.g. 'in:init', 'out', 'out:err'
       action = 'port'
       return
     }
@@ -3232,7 +3232,7 @@ D.seedlikes_from_string = function(stringlike, templates) {
           var dir = lhs.split(':')[0]                    // 'up' from 'up:foo', or 'up' from 'up'
           this_seed.ports[lhs] = [dir]
         }
-        this_seed.routes.push([lhs, rhs + '.in'])
+        this_seed.routes.push([lhs, rhs + '.in'])        // station implicit ports still use '.' internally
         this_seed.routes.push([rhs + '.out', lhs])
       }
       return

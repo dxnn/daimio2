@@ -1,4 +1,5 @@
 import D from '../daimio/daimio.js'
+import '../daimio/editor.js'
 
 var pass = 0, fail = 0
 
