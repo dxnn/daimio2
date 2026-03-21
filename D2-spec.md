@@ -131,13 +131,14 @@ convenience, not protection from concurrent modification.
 
 ### Block scope isolation [P-blockscope]
 Pipeline variables flow into sub-processes (lexical inheritance
-from the parent process) but never flow out. A sub-process gets a
-copy of the parent's env; variables bound inside the sub-process
-(via `>x`) do not propagate back. This is safe because pipeline
-vars are write-once (immutable bindings), so the inherited values
-are frozen. The one-way information flow makes blocks safe to pass
-around as values -- evaluating a block cannot corrupt the caller's
-state.
+from the parent process) but never flow out. Pipeline vars are
+**write-once** — once `>x` binds a value, `x` cannot be rebound
+anywhere in that pipeline or in any sub-process. A sub-process
+inherits the parent's bindings as an immutable base it can read
+but not modify. New bindings in the sub-process (via `>y`) are
+local to that sub-process. The one-way information flow makes
+blocks safe to pass around as values — evaluating a block cannot
+corrupt the caller's state.
 
 ### Space isolation [P-spaceisolate]
 Spaces are fully isolated containers. A subspace cannot read or
@@ -266,17 +267,18 @@ command definition must have exactly one of `fun` or `effect`.
 > effect partition is forced by the tree shape.
 
 ### Handler parametricity [P-handlersub]
-Given the same sequence of responses from effect handlers, a DAML
-program produces the same effect requests regardless of which
-handlers produced those responses. The pure parts of a pipeline
-cannot observe handler identity -- they see only the values the
-handler returns. A program is parametric in its effects.
+Given the same effect responses, initial space state, and PRNG
+seed, a DAML program produces the same effect requests regardless
+of which handlers produced those responses. The pure parts of a
+pipeline cannot observe handler identity — they see only the
+values the handler returns.
 
 This is the property that makes testing by handler substitution
 valid: replace production handlers with mock handlers, provide the
-same response script, and you get the same request sequence and
-the same output. The test doesn't need a "test mode" -- it needs
-a different handler. See P-duality and P-effectlocal.
+same response script and initial state, and you get the same
+request sequence and the same output. The test doesn't need a
+"test mode" — it needs a different handler and the same starting
+conditions. See P-duality and P-effectlocal.
 
 Follows from: effect partition (pure parts can't touch ports),
 effect exteriority (I10), and the uniform command syntax (effectful
@@ -285,12 +287,13 @@ commands look the same as pure commands from inside the pipeline).
 ### Program portability [P-portable]
 A DAML program -- a block or pipeline serialized as source text --
 can be run in any space that provides the required dialect and port
-wiring, producing the same behavior given the same handler responses
-and the same initial space state. The program text is a faithful
-serialization of the computation: no closures, no ambient references,
-no hidden state within a pipeline. Two independently constructed
-spaces running the same DAML with identical handlers and identical
-initial state produce identical results.
+wiring, producing the same behavior given the same handler
+responses, the same initial space state, and the same PRNG state.
+The program text is a faithful serialization of the computation:
+no closures, no ambient references, no hidden state within a
+pipeline. Two independently constructed spaces running the same
+DAML with identical handlers, initial state, and PRNG seed produce
+identical results.
 
 One subtlety: space variables read but not set within the program
 are part of the space's initial state, not the program. Portability
@@ -348,9 +351,9 @@ is consistent -- no other process can read or write space state
 during the active process's lifetime.
 
 **I7. Pipeline variable isolation.** Pipeline variables bound in
-a sub-process do not propagate to the parent. Pipeline variables
-from the parent are readable (inherited copy) but the inheritance
-is one-way. No sub-process can modify the parent's pipeline state.
+a sub-process do not propagate to the parent. The parent's
+bindings are inherited as an immutable base — readable but not
+modifiable. The inheritance is one-way.
 
 **I8. Space boundary opacity.** A subspace cannot read or write
 its parent's space variables directly. All cross-boundary
@@ -526,6 +529,7 @@ property     ::= port_decl
                | station_decl
                | wire_decl
                | state_decl
+               | timeout_decl
 
 -- Ports -------------------------------------------------------
 
@@ -551,10 +555,11 @@ faf          ::= endpoint ('->' endpoint)+
                                         -- FAF: fire-and-forget [spacesyn-route]
 contract     ::= endpoint '<->' endpoint
                                         -- contract: one out, one back
-cmd_wire     ::= subspace '@cmd:' glob '<->' endpoint
-               | subspace '@cmd:' glob '<->' '@cmd'
-               | subspace '@cmd:' glob
+cmd_wire     ::= name '@cmd:' glob '<->' endpoint (WS duration)?
+               | name '@cmd:' glob '<->' '@cmd' (WS duration)?
+               | name '@cmd:' glob
                                         -- wiring, forwarding, or explicit sploot
+                                        -- optional trailing duration is per-wire timeout
 glob         ::= (name | '*') (':' (name | '*'))*
                                         -- e.g. time:*, *:*, var:read-out
 
@@ -565,18 +570,27 @@ state_decl   ::= '$' name (WS json_value)?
                                         -- value is JSON; if omitted, var is not set
                                         -- invalid JSON is a bork
 
+-- Timeout -----------------------------------------------------
+
+timeout_decl ::= 'timeout' WS duration  -- timeout 10s (space default timeout)
+duration     ::= integer ('s' | 'ms')   -- e.g. 10s, 500ms
+
 -- Endpoints ---------------------------------------------------
 
 endpoint     ::= '@' dir (':' name)?    -- space-level port (@in, @out:display)
-               | name                   -- station (implicit _in/_out)
-               | name '@' name          -- station named port (splitter@left)
                | name '@' dir (':' name)?
                                         -- subspace port (sub@up, sub@up:adder)
+               | name '@' name          -- station named port (splitter@left)
                | '{' daml '}'           -- anonymous inline station
+               | name                   -- station (implicit _in/_out)
 
 -- Lexical -----------------------------------------------------
 
 name         ::= [a-z][a-z0-9_-]*      -- lowercase, hyphens, underscores
+flavour      ::= name                   -- registered port flavour name
+param        ::= [^ \n]+               -- whitespace-delimited string
+integer      ::= [0-9]+
+json_value   ::= <valid JSON literal>   -- number, string, array, object, etc.
 WS           ::= ' '+                   -- spaces only (no tabs)
 NL           ::= '\n'
 indent       ::= ' '+                   -- deeper than parent level
@@ -728,13 +742,15 @@ seed. [seed-content-addr]
 
 ```
 spaceseed = {
-  id         : hash            -- content-based identifier
-  stations   : [BlockId]       -- compiled DAML blocks (1-indexed)
-  ports      : [PortDescriptor] -- port declarations + implicit station ports
-  routes     : [[int, int]]    -- pairs of port indices (1-indexed)
-  subspaces  : [SpaceseedId]   -- nested spaceseeds (by name)
-  state      : key -> Val      -- initial space variable values
-  dialect    : object?         -- dialect restrictions (optional)
+  id             : hash            -- content-based identifier
+  stations       : [BlockId]       -- compiled DAML blocks (1-indexed)
+  ports          : [PortDescriptor] -- port declarations + implicit station ports
+  fafRoutes      : [[int, int]]    -- FAF connections: pairs of port indices
+  contracts      : [[int, int]]    -- contract connections: pairs of port indices
+  wiringRules    : [WiringRule]    -- cmd port pattern-matching rules
+  subspaces      : name -> SpaceseedId  -- nested spaceseeds (by name)
+  state          : key -> Val      -- initial space variable values
+  defaultTimeout : Duration?       -- space-level default timeout
 }
 
 PortDescriptor = {
@@ -742,6 +758,12 @@ PortDescriptor = {
   flavour    : string          -- e.g. "dom-on-click", "in", "out"
   station    : int?            -- station index (for station ports), or null
   settings   : [string]        -- flavour parameters from declaration
+}
+
+WiringRule = {
+  pattern    : glob            -- e.g. "time:*", "*:*"
+  target     : int | '@cmd'    -- port index of target, or @cmd forwarding
+  timeout    : Duration?       -- per-wire timeout override
 }
 ```
 
@@ -822,7 +844,7 @@ is deterministic given the seed (see Spaces, PRNG).
 Effectful commands have no fun -- they have a port type. When
 an effectful command is registered, it also registers a port
 flavour with the `cmd:` prefix (e.g., `time now` registers
-`cmd:time-now`). This namespace prevents collisions with
+`cmd:time:now`). This namespace prevents collisions with
 built-in environment flavours like `dom-on-click`.
 
 `cmd:` ports can ONLY be created by the effectful command
@@ -1033,12 +1055,13 @@ and `up` ports) or from children (via `down` and `out` ports on
 subspaces). "Enter" and "exit" always mean entering or exiting
 MY space.
 
-A port's signal type depends on which side of the boundary you're
-on. Every port flips when you cross:
+A port's **signal type** depends on whether it's your own port
+(`@`) or a child's port (`S@`). Your own ports and your
+children's ports are mirror images:
 
 ```
-Direction   Inside (@)          Outside (S@)
-─────────   ──────────          ────────────
+Direction   My port (@)         Child's port (S@)
+─────────   ──────────          ─────────────────
 in          Entrance            Exit             [signal-flip-in]
 out         Exit                Entrance         [signal-flip-out]
 up          Enter-N-Exit        Exit-N-Reenter   [signal-flip-up]
@@ -1052,20 +1075,21 @@ Four signal types:
   - **Enter-N-Exit**: a ship enters through this port, gets
     processed, and exits back through it. This is the
     receiving side of a round-trip — it can only appear as
-    LHS of contract `<->`. [roundtrip-outnin-lhs]
+    LHS of contract `<->`. [roundtrip-enex-lhs]
   - **Exit-N-Reenter**: a ship exits through this port to be
     processed elsewhere, and re-enters when the response
-    arrives. [chain-innout-mid] Two modes:
+    arrives. [chain-exre-mid] Two modes:
     - In contract `<->`: fulfills an Enter-N-Exit (RHS)
     - In FAF `->`: double-FAF processor (MID)
     Stations behave the same way — they can fulfill a
     contract or act as double-FAF processors in chains.
 
-The flipping is consistent: `@in:foo` is an Entrance (ships
-enter this space) but `S@in:foo` is an Exit (ships exit into S).
-`@down:foo` is Exit-N-Reenter from inside (our request exits,
-response re-enters) but `S@down:foo` is Enter-N-Exit from
-outside (S's request enters our space, response exits back).
+The mirroring is consistent: `@in:foo` is an Entrance (ships
+enter my space from my parent) but `S@in:foo` is an Exit (ships
+exit my space into child S). `@down:foo` is Exit-N-Reenter
+(my request exits, response re-enters) but `S@down:foo` is
+Enter-N-Exit (S's request enters my space, response exits back
+to S).
 
 #### Declaring ports
 
@@ -1387,9 +1411,15 @@ COMPLETE(space):
 
 Both the dequeue and the completing process's output routing are
 **deferred**. The dequeue fires first: queued ships have priority
-over ships produced by the completing process's output routing. [queue-priority-routing]
-If station A's `_out` routes a ship back to A's `_in` while other
-ships are queued, those queued ships dock first.
+over ships produced by the completing process's output routing.
+[queue-priority-routing]
+
+Among deferred ships from a single process, arrival order matches
+**execution order**: `>@foo` sent before `>@bar` arrives first;
+the implicit `_out` ship arrives after all `>@portname` ships.
+[routing-deferred-order] This is deterministic — two conforming
+implementations produce the same routing order from the same
+inputs.
 
 ### Process lifecycle
 
@@ -1537,9 +1567,10 @@ station@foo        LHS only (exit)     (not valid)
 
 ### One-way ports (`in`, `out`)
 
-`in` and `out` are symmetric — the same mechanism from opposite
-sides of a boundary. An `in` port is an Entrance from inside,
-an Exit from outside. An `out` port is the reverse.
+`in` and `out` are symmetric — my port and my child's port are
+mirror images. My `@in` is an Entrance (ships arrive from my
+parent). My child's `S@in` is an Exit (ships leave my space
+into S). `out` is the reverse.
 
 ```
 @in:click dom-on-click button1    -- DOM clicks enter space
@@ -1557,12 +1588,12 @@ participate in contracts `<->`.
 
 ### Round-trip ports (`up`, `down`)
 
-`up` and `down` are symmetric — the same mechanism from opposite
-sides of a boundary. A `down` port is Exit-N-Reenter from inside
-(our request exits, response re-enters), Enter-N-Exit from
-outside (request enters the parent, response exits). An `up`
-port is the reverse. The direction name describes the port from
-inside: `down` points outward (requests go down to the parent),
+`up` and `down` are symmetric — my port and my child's port are
+mirror images. My `@down` is Exit-N-Reenter (my request exits,
+response re-enters). My child's `S@down` is Enter-N-Exit (S's
+request enters my space, response exits back to S). `up` is the
+reverse. The direction names describe my ports: `down` points
+toward my parent (requests go down to the parent),
 `up` points inward (requests come up from the parent).
 
 Round-trip ports have an in-side and an out-side fused together.
@@ -1593,7 +1624,7 @@ intrinsic to the port — it applies in both `<->` contracts and
 #### The contract (`<->`)
 
 Enter-N-Exit ports can only appear in `<->` (contract) bindings
-— never in `->` (FAF) chains [roundtrip-outnin-lhs]. The
+— never in `->` (FAF) chains [roundtrip-enex-lhs]. The
 contract adds **waiting** on top of the one-in-one-out guarantee:
 somewhere, a process is suspended until the response arrives.
 Three outcomes:
@@ -1603,18 +1634,18 @@ Three outcomes:
     system produces the empty value (sploot).
   - **Ghost ship**: extra inbound ships are dropped.
 
-**From outside (parent wiring):** Enter-N-Exit ports (`S@down:`,
-`S@cmd:`) use `<->` to connect to Exit-N-Reenter ports (`S@up:`,
-`@down:`, station):
+**In contracts:** Enter-N-Exit ports (`S@down:`, `S@cmd:`, `@up:`)
+appear on LHS. Exit-N-Reenter ports (`S@up:`, `@down:`, station)
+appear on RHS:
 
 ```
 S@down:sync <-> T@up:handler       -- subspace needs -> sibling serves
 S@down:sync <-> @down:fwd          -- forward outward to parent's parent
 ```
 
-**From inside:** Exit-N-Reenter ports (`@down:`, `S@up:`) can
-appear in `->` chains as transparent processors. Enter-N-Exit
-ports (`@up:`) use `<->`:
+**In FAF chains:** Exit-N-Reenter ports (`@down:`, `S@up:`)
+can appear as transparent processors. Enter-N-Exit ports
+(`@up:`) use `<->` instead:
 
 ```
 @up:service <-> station-a           -- up-port round-trip to station
@@ -1634,7 +1665,7 @@ When a process invokes an effectful command:
 
   1. The runtime matches the command's port type against the
      **parent's** wiring rules [demandport-wire]
-  2. No match (and no OTHER fallback) → the command sploots
+  2. No match (and no `cmd:*:*` catch-all) → the command sploots
      immediately. No port is created.
   3. Match → a transient port is created, the request is sent
      through it, and the process waits.
@@ -1660,6 +1691,18 @@ Demand-creation is necessary because:
      runtime — the effect surface isn't known until the block runs
   2. Serialized spaces loaded into sockets may have unknown effect
      surfaces
+
+**`@cmd` forwarding.** When a wiring rule targets `@cmd`
+(e.g., `S@cmd:*:* <-> @cmd`), the parent creates a matching
+transient command port on itself with the same
+`cmd:handler:method` name. This triggers the grandparent's
+wiring rules for the parent's new port — the same
+demand-creation mechanism, one level up. The child's process
+waits; the parent's port is a transparent pass-through. When
+the grandparent's response arrives, it flows back through the
+parent's port to the child. The parent's port is destroyed
+when the response (or timeout) arrives, same as any command
+port. [cmd-forward]
 
 **Outer space limitation.** An outer space has no parent, so
 there are no wiring rules to gate its command ports — all
@@ -1698,8 +1741,8 @@ S@cmd:*:*       <-> @down:fwd       -- catch-all (2 wildcards)
 **Specificity determines priority**, not declaration order.
 [wiring-first-match] Patterns are compared left-to-right,
 segment by segment. At each position, a literal beats `*`.
-The first difference decides. This gives a total ordering
-with no ambiguity:
+The first difference decides. Among patterns that match the
+same command, priority is always unambiguous:
 
 ```
 Specificity (highest to lowest):
@@ -1732,15 +1775,15 @@ The target of a wiring rule is one of:
   - A **down-port on the parent's own boundary** (forwarding the
     need outward -- the parent's environment must handle it)
     [wiring-target-forward]
-  - **Not wired** (no matching rule, no OTHER fallback -- the
-    request sploots) [wiring-target-null]
+  - **Not wired** (no matching rule and no `cmd:*:*` catch-all
+    -- the request sploots) [wiring-target-null]
 
 ### Down-port mechanics
 
 A down-port is a **round-trip channel pointing outward**. Like
 all round-trip ports, its signal type flips at the boundary.
 
-**From inside** (`@down:foo` is Exit-N-Reenter): in a `->` chain,
+**My down-port** (`@down:foo` is Exit-N-Reenter): in a `->` chain,
 the down-port acts as a double-FAF processor — a ship enters
 the in-side, exits the space, and when a response arrives, it
 continues forward as a new ship. No process waits; this is
@@ -1757,7 +1800,7 @@ handler (same as a station in `<->`):
 @up <-> @down:sync     -- up-port requests resolved by down-port
 ```
 
-**From outside** (`S@down:foo` is Enter-N-Exit): requests come out
+**Child's down-port** (`S@down:foo` is Enter-N-Exit): requests come out
 of the subspace and need a destination. The parent wires it
 with `<->`:
 
@@ -1766,8 +1809,8 @@ S@down:sync   <-> T@up:handler     -- sibling serves
 S@down:sync   <-> @down:parent-fwd -- forward to parent's parent
 ```
 
-**Command ports** are always seen from outside (the parent
-wires them):
+**Command ports** are always on children (created by the child's
+effectful commands):
 
 ```
 S@cmd:time:*  <-> T@up:time        -- sibling serves
@@ -1801,7 +1844,7 @@ An up-port is the mirror of a down-port: a **round-trip channel
 pointing inward**. Like all round-trip ports, its signal type
 flips at the boundary.
 
-**From outside** (`S@up:handler` is Exit-N-Reenter): the up-port
+**Child's up-port** (`S@up:handler` is Exit-N-Reenter): the up-port
 receives requests and produces responses. It appears as the RHS
 of `<->` or as MID in a `->` chain:
 
@@ -1811,7 +1854,7 @@ S@cmd:time:*  <-> T@up:time       -- command port <-> this up
 station-a -> T@up:handler -> station-b   -- in a -> chain as processor
 ```
 
-**From inside** (`@up` is Enter-N-Exit): the up-port is the space's
+**My up-port** (`@up` is Enter-N-Exit): the up-port is my space's
 interface for providing a service. It uses `<->` to bind to
 the station that handles requests:
 
@@ -1822,7 +1865,7 @@ the station that handles requests:
 
 **Round-trip lifecycle** [upport-roundtrip]:
 
-  1. A request arrives at the up-port from outside (via `<->`
+  1. A request arrives at the up-port from the parent (via `<->`
      or `->` chain).
   2. The request enters the space as a ship. It docks at the
      station wired via `<->` inside (the space's own scheduling
@@ -1954,9 +1997,10 @@ mechanics" for the full round-trip lifecycle.
 ```
   c in effective_dialect.commands
   c is Effectful(c, params, portType)
+  args' = fillImplicit(args, process.v)       -- same filling as PureCmd
   p = resolveOrCreatePort(space, portType)    -- see section 6
   ---
-  (process, state) --[EffCmd(c, args)]--> WAIT(p, process, continuation)
+  (process, state) --[EffCmd(c, args')]--> WAIT(p, process, continuation)
 ```
 
 Pipeline variables [async-preserve-vars] and sender [async-preserve-sender]
@@ -2039,7 +2083,7 @@ soft error to `@out:err`. [timeout-ghost-drop]
 #### Unwired ports
 
 If a down port is not wired to any target (no matching wiring rule,
-and no OTHER fallback), the command sploots -- no async boundary, no
+and no `cmd:*:*` catch-all), the command sploots -- no async boundary, no
 timeout:
 
 ```
@@ -2383,12 +2427,19 @@ depends on the operation:
 A sploot can occur at **compile time** or **runtime**:
 
   - **Compile-time**: the error is detected during block
-    compilation (e.g. unknown command name). The soft error is
-    emitted once. The segment can be compiled away entirely --
-    no runtime cost per execution.
+    compilation (e.g. unknown command, duplicate `>x`). The
+    segment can be compiled away entirely — no runtime cost per
+    execution.
   - **Runtime**: the error is detected during execution (e.g.
     unbound space variable, unwired port). The soft error is
     emitted each time the segment executes.
+
+Note: the soft error emission to `@out:err` is the defined
+semantics, but implementations may optimize it away when the
+segment is compiled out. The pipeline value semantics (empty or
+passthrough) must always be correct; the error notification is
+for observability and may be elided by optimized compilation
+modes.
 
 ### Value semantics
 
@@ -2831,10 +2882,11 @@ and its sub-processes.
 
 **Pipeline variable scope:** pipeline variables are scoped to a
 single process. When a block is evaluated by a command (like
-`list map`), a **sub-process** is created that inherits a snapshot
-copy of the parent's pipeline vars -- all the parent's vars are
-readable inside the block. But vars bound inside the block (via
-`>x`) do not propagate back to the parent. The inheritance is
+`list map`), a **sub-process** is created that inherits the
+parent's pipeline vars as an **immutable base** — the parent's
+bindings are readable but cannot be modified or rebound. New
+bindings in the sub-process (via `>x`) are local to that
+sub-process and do not propagate back. The inheritance is
 one-way: parent to child, never child to parent.
 
 **Sub-processes** are synchronous and depth-first. When a command
@@ -2932,10 +2984,11 @@ used as part of a block applied to data, as in this example. This
 does not implicitly fill a parameter in the first segment of the
 pipeline, but is accessible via `__`. It is also accessible as
 `__in` within any segment in that pipeline -- a fixed value, unlike
-`__`, which updates after each segment. [pipe-dunderin] Note that `__` is the only
-pipeline variable that updates inside a pipeline. All other `_`
-var references are resolved at compile time into direct flow edges
-(they get compiled down to wiring). This example takes the input
+`__`, which updates after each segment. [pipe-dunderin] Note that
+`__` is not a pipeline variable — it is the implicit pipe value
+(`process.v`), which updates every segment. All actual `_` vars
+are write-once and resolved at compile time into direct flow
+edges. This example takes the input
 value, adds 1, adds the
 input value again, and then adds that value to itself, yielding
 `(6 10 14)`.
@@ -3263,8 +3316,13 @@ If x is unbound or path doesn't match, the result is empty (totality). [pvar-unb
   (process, state) --[WritePVar(x)]--> (process{env := env'}, state)
 ```
 
-Pipeline variable bindings are write-once within a synchronous segment
-(SSA). [scope-pvar-writeonce] Rebinding is a compile-time error for _vars within a segment.
+Pipeline variable bindings are **write-once per pipeline**.
+[scope-pvar-writeonce] Once `>x` binds a value, the same
+variable cannot be rebound — not in a later segment, not across
+a `||` barrier, not in a sub-process. A second `>x` in the same
+pipeline sploots. (At compile time, `_x` references are resolved
+to direct edges in the block's flow graph — see §10 "Block
+compilation.")
 
 **Port send:**
 ```
@@ -3349,10 +3407,10 @@ depth-first **sub-process** (P-uniformeval).
 
 **Scope** when a command creates a sub-process for a block:
 
-  1. The sub-process **inherits the parent's pipeline vars**. All
-     pipeline variables bound before the block was invoked are
-     readable inside. [scope-pvar-inherit] This is safe because pipeline vars are
-     write-once — the sub-process gets a copy of frozen values.
+  1. The sub-process **inherits the parent's pipeline vars** as
+     an immutable base. All bindings from the parent are readable
+     inside. [scope-pvar-inherit] Pipeline vars are write-once, so
+     the inherited bindings can never change.
   2. The command **injects scope variables** on top of the inherited
      vars. Standard injected names:
        `_value`       -- the current item being processed [scope-inject-value]
@@ -3598,9 +3656,9 @@ rules the parent didn't intend to expose.
 **Defense:** Wiring authority (I11). The parent controls ALL
 wiring for its subspaces. A subspace can only declare ports -- it
 cannot wire them. The parent's wiring rules determine what each
-port connects to. The OTHER fallback in wiring rules is a
-catch-all that the parent explicitly configures. If a port
-doesn't match any rule and there's no OTHER, it sploots.
+port connects to. A `cmd:*:*` catch-all rule can serve as a
+blanket policy. If a command port doesn't match any rule, it
+sploots.
 
 
 ### Dialect confinement proof (runtime eval)
@@ -3694,7 +3752,7 @@ instead of once at dock time.
 
 ### Virtual round-trip pairing
 
-Currently, an up-port from inside can only `<->` with a single
+Currently, my `@up` port can only `<->` with a single
 station. For complex resolution (multi-station pipelines), you
 must push the complexity into a sub-subspace. A future extension
 could allow composing an ad-hoc round-trip from two FAF ports:
