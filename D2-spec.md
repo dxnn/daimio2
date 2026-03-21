@@ -523,10 +523,10 @@ port_decl  ::= '@' dir ':' name (flavour param*)?  -- @in:click dom-on-click btn
                                                    -- cmd: ports cannot be declared here
 dir        ::= 'in' | 'out' | 'up' | 'down'
 station_decl ::= name NL indent daml       -- station name, then DAML block [spacesyn-station]
-wire_decl  ::= chain | roundtrip | cmd_wire
-chain      ::= endpoint ('->' endpoint)+            -- fire-and-forget [spacesyn-route]
-roundtrip  ::= endpoint '<->' endpoint              -- round-trip (OUT-N-IN <-> IN-N-OUT)
-cmd_wire   ::= subspace '@cmd:' pattern '<->' endpoint   -- command port wiring
+wire_decl  ::= faf | contract | cmd_wire
+faf        ::= endpoint ('->' endpoint)+            -- FAF: fire-and-forget [spacesyn-route]
+contract   ::= endpoint '<->' endpoint              -- contract: one out, one back
+cmd_wire   ::= subspace '@cmd:' pattern '<->' endpoint   -- command port contract
              | subspace '@cmd:' pattern '<->' '@cmd'     -- command port forwarding
 state_decl ::= '$' name json_value?         -- $count 0, $items [] [spacesyn-state]
 dialect_decl ::= '{' json_object '}'        -- inline JSON restrictions
@@ -545,10 +545,11 @@ or `_out` (as a source). [spacesyn-route-expand]
 
 **Implicit port creation.** If a port is referenced in wiring
 but not explicitly declared, it is created with the default
-flavour for its direction. This applies to all four declarable
-directions (`in`, `out`, `up`, `down`) and to both bare (`@in`)
-and named (`@in:foo`) forms. `cmd:` ports are never created
-this way — they are demand-created by commands only.
+flavour for its direction [port-implicit-create]. This applies
+to all four declarable directions (`in`, `out`, `up`, `down`)
+and to both bare (`@in`) and named (`@in:foo`) forms. `cmd:`
+ports are never created this way — they are demand-created by
+commands only.
 
 ```
 inner
@@ -567,11 +568,14 @@ inner
   @in -> processor -> @out
 ```
 
-Explicit declarations are only needed for non-default flavours
-(e.g., `@in:click dom-on-click button1`). Subspace ports are
-NOT created implicitly by the parent — they must be declared
-(or implicitly created by wiring) inside the subspace's own
-definition.
+Bare ports (`@in`) and named ports (`@in:foo`) are distinct —
+they can coexist on the same space without ambiguity
+[port-bare-named-coexist]. Explicit declarations are only
+needed for non-default flavours (e.g.,
+`@in:click dom-on-click button1`) [port-default-flavour].
+Subspace ports are NOT created implicitly by the parent — they
+must be declared (or implicitly created by wiring) inside the
+subspace's own definition [port-no-parent-implicit].
 
 Anonymous inline stations can appear in routes as `{DAML}`: [spacesyn-anon-station]
 ```
@@ -631,6 +635,30 @@ each station can access.
 A space definition is a static declaration -- it describes topology,
 not behavior. Behavior lives in the station blocks (section 9) and in the
 wiring rules that determine how effects are routed (section 6).
+
+### Space definition errors
+
+A malformed space definition is a **hard error** [spacedef-hard-error]
+— the space fails to compile and no spaceseed is created. This is different
+from DAML pipeline errors, which just sploot. The space
+definition is static topology; there is no pipeline to continue
+with empty.
+
+Hard errors include:
+  - Multiple wires to a round-trip port's in-side or out-side
+    (up/down ports are point-to-point)
+  - An OUT-N-IN port in a FAF `->` chain
+  - A contract `<->` with wrong signal types (e.g., INPUT on LHS)
+  - A contract `<->` with more than two endpoints
+  - A `cmd:` port in a port declaration
+  - Referencing a subspace before it is defined
+  - Referencing a subspace or station that doesn't exist
+  - A port declaration with an unknown flavour
+  - A route referencing a station that doesn't exist
+
+These are all detectable at parse/compile time. The compiler
+rejects the definition and reports the error. No spaceseed is
+produced.
 
 ### Spaceseeds
 
@@ -955,18 +983,21 @@ cmd         (n/a)          OUT-N-IN
 ```
 
 Four signal types:
-  - **INPUT**: one-way source of ships (goes on LHS of `->`)
-  - **OUTPUT**: one-way destination for ships (goes on RHS of `->`)
-  - **OUT-N-IN**: sends a request, expects a response back
-    (goes on LHS of `<->` only) [roundtrip-outnin-lhs]
-  - **IN-N-OUT**: receives a request, produces a response
-    (goes on RHS of `<->`, or MID in a `->` chain)
-    [chain-innout-mid]
+  - **INPUT**: one-way source of ships (LHS of FAF `->`)
+  - **OUTPUT**: one-way destination for ships (RHS of FAF `->`)
+  - **OUT-N-IN**: the contracting side — sends one ship,
+    expects exactly one back. Can only appear as LHS of
+    contract `<->`. [roundtrip-outnin-lhs]
+  - **IN-N-OUT**: has two modes [chain-innout-mid]:
+    - In contract `<->`: fulfills an OUT-N-IN contract (RHS)
+    - In FAF `->`: double-FAF processor, nobody waits (MID)
+    Stations behave the same way — they can fulfill a
+    contract or act as double-FAF processors in chains.
 
-The flipping is consistent: `@in:foo` is INPUT (ships come in)
-but `S@in:foo` is OUTPUT (you push ships into the subspace).
-`@down:foo` is IN-N-OUT (you receive requests from inside) but
-`S@down:foo` is OUT-N-IN (requests come out of the subspace).
+The flipping is consistent: `@in:foo` is INPUT (a ship enters this space)
+but `S@in:foo` is OUTPUT (a ship exits into S).
+`@down:foo` is IN-N-OUT (a ship exits into `@down:foo`, and a matching ship will enter this space from `@down:foo` later) but
+`S@down:foo` is OUT-N-IN (a ship enters this space from `S@down:foo`, and a matching ship will exit into `S@down:foo` later).
 
 #### Declaring ports
 
@@ -1334,18 +1365,22 @@ for the full aspirational model.
 
 Wiring uses two arrow types (see §3 grammar):
 
-**`->`** (fire-and-forget chain): ships flow left to right.
-Stations and IN-N-OUT ports can appear in the middle as
-processors.
+**`->`** (FAF — fire-and-forget): ships flow left to right
+[wire-faf-no-wait]. Nobody waits. Stations and IN-N-OUT ports
+can appear in the middle as double-FAF processors — a ship
+enters on one side, gets processed, and a ship exits on the
+other [wire-faf-double].
 
 ```
 @in:click -> processor -> @out:display
 @in:data -> stationA -> @down:sync -> stationB -> @out:result
 ```
 
-**`<->`** (round-trip): request goes one way, response comes
-back [roundtrip-response]. Exactly two endpoints. OUT-N-IN on the
-left, IN-N-OUT on the right.
+**`<->`** (contract): one ship out, exactly one back
+[roundtrip-response]. The OUT-N-IN side has a waiting process
+that suspends until the response arrives [wire-contract-waits].
+Exactly two endpoints. Only OUT-N-IN ports can appear on the
+left; only IN-N-OUT ports (or stations) can appear on the right.
 
 > **Algebraic aside.** `<->` binds a free monad (the OUT-N-IN
 > side, which produces `Op` nodes) to an algebra (the IN-N-OUT
@@ -1371,8 +1406,8 @@ S@cmd:*:*     <-> @cmd             -- command port forwarding [cmd-forward]
 **Valid positions by signal type:**
 
 ```
-Signal type   In -> chain              In <-> roundtrip
-───────────   ──────────               ────────────────
+Signal type   In -> (FAF)              In <-> (contract)
+───────────   ──────────               ─────────────────
 INPUT         LHS (source)             (not valid)
 OUTPUT        RHS (destination)        (not valid)
 OUT-N-IN      (not valid)              LHS only
@@ -1393,21 +1428,50 @@ from outside. An `out` port is the reverse.
 @out:err                          -- soft errors (see §12)
 ```
 
-One-way ports appear in `->` chains only. They cannot participate
-in `<->` round-trips.
+One-way ports **multiplex** [port-multiplex]: an `in` port can
+receive from multiple sources; an `out` port fans out to all
+wired destinations (every ship is sent to every wire). This
+applies to station ports (`_in`, `_out`, `station@foo`) as well.
+
+One-way ports appear in FAF `->` chains only. They cannot
+participate in contracts `<->`.
 
 ### Round-trip ports (`up`, `down`)
 
 `up` and `down` are symmetric — the same mechanism from opposite
-sides of a boundary. A `down` port is IN-N-OUT from inside (it
-receives requests from the space's own processes), OUT-N-IN from
-outside (requests come out of the subspace). An `up` port is
-the reverse.
+sides of a boundary. A `down` port is IN-N-OUT from inside,
+OUT-N-IN from outside. An `up` port is the reverse. The
+direction name describes the port from inside: `down` points
+outward (requests go to the parent), `up` points inward
+(requests come from the parent).
 
 Round-trip ports have an in-side and an out-side fused together.
-The first ship to exit through the out-side is the response;
-subsequent ships are ghosts (dropped with soft error to
-`@out:err`). [upport-ghost-after-first]
+Unlike one-way ports, round-trip ports are **point-to-point**
+[port-point-to-point]: exactly one wire in, exactly one wire
+out. Multiple wires to either side of an up or down port is an
+error (see "Space definition errors"). This constraint
+is what makes the one-in-one-out guarantee possible — if the
+out-side fanned out to multiple destinations, the contract
+("exactly one back") would be meaningless.
+
+Stations can also fulfill contracts (via `<->`) because each
+process is one-in-one-out with respect to `_in` and `_out`: one
+ship docks, one result exits [station-contract-out]. The `_out`
+value is the contract response. Ships sent via `>@portname`
+during execution are
+separate FAF sends — they do not participate in the contract.
+
+**The OUT-N-IN contract.** OUT-N-IN ports can only appear in
+`<->` (contract) bindings — never in `->` (FAF) chains
+[roundtrip-outnin-lhs]. The contract is: "I send one ship out,
+you send exactly one back." Three outcomes:
+
+  - **Response**: contract fulfilled. One out, one back.
+  - **Timeout**: contract enforced. No response in time, the
+    system produces the empty value (sploot).
+  - **Ghost ship**: contract violated. Extra inbound ships are
+    dropped with a soft error to `@out:err`.
+    [upport-ghost-after-first]
 
 **From outside (parent wiring):** OUT-N-IN ports (`S@down:`,
 `S@cmd:`) use `<->` to connect to IN-N-OUT ports (`S@up:`,
@@ -1524,41 +1588,53 @@ The target of a wiring rule is one of:
 
 ### Down-port mechanics
 
-A down-port is a **round-trip channel pointing outward**. It can
-be declared in the space definition or created on demand by
-effectful commands (command port). Both share the same round-trip
-semantics.
+A down-port is a **round-trip channel pointing outward**. Like
+all round-trip ports, its signal type flips at the boundary.
 
-**Wiring** (from the parent, using `<->`):
+**From inside** (`@down:foo` is IN-N-OUT): in a `->` chain,
+the down-port acts as a double-FAF processor — a ship enters
+the in-side, exits the space, and when a response arrives, it
+continues forward as a new ship. No process waits; this is
+routing, not suspension.
+
+```
+@in -> stationA -> @down:sync -> stationB -> @out
+```
+
+When paired via `<->`, the down-port is a true round-trip
+handler (same as a station in `<->`):
+
+```
+@up <-> @down:sync     -- up-port requests resolved by down-port
+```
+
+**From outside** (`S@down:foo` is OUT-N-IN): requests come out
+of the subspace and need a destination. The parent wires it
+with `<->`:
+
 ```
 S@down:sync   <-> T@up:handler     -- sibling serves
 S@down:sync   <-> @down:parent-fwd -- forward to parent's parent
-S@cmd:time:*  <-> T@up:time        -- command port to sibling
 ```
 
-**Round-trip lifecycle:**
+**Command ports** are always seen from outside (the parent
+wires them):
 
-  1. A request enters the down-port's in-side (from a station's
-     `>@portname`, from output routing, or from a command port).
-  2. The request (value + sender) exits the space through the
-     down-port's out-side.
-  3. The process waits. The space remains busy (serial exclusion).
-     Pipeline vars and sender are preserved across the wait.
-  4. The destination handles the request and produces a response:
-     - **Port flavour handler** (outer space): the flavour's
-       `sync` or `outside_exit` method handles it.
-     - **Up-port on a sibling**: the request enters the sibling
-       (see Up-port mechanics below).
-     - **Forwarded outward**: the request propagates to the
-       parent's parent, recursively.
-  5. The response arrives. The process resumes with the response
-     value as `process.v`.
-  6. If no response arrives within the timeout, the process
-     sploots (see section 7.3).
+```
+S@cmd:time:*  <-> T@up:time        -- sibling serves
+S@cmd:*:*     <-> @down:fwd        -- forward outward
+```
 
-A down-port carries **exactly one** request/response pair at a
-time [singleresponse-one]. The port is occupied while the process
-waits and freed when the response (or timeout) arrives.
+**Round-trip guarantees** (apply when wired with `<->` — the
+OUT-N-IN side has a waiting process):
+
+  - The process waits. The space remains busy (serial exclusion).
+    Pipeline vars and sender are preserved across the wait.
+  - Exactly one response [singleresponse-one]. The port is
+    occupied while the process waits and freed when the response
+    (or timeout) arrives.
+  - If no response arrives within the timeout, the process
+    sploots (see section 7.2).
 
 > **Algebraic aside.** The continuation `k` in `Op(request, k)`
 > takes exactly one value: `k : Val → Free F a`. The free monad's
@@ -1570,51 +1646,48 @@ waits and freed when the response (or timeout) arrives.
 ### Up-port mechanics
 
 An up-port is the mirror of a down-port: a **round-trip channel
-pointing inward**. It has an in-side (receives requests) and an
-out-side (captures the first response).
+pointing inward**. Like all round-trip ports, its signal type
+flips at the boundary.
 
-**Wiring** — from outside (the parent) an up-port is IN-N-OUT,
-so it appears as the RHS of `<->`:
+**From outside** (`S@up:handler` is IN-N-OUT): the up-port
+receives requests and produces responses. It appears as the RHS
+of `<->` or as MID in a `->` chain:
+
 ```
 S@down:sync   <-> T@up:handler    -- sibling down <-> this up
 S@cmd:time:*  <-> T@up:time       -- command port <-> this up
+stationA -> T@up:handler -> stationB   -- in a -> chain as processor
 ```
 
-From inside, an up-port is OUT-N-IN, so it uses `<->`:
+**From inside** (`@up` is OUT-N-IN): the up-port is the space's
+interface for providing a service. It uses `<->` to bind to
+the station that handles requests:
+
 ```
-@up <-> stationA                  -- bare up-port round-trip to station
-@up:service <-> stationA          -- named up-port
+@up <-> processor                 -- bare up-port
+@up:service <-> processor         -- named up-port
 ```
 
 **Round-trip lifecycle** [upport-roundtrip]:
 
-  1. A request arrives at the up-port's in-side (from a station,
-     a sibling's output, or the parent's in-port).
-  2. The request enters the space as a ship. The ship docks at
-     the station wired to the in-side (the space's own scheduling
+  1. A request arrives at the up-port from outside (via `<->`
+     or `->` chain).
+  2. The request enters the space as a ship. It docks at the
+     station wired via `<->` inside (the space's own scheduling
      applies — if busy, the ship queues).
-  3. The space processes the request. The result exits through
-     a port wired to the up-port's out-side.
-  4. The first ship to exit through the out-side is the response.
-     It is delivered to the destination wired to the out-side.
+  3. The station processes the request. The station's `_out`
+     becomes the response.
 
-The up-port's out-side has state: **open** or **closed**. When a
-request enters through the in-side, the out-side opens. The first
-ship to exit through the out-side is the response -- the out-side
-closes and delivers the value to the requester's callback. Any
-subsequent ships that reach the closed out-side are ghosts (dropped
-with a soft error to `@out:err`) [upport-ghost-after-first]. When the next
-request enters, the out-side opens again.
+**First-response semantics.** From inside, the up-port is
+OUT-N-IN — the ghost ship rules apply (see "Ghost ships"
+above). The first response counts; extras are ghosts.
+[upport-first-response] Even under serial execution, a request
+may trigger multiple stations (via deferred routing) that each
+produce ships reaching the out-side. Only the first counts.
 
-Even under serial execution this can get complex: a single request
-may trigger multiple stations in B (via deferred port routing),
-and several of those may eventually produce ships that reach the
-up-port's out-side. Only the first counts; the rest are ghosts
-[upport-first-response].
-
-If B never produces a response (the processing sploots or routes
-elsewhere without reaching the out-side), A's process will
-eventually time out (section 7.3).
+If the space never produces a response (processing sploots or
+routes elsewhere), the requester's timeout handles it (section
+7.2).
 
 ### Example wiring
 
@@ -1804,9 +1877,9 @@ The request is marked completed.
 > zero — the canonical "nothing happened" that lets the tree
 > continue. Totality requires that every `Op` node resolves.
 
-If a response later arrives for an already-completed request (a
-**ghost response**), it is dropped and a soft error is sent to
-the space's `@out:err` port. [timeout-ghost-drop]
+If a response later arrives for an already-completed request, it
+is a ghost ship (see §6 "Ghost ships") and is dropped with a
+soft error to `@out:err`. [timeout-ghost-drop]
 
 #### Unwired ports
 
@@ -2042,7 +2115,7 @@ only rule, with no context-dependent escape processing.
 {>x | user fetch id :bob | _x}                   -- save, effect, restore
 {:hello | >@spaceout}                            -- send to space port
 {begin roe}{$name}: {$score}{end roe}            -- named template block
-{$count | >@notify ||}                           -- side effects, no output
+{$count | >@notify ||}                           -- send ship, no output
 ```
 
 
@@ -2148,7 +2221,7 @@ depends on the operation:
     didn't produce a result, so empty is the right default.
   - **Pass-through operations** (port sends, variable writes,
     failed pokes) continue with the unchanged pipeline value
-    [sploot-passthru-portsend]. The side effect failed, but the
+    [sploot-passthru-portsend]. The operation failed, but the
     value flows through as if the operation wasn't there.
 
 A sploot can occur at **compile time** or **runtime**:
@@ -2754,7 +2827,7 @@ of its last segment's result. [pipe-trailing-empty] Useful in templating context
 side-effectful operations shouldn't produce visible output:
 
 ```
-{$count | >@notify ||}                           -- side effects, no output
+{$count | >@notify ||}                           -- send ship, no output
 ```
 
 ### Block syntax
@@ -3221,9 +3294,8 @@ If no `@out:err` port is declared, errors are silently dropped. The
 pipeline continues either way -- `@out:err` is for observability,
 not control flow. [error-unwired-dropped]
 
-Ghost responses (ships arriving after a completed request) also
-send a soft error to `@out:err` before being dropped.
-[timeout-ghost-drop]
+Ghost ships (see §6 "Ghost ships") also send a soft error to
+`@out:err` before being dropped.
 
 This is analogous to IEEE 754 NaN propagation: errors flow
 through the pipeline as values, rather than interrupting control
