@@ -150,78 +150,13 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
 } else {
   const { createInterface } = await import('readline')
 
-  // String-aware brace/pipe parsing helpers
-  function find_unclosed_brace(text) {
-    var d = 0, inStr = false
-    for (var i = text.length - 1; i >= 0; i--) {
-      if (text[i] === '"') inStr = !inStr
-      if (inStr) continue
-      if (text[i] === '}') d++
-      else if (text[i] === '{') { if (d) d--; else return i }
-    }
-    return -1
-  }
-
-  function last_pipe_segment(str) {
-    var inStr = false, last = -1
-    for (var i = 0; i < str.length; i++) {
-      if (str[i] === '"') inStr = !inStr
-      else if (!inStr && str[i] === '|') last = i
-    }
-    return str.slice(last + 1)
-  }
-
+  // Completer for readline (delegates to D.editor_context)
   function completer(line) {
-    var start = find_unclosed_brace(line)
-    if (start === -1) return [[], line]
-
-    var seg = last_pipe_segment(line.slice(start + 1)).trimStart()
-    var words = seg.split(/\s+/).filter(Boolean)
-
-    var handlers = Object.keys(D.Commands)
-    var aliases = Object.keys(D.Aliases)
-
-    if (words.length === 0) {
-      // Just opened { or just after |
-      var all = handlers.concat(aliases).sort()
-      return [all, '']
-    }
-
-    var handler = words[0]
-    if (words.length === 1 && !seg.endsWith(' ')) {
-      // Partial handler/alias name
-      var all = handlers.concat(aliases).sort()
-      var hits = all.filter(c => c.startsWith(handler))
-      if (hits.length === 1) hits = [hits[0] + ' ']
-      return [hits, handler]
-    }
-
-    var cmd = D.Commands[handler]
-    if (!cmd) return [[], '']
-
-    var methods = Object.keys(cmd.methods || {})
-    var method_name = words[1]
-
-    if (words.length === 1 || (words.length === 2 && !seg.endsWith(' '))) {
-      // Complete method name
-      var partial = method_name || ''
-      var hits = methods.filter(m => m.startsWith(partial))
-      if (hits.length === 1) hits = [hits[0] + ' ']
-      return [hits, partial]
-    }
-
-    var method = (cmd.methods || {})[method_name]
-    if (!method || !method.params) return [[], '']
-
-    // Complete param names — exclude already-used ones
-    var param_names = method.params.map(p => p.key)
-    var used = new Set()
-    for (var i = 2; i < words.length - (seg.endsWith(' ') ? 0 : 1); i += 2)
-      used.add(words[i])
-    var partial = seg.endsWith(' ') ? '' : words[words.length - 1]
-    var hits = param_names.filter(p => p.startsWith(partial) && !used.has(p))
+    var ctx = D.editor_context(line, line.length)
+    if (ctx.phase === 'outside') return [[], line]
+    var hits = ctx.completions.slice()
     if (hits.length === 1) hits = [hits[0] + ' ']
-    return [hits, partial]
+    return [hits, ctx.partial]
   }
 
   const history_path = join(homedir(), '.daimio_history')
@@ -262,50 +197,20 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
     }
   }
 
-  // Colors and helpers
   var C_DESC = '\x1b[38;5;250m'
   var C_HELP = '\x1b[38;5;243m'
 
-  function format_lines(lines, color) {
-    if (!lines || !lines.length) return []
-    var out = []
-    for (var i = 0; i < lines.length; i++)
-      out.push(color + (lines[i] || ' ') + RESET)
-    return out
-  }
-
-  function to_help_array(h) { return h ? (Array.isArray(h) ? h : [h]) : null }
-
-  function tab_context(line) {
-    var start = find_unclosed_brace(line)
-    if (start === -1) return { phase: 'handler' }
-    var seg = last_pipe_segment(line.slice(start + 1)).trimStart()
-    var words = seg.split(/\s+/).filter(Boolean)
-    var ends = seg.endsWith(' ')
-    var h = words[0], cmd = h && D.Commands[h]
-    if (!cmd || (words.length === 1 && !ends))
-      return { phase: 'handler' }
-    var m = words[1], method = m && cmd.methods && cmd.methods[m]
-    if (!method || (words.length === 2 && !ends))
-      return { phase: 'method', cmd: cmd }
-    return { phase: 'param', cmd: cmd, method: method }
-  }
-
-  // Build everything shown below the prompt: completions, then desc, then help
+  // Build everything shown below the prompt using D.editor_context
   function build_below(text) {
-    // Must be inside an unclosed brace with a non-empty segment
-    var start = find_unclosed_brace(text)
-    if (start === -1) return null
-    var seg = last_pipe_segment(text.slice(start + 1)).trimStart()
-    if (seg === '') return null
+    var ctx = D.editor_context(text, text.length)
+    if (ctx.phase === 'outside') return null
+    if (ctx.phase === 'handler' && ctx.partial === '') return null
 
-    var ctx = tab_context(text)
     var lines = []
 
     // 1. Completion columns (on top)
-    var result = completer(text)
-    var hits = result[0], partial = result[1]
-    if (hits.length > 0 && !(hits.length === 1 && hits[0].trimEnd() === partial)) {
+    var hits = ctx.completions
+    if (hits.length > 0 && !(hits.length === 1 && hits[0] === ctx.partial)) {
       var maxLen = Math.max(...hits.map(function(h) { return h.length })) + 2
       var termCols = rl.columns || 80
       var colCount = Math.max(1, Math.floor(termCols / maxLen))
@@ -317,33 +222,13 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
       }
     }
 
-    // 2-3. Desc and help (context-appropriate)
-    var words = seg.split(/\s+/).filter(Boolean)
-    var ends = seg.endsWith(' ')
+    // 2. Desc
+    if (ctx.desc) lines.push(C_DESC + ctx.desc + RESET)
 
-    if (ctx.phase === 'param' && ctx.method) {
-      // If last word before space is a param name, show that param's desc
-      var paramDesc = null
-      if (ends && words.length > 2) {
-        var lastWord = words[words.length - 1]
-        if (ctx.method.params) {
-          for (var k = 0; k < ctx.method.params.length; k++) {
-            if (ctx.method.params[k].key === lastWord) {
-              paramDesc = ctx.method.params[k].desc
-              break
-            }
-          }
-        }
-      }
-      if (paramDesc) {
-        lines = lines.concat(format_lines([paramDesc], C_DESC))
-      } else {
-        if (ctx.method.desc) lines = lines.concat(format_lines([ctx.method.desc], C_DESC))
-        if (ctx.method.help) lines = lines.concat(format_lines(to_help_array(ctx.method.help), C_HELP))
-      }
-    } else if (ctx.phase === 'method' && ctx.cmd) {
-      if (ctx.cmd.desc) lines = lines.concat(format_lines([ctx.cmd.desc], C_DESC))
-      if (ctx.cmd.help) lines = lines.concat(format_lines(to_help_array(ctx.cmd.help), C_HELP))
+    // 3. Help
+    if (ctx.help) {
+      for (var i = 0; i < ctx.help.length; i++)
+        lines.push(C_HELP + (ctx.help[i] || ' ') + RESET)
     }
 
     return lines.length > 0 ? lines : null
@@ -351,12 +236,11 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
 
   // Tab: insert first match
   rl._tabComplete = function() {
-    var line = this.line.slice(0, this.cursor)
-    var result = completer(line)
-    var hits = result[0], partial = result[1]
-    if (!hits.length) return
+    var text = this.line.slice(0, this.cursor)
+    var ctx = D.editor_context(text, text.length)
+    if (!ctx.completions.length) return
 
-    var completion = hits[0].slice(partial.length)
+    var completion = ctx.completions[0].slice(ctx.partial.length)
     if (!completion.endsWith(' ')) completion += ' '
     this._insertString(completion)
   }
