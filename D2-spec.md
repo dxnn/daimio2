@@ -553,7 +553,8 @@ contract     ::= endpoint '<->' endpoint
                                         -- contract: one out, one back
 cmd_wire     ::= subspace '@cmd:' glob '<->' endpoint
                | subspace '@cmd:' glob '<->' '@cmd'
-                                        -- command port wiring/forwarding
+               | subspace '@cmd:' glob
+                                        -- wiring, forwarding, or explicit sploot
 glob         ::= (name | '*') (':' (name | '*'))*
                                         -- e.g. time:*, *:*, var:read-out
 
@@ -561,8 +562,8 @@ glob         ::= (name | '*') (':' (name | '*'))*
 
 state_decl   ::= '$' name (WS json_value)?
                                         -- $count 0, $items [1,2,3] [spacesyn-state]
-                                        -- value is JSON; if omitted or invalid,
-                                        -- variable is not set
+                                        -- value is JSON; if omitted, var is not set
+                                        -- invalid JSON is a bork
 
 -- Endpoints ---------------------------------------------------
 
@@ -683,16 +684,31 @@ A malformed Astroglot definition **borks** [spacedef-hard-error]
 — the space fails to compile and no spaceseed is created.
 
 Borks include:
-  - Multiple wires to a round-trip port's in-side or out-side
-    (up/down ports are point-to-point)
-  - An OUT-N-IN port in a FAF `->` chain
-  - A contract `<->` with wrong signal types (e.g., INPUT on LHS)
+
+  Signal type violations:
+  - An Out-N-In port in a FAF `->` chain
+  - A contract `<->` with wrong signal types (e.g., Entrance on LHS)
   - A contract `<->` with more than two endpoints
-  - A `cmd:` port in a port declaration
+  - Multiple wires to a round-trip port (point-to-point only)
+
+  Naming conflicts:
+  - Duplicate space names in the same file
+  - Duplicate station names within a space
+  - Duplicate port declarations within a space
+  - Duplicate state declarations within a space
+  - Station name collides with subspace name
+  - Duplicate wiring rule patterns [wiring-no-duplicate]
+
+  Reference errors:
   - Referencing a subspace before it is defined
   - Referencing a subspace or station that doesn't exist
-  - A port declaration with an unknown flavour
   - A route referencing a station that doesn't exist
+  - A port declaration with an unknown flavour
+  - A `cmd:` port in a port declaration
+
+  Invalid values:
+  - State declaration with invalid JSON (`$count notjson`)
+  - Station declaration with no DAML block
 
 These are all detectable at parse/compile time. The compiler
 rejects the definition and reports the error. No spaceseed is
@@ -716,9 +732,16 @@ spaceseed = {
   stations   : [BlockId]       -- compiled DAML blocks (1-indexed)
   ports      : [PortDescriptor] -- port declarations + implicit station ports
   routes     : [[int, int]]    -- pairs of port indices (1-indexed)
-  subspaces  : [SpaceseedId]   -- nested spaceseeds (1-indexed)
+  subspaces  : [SpaceseedId]   -- nested spaceseeds (by name)
   state      : key -> Val      -- initial space variable values
   dialect    : object?         -- dialect restrictions (optional)
+}
+
+PortDescriptor = {
+  name       : string          -- e.g. "in:click", "out", "_in"
+  flavour    : string          -- e.g. "dom-on-click", "in", "out"
+  station    : int?            -- station index (for station ports), or null
+  settings   : [string]        -- flavour parameters from declaration
 }
 ```
 
@@ -1010,29 +1033,29 @@ you're on. Every port flips when you cross:
 ```
 Direction   Inside (@)     Outside (S@)
 ─────────   ──────────     ────────────
-in          INPUT          OUTPUT          [signal-flip-in]
-out         OUTPUT         INPUT           [signal-flip-out]
-up          OUT-N-IN       IN-N-OUT        [signal-flip-up]
-down        IN-N-OUT       OUT-N-IN        [signal-flip-down]
-cmd         (n/a)          OUT-N-IN
+in          Entrance       Exit            [signal-flip-in]
+out         Exit           Entrance        [signal-flip-out]
+up          Out-N-In       In-N-Out        [signal-flip-up]
+down        In-N-Out       Out-N-In        [signal-flip-down]
+cmd         (n/a)          Out-N-In
 ```
 
 Four signal types:
-  - **INPUT**: one-way source of ships (LHS of FAF `->`)
-  - **OUTPUT**: one-way destination for ships (RHS of FAF `->`)
-  - **OUT-N-IN**: the contracting side — sends one ship,
-    expects exactly one back. Can only appear as LHS of
-    contract `<->`. [roundtrip-outnin-lhs]
-  - **IN-N-OUT**: has two modes [chain-innout-mid]:
-    - In contract `<->`: fulfills an OUT-N-IN contract (RHS)
+  - **Entrance**: ships enter through here (LHS of FAF `->`)
+  - **Exit**: ships leave through here (RHS of FAF `->`)
+  - **Out-N-In**: one ship exits, then re-enters. Can only
+    appear as LHS of contract `<->`. [roundtrip-outnin-lhs]
+  - **In-N-Out**: one ship enters, then exits.
+    [chain-innout-mid] Two modes:
+    - In contract `<->`: fulfills an Out-N-In contract (RHS)
     - In FAF `->`: double-FAF processor, nobody waits (MID)
     Stations behave the same way — they can fulfill a
     contract or act as double-FAF processors in chains.
 
-The flipping is consistent: `@in:foo` is INPUT (a ship enters this space)
-but `S@in:foo` is OUTPUT (a ship exits into S).
-`@down:foo` is IN-N-OUT (a ship exits into `@down:foo`, and a matching ship will enter this space from `@down:foo` later) but
-`S@down:foo` is OUT-N-IN (a ship enters this space from `S@down:foo`, and a matching ship will exit into `S@down:foo` later).
+The flipping is consistent: `@in:foo` is an Entrance (ships
+enter this space) but `S@in:foo` is an Exit (ships exit into S).
+`@down:foo` is In-N-Out from inside but `S@down:foo` is Out-N-In
+from outside.
 
 #### Declaring ports
 
@@ -1403,7 +1426,7 @@ Sub-processes are nested execution, not concurrent execution.
 
 ### Port routing and deferred entry
 
-When a process sends to a space-level port (`>@portname`), the
+When a process sends to a named station port (`>@portname`), the
 port's output routing is **deferred**: the receiving station's
 in-port entry is scheduled asynchronously, not executed inline. [routing-portsend-deferred]
 The sending process continues immediately.
@@ -1444,7 +1467,7 @@ See section 14 for the design direction, and
 Wiring uses two arrow types (see §3 grammar):
 
 **`->`** (FAF — fire-and-forget): ships flow left to right
-[wire-faf-no-wait]. Nobody waits. Stations and IN-N-OUT ports
+[wire-faf-no-wait]. Nobody waits. Stations and In-N-Out ports
 can appear in the middle as double-FAF processors — a ship
 enters on one side, gets processed, and a ship exits on the
 other [wire-faf-double].
@@ -1455,13 +1478,19 @@ other [wire-faf-double].
 ```
 
 **`<->`** (contract): one ship out, exactly one back
-[roundtrip-response]. The OUT-N-IN side has a waiting process
+[roundtrip-response]. The Out-N-In side has a waiting process
 that suspends until the response arrives [wire-contract-waits].
-Exactly two endpoints. Only OUT-N-IN ports can appear on the
-left; only IN-N-OUT ports (or stations) can appear on the right.
+Exactly two endpoints. Only Out-N-In ports can appear on the
+left; only In-N-Out ports (or stations) can appear on the right.
+The `<->` wires both directions at compile time: the request
+routes from left to right, and the response routes back from
+right to left. This works across space boundaries — when
+`S@cmd:time:* <-> T@up:time`, S and T have independent
+scheduling, but the contract ensures the response from T is
+delivered back to S's waiting process.
 
-> **Algebraic aside.** `<->` binds a free monad (the OUT-N-IN
-> side, which produces `Op` nodes) to an algebra (the IN-N-OUT
+> **Algebraic aside.** `<->` binds a free monad (the Out-N-In
+> side, which produces `Op` nodes) to an algebra (the In-N-Out
 > side, which interprets them). Exactly two endpoints because a
 > catamorphism maps one tree to one interpreter — you can't fold
 > a tree into two algebras simultaneously.
@@ -1486,19 +1515,19 @@ S@cmd:*:*     <-> @cmd             -- command port forwarding [cmd-forward]
 ```
 Signal type   In -> (FAF)              In <-> (contract)
 ───────────   ──────────               ─────────────────
-INPUT         LHS (source)             (not valid)
-OUTPUT        RHS (destination)        (not valid)
-OUT-N-IN      (not valid)              LHS only
-IN-N-OUT      MID or RHS              RHS only
+Entrance      LHS (source)             (not valid)
+Exit          RHS (destination)        (not valid)
+Out-N-In      (not valid)              LHS only
+In-N-Out      MID or RHS              RHS only
 station       LHS, MID, or RHS        RHS only
-station@foo   LHS only (output)       (not valid)
+station@foo   LHS only (exit)         (not valid)
 ```
 
 ### One-way ports (`in`, `out`)
 
 `in` and `out` are symmetric — the same mechanism from opposite
-sides of a boundary. An `in` port is INPUT from inside, OUTPUT
-from outside. An `out` port is the reverse.
+sides of a boundary. An `in` port is an Entrance from inside,
+an Exit from outside. An `out` port is the reverse.
 
 ```
 @in:click dom-on-click button1    -- DOM clicks enter space
@@ -1517,8 +1546,8 @@ participate in contracts `<->`.
 ### Round-trip ports (`up`, `down`)
 
 `up` and `down` are symmetric — the same mechanism from opposite
-sides of a boundary. A `down` port is IN-N-OUT from inside,
-OUT-N-IN from outside. An `up` port is the reverse. The
+sides of a boundary. A `down` port is In-N-Out from inside,
+Out-N-In from outside. An `up` port is the reverse. The
 direction name describes the port from inside: `down` points
 outward (requests go to the parent), `up` points inward
 (requests come from the parent).
@@ -1539,7 +1568,9 @@ value is the contract response. Ships sent via `>@portname`
 during execution are
 separate FAF sends — they do not participate in the contract.
 
-**The OUT-N-IN contract.** OUT-N-IN ports can only appear in
+#### The Out-N-In contract and ghost ships
+
+Out-N-In ports can only appear in
 `<->` (contract) bindings — never in `->` (FAF) chains
 [roundtrip-outnin-lhs]. The contract is: "I send one ship out,
 you send exactly one back." Three outcomes:
@@ -1551,8 +1582,8 @@ you send exactly one back." Three outcomes:
     dropped with a soft error to `@out:err`.
     [upport-ghost-after-first]
 
-**From outside (parent wiring):** OUT-N-IN ports (`S@down:`,
-`S@cmd:`) use `<->` to connect to IN-N-OUT ports (`S@up:`,
+**From outside (parent wiring):** Out-N-In ports (`S@down:`,
+`S@cmd:`) use `<->` to connect to In-N-Out ports (`S@up:`,
 `@down:`, station):
 
 ```
@@ -1560,8 +1591,8 @@ S@down:sync <-> T@up:handler       -- subspace needs -> sibling serves
 S@down:sync <-> @down:fwd          -- forward outward to parent's parent
 ```
 
-**From inside:** IN-N-OUT ports (`@down:`, `S@up:`) can appear
-in `->` chains as transparent processors. OUT-N-IN ports (`@up:`)
+**From inside:** In-N-Out ports (`@down:`, `S@up:`) can appear
+in `->` chains as transparent processors. Out-N-In ports (`@up:`)
 use `<->`:
 
 ```
@@ -1637,16 +1668,35 @@ Patterns use `*` as a wildcard. Matching is simple string
 matching on the port name:
 
 ```
-S@cmd:time:*    <-> T@up:time       -- all time commands to sibling T
-S@cmd:time:now  <-> T@up:time       -- just time now
+S@cmd:time:now  <-> T@up:time       -- exact match (0 wildcards)
+S@cmd:time:*    <-> T@up:time       -- handler match (1 wildcard)
 S@cmd:var:*                         -- not wired (sploots)
-S@cmd:*:*       <-> @down:fwd       -- forward everything else outward
+S@cmd:*:*       <-> @down:fwd       -- catch-all (2 wildcards)
 ```
 
-Rules are evaluated in order. The first matching rule determines
-the target. [wiring-first-match] A trailing `S@cmd:*:*` catches
-anything not matched by a previous rule (equivalent to OTHER).
-[wiring-other-fallback]
+**Specificity determines priority**, not declaration order.
+[wiring-first-match] Patterns are compared left-to-right,
+segment by segment. At each position, a literal beats `*`.
+The first difference decides. This gives a total ordering
+with no ambiguity:
+
+```
+Specificity (highest to lowest):
+  cmd:time:now   -- both literal (most specific)
+  cmd:time:*     -- literal handler, wildcard method
+  cmd:*:now      -- wildcard handler, literal method
+  cmd:*:*        -- both wildcard (catch-all)
+```
+
+Declaration order never matters — reordering wiring rules in
+the Astroglot source does not change behavior.
+
+Duplicate patterns are a bork, even with the same target.
+[wiring-no-duplicate]
+
+`S@cmd:*:*` catches anything not matched by a more specific
+rule [wiring-other-fallback]. If no rule matches at all, the
+command sploots.
 
 The space's `defaultTimeout` (from the space definition) applies
 to all wiring rules unless individually overridden.
@@ -1669,7 +1719,7 @@ The target of a wiring rule is one of:
 A down-port is a **round-trip channel pointing outward**. Like
 all round-trip ports, its signal type flips at the boundary.
 
-**From inside** (`@down:foo` is IN-N-OUT): in a `->` chain,
+**From inside** (`@down:foo` is In-N-Out): in a `->` chain,
 the down-port acts as a double-FAF processor — a ship enters
 the in-side, exits the space, and when a response arrives, it
 continues forward as a new ship. No process waits; this is
@@ -1686,7 +1736,7 @@ handler (same as a station in `<->`):
 @up <-> @down:sync     -- up-port requests resolved by down-port
 ```
 
-**From outside** (`S@down:foo` is OUT-N-IN): requests come out
+**From outside** (`S@down:foo` is Out-N-In): requests come out
 of the subspace and need a destination. The parent wires it
 with `<->`:
 
@@ -1704,7 +1754,7 @@ S@cmd:*:*     <-> @down:fwd        -- forward outward
 ```
 
 **Round-trip guarantees** (apply when wired with `<->` — the
-OUT-N-IN side has a waiting process):
+Out-N-In side has a waiting process):
 
   - The process waits. The space remains busy (serial exclusion).
     Pipeline vars and sender are preserved across the wait.
@@ -1728,7 +1778,7 @@ An up-port is the mirror of a down-port: a **round-trip channel
 pointing inward**. Like all round-trip ports, its signal type
 flips at the boundary.
 
-**From outside** (`S@up:handler` is IN-N-OUT): the up-port
+**From outside** (`S@up:handler` is In-N-Out): the up-port
 receives requests and produces responses. It appears as the RHS
 of `<->` or as MID in a `->` chain:
 
@@ -1738,7 +1788,7 @@ S@cmd:time:*  <-> T@up:time       -- command port <-> this up
 stationA -> T@up:handler -> stationB   -- in a -> chain as processor
 ```
 
-**From inside** (`@up` is OUT-N-IN): the up-port is the space's
+**From inside** (`@up` is Out-N-In): the up-port is the space's
 interface for providing a service. It uses `<->` to bind to
 the station that handles requests:
 
@@ -1758,7 +1808,7 @@ the station that handles requests:
      becomes the response.
 
 **First-response semantics.** From inside, the up-port is
-OUT-N-IN — the ghost ship rules apply (see "Ghost ships"
+Out-N-In — the ghost ship rules apply (see "Ghost ships"
 above). The first response counts; extras are ghosts.
 [upport-first-response] Even under serial execution, a request
 may trigger multiple stations (via deferred routing) that each
@@ -1808,22 +1858,25 @@ one ship per stationA output.
 
 **Declared down-port** (subspace requesting external service):
 
-Inside `inner`:
+Inside `inner`, the down-port appears in a FAF chain as an
+In-N-Out processor — the request exits the space, the response
+continues forward:
 ```
 inner
   processor
-    {__ | >@out:need}
-  @in -> processor -> @out
-  @up <-> processor
+    {__ | string uppercase}
+  @in -> processor -> @down:fetch -> @out
 ```
 
-In the parent, wiring inner's down port:
+The parent wires `inner@down:fetch` to sibling T's up-port:
 ```
   inner@down:fetch <-> T@up:handler
 ```
 
-The parent wires `inner@down:fetch` to sibling T's up-port via
-`<->`.
+When a ship enters `inner`, it flows through `processor`, then
+exits via `@down:fetch`. The parent routes the request to T.
+T processes it and responds. The response re-enters `inner`
+and continues to `@out`.
 
 If A is itself inside a space Z, and Z's wire to A has a timeout
 of 10s, then the effective timeout for any round trip through A is
@@ -2136,7 +2189,7 @@ pvar_read  ::= '_' name path?           -- e.g. _foo, _x.bar.#1
 svar_write ::= '>$' name path?          -- e.g. >$count, >$user.name
 svar_read  ::= '$' name path?           -- e.g. $count, $user.name
 
-port_send  ::= '>@' name                -- send to a named space-level port
+port_send  ::= '>@' name                -- send to a named station port
 
 path       ::= ('.' selector)*          -- paths can also be expressed as lists
 selector   ::= name                     -- Key: a literal key: .foo, .12
@@ -3318,7 +3371,7 @@ seg ::= PureCmd(c, args)           -- invoke a pure command
       | WriteSVar(s, path)         -- write pipeline value to space variable
       | ReadPVar(x, path)          -- read a pipeline variable (with optional path)
       | WritePVar(x)               -- bind pipeline value to pipeline variable
-      | PortSend(portname)         -- send pipeline value to a space-level port
+      | PortSend(portname)         -- send pipeline value to a named station port
       | Literal(v)                 -- a literal value
       | Block(daml)                -- a quoted DAML string as a value
 
@@ -3375,25 +3428,26 @@ to continue.
 ```
 Ghost conditions:
   - response arrives after timeout                          [timeout-ghost-drop]
-  - extra response to an OUT-N-IN contract                  [upport-ghost-after-first]
+  - extra response to an Out-N-In contract                  [upport-ghost-after-first]
   - ship enters an unpaired, unstated port                  [flavour-enter-dock]
 ```
 
 ### Error routing
 
 All soft errors (sploots and ghosts) route to the **space's**
-`@out:err` port, not to a per-station port. The `@out:err` port
-is a declared port in the space definition, like any other:
+`@out:err` port. The runtime sends error ships directly to this
+port — no wiring needed on the input side. The port's flavour
+and any downstream wiring on the outside determine what happens
+to the error:
 
 ```
-@out:err                                    -- generic out flavour
-@out:err -> {__ | >@out:log}               -- route errors to a logger
-@out:err -> @out:error_fwd                 -- forward to space boundary
+@out:err                          -- errors exit the space
+@out:err dom-set-text error-box   -- errors update a DOM element
 ```
 
 If no `@out:err` port is declared, errors are silently dropped.
-[error-unwired-dropped] The pipeline continues either way —
-`@out:err` is for observability, not control flow.
+[error-unwired-dropped] `@out:err` is for observability, not
+control flow.
 
 
 ## 13. Security Analysis
@@ -3528,15 +3582,20 @@ doesn't match any rule and there's no OTHER, it sploots.
 
 ### Dialect confinement proof (runtime eval)
 
-Now that runtime code evaluation is consolidated to a single path
-(`process unquote` then `process run`), we can enumerate every
-execution path and verify dialect enforcement is complete.
+**Claim:** Given effective dialect D_eff, no DAML expression
+executing under D_eff can invoke a command outside D_eff.
 
-**Claim:** Given effective dialect D_eff = sender.dialect intersection
-space.dialect, no DAML expression executing under D_eff can invoke
-a command outside D_eff.
+**Why this holds structurally:** The transition relations for
+PureCmd and EffCmd (§11) both check `c ∈ effective_dialect.commands`
+before execution. These are the ONLY rules that invoke commands.
+Every other segment type (ReadSVar, WriteSVar, ReadPVar, WritePVar,
+PortSend, Literal) does not invoke commands. Sub-processes inherit
+the effective dialect (I4). Therefore, by the structure of the
+execution model, dialect confinement holds for any correct
+implementation of the transition relations.
 
-**Proof by path enumeration:**
+**Validation by path enumeration** (verifying the code matches
+the model):
 
 | Path | Where checked | Mechanism |
 |------|---------------|-----------|
