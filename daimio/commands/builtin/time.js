@@ -10,7 +10,7 @@ D.import_models({
         desc: 'Returns the current time as a structured value',
         params: [],
         effect: {
-          portType: 'time-now',
+          portType: 'cmd:time:now',
           defaultValue: false,
         },
         fun: function(prior_starter, process) {

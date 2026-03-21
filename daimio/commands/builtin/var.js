@@ -17,7 +17,7 @@ D.import_models({
           }
         ],
         effect: {
-          portType: 'var-read',
+          portType: 'cmd:var:read-out',
           defaultValue: '',
         },
         fun: function(name, prior_starter, process) {
@@ -43,7 +43,7 @@ D.import_models({
           }
         ],
         effect: {
-          portType: 'var-write',
+          portType: 'cmd:var:write-out',
           defaultValue: '',
         },
         fun: function(name, value, prior_starter, process) {

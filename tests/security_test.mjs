@@ -368,11 +368,13 @@ test('open space works without sender', run('{math add value 1 to 2}') === '3')
 
 // Sender-check port flavour: captures {ship, sender} from exiting ships
 var sender_check_results = []
+var sender_check_notify = null
 
 D.import_port_flavour('sender-check', {
   dir: 'out',
   outside_exit: function(ship, sender) {
     sender_check_results.push({ship: ship, sender: sender})
+    if(sender_check_notify) sender_check_notify()
   }
 })
 
@@ -397,15 +399,20 @@ function sender_test(label, seedlike, sender, sends, expected_count, check) {
     var seed_id = D.make_some_space(seedlike)
     var space = new D.Space(seed_id)
 
-    // Wait for async port routing to complete
-    var timer = setTimeout(function() {
-      check(sender_check_results)
-      resolve()
-    }, 200)
+    sender_check_notify = function() {
+      if(sender_check_results.length >= expected_count) {
+        sender_check_notify = null
+        check(sender_check_results)
+        resolve()
+      }
+    }
 
     sends.forEach(function(send) {
       D.send_value_to_js_port(space, send.port, send.value, send.flavour, sender)
     })
+
+    // In case results arrived synchronously during sends
+    sender_check_notify()
   })
 }
 

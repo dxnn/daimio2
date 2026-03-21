@@ -7,11 +7,11 @@ with a total (crash-free) execution model.
 ## Quick start
 
 ```bash
-node tests/d2_spec_test.mjs     # 346 spec alignment tests
+node tests/d2_spec_test.mjs     # 351 spec alignment tests
 node tests/daimio_test.mjs       # 843 legacy tests (0 known failures)
-node tests/node_code.mjs         # 72 internal tests
+node tests/node_code.mjs         # 83 internal tests
 node tests/security_test.mjs    # 179 security tests (dialect, pollution, regex, senders)
-node tests/space_test.mjs       # 97 space/topology tests (9 known failures)
+node tests/space_test.mjs       # 108 space/topology tests (29 known failures)
 node tests/example_test.mjs     # 104 command example tests
 node tests/perf_test.mjs        # 21 performance regression benchmarks
 ```
@@ -233,13 +233,37 @@ draft at `extra/drafts/draft-round9.md`. All 9 intermediate drafts are in `extra
 **Next step:** Review `extra/drafts/draft-round9.md` against the original D2-spec.md,
 decide which changes to adopt, and replace D2-spec.md with the final version.
 
+## Current work: Spec-aligned implementation (2026-03-20)
+
+Session focused on tactical spec alignment and test infrastructure:
+
+**Completed:**
+1. Per-space PRNG seeding — `D.Space` accepts optional `prng_seed`, creates per-space `rng`
+   via seedrandom. Subspaces share parent's rng. [random-pure] [random-seeded] [random-internal]
+2. `{math random}` wired to `D.Etc.active_space.rng` (deterministic per-space)
+3. Removed station `_error` default port (spec says stations have only `_in` and `_out`)
+4. `D.on_error` silenced — no console.log fallback when no `@err` port
+5. `{var read}` → `{var read-out}`, `{var write}` → `{var write-out}` (spec names)
+6. Test suite speedup: security_test 3.5s→0.08s, space_test 5.1s→0.6s (total ~11s→~3s)
+7. 27 new port/wiring spec tests in space_test.mjs (RED tests guiding future work)
+8. `[spacesyn-subspace-before-ref]` — forward references now rejected in parser
+9. `[cmd-name-encode]` — portType renamed to `cmd:handler:method` convention
+10. Fixed test seedlike indentation bugs for subspace tests
+
+**29 known-failing space tests** — all require unimplemented features:
+- `<->` round-trip wiring syntax
+- Command port demand-creation and wiring rules
+- Up-port mechanics (ghost responses, chained up-ports)
+- Wiring rule targets (station, sibling up-port, parent boundary forwarding)
+- Error routing by name (`@out:err`) vs by flavour
+
 ## Test status
 
 - **d2_spec_test**: 351/351 pass
 - **daimio_test**: 843/843 pass (0 known failures)
-- **node_code**: 72/72 pass
+- **node_code**: 83/83 pass
 - **security_test**: 179/179 pass
-- **space_test**: 88/97 pass (9 known failures for unimplemented spec behaviors)
+- **space_test**: 108/137 pass (29 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
 - **fuzz_test**: seed-dependent; stack overflows from self-referential blocks are the main finding

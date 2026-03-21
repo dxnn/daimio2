@@ -300,11 +300,11 @@ test(
   // [P-handlersub] [handler-substitute]
   pending++
 
-  // Space with a down port for 'time-now' effect type
-  // The @effect port is a down port whose settings.thing is 'time-now'
+  // Space with a down port for 'cmd:time:now' effect type
+  // The @effect port is a down port whose settings.thing is 'cmd:time:now'
   var seed_id = D.make_some_space(
     'outer\n' +
-    '  @effect down time-now\n' +
+    '  @effect down cmd:time:now\n' +
     '  @init from-js start\n' +
     '  @out  to-js\n' +
     '  @init -> {time now | __.stamp} -> @out\n'
@@ -397,7 +397,7 @@ test(
 
   var seed_id = D.make_some_space(
     'outer\n' +
-    '  @effect down time-now\n' +
+    '  @effect down cmd:time:now\n' +
     '  @init from-js start\n' +
     '  @out  to-js\n' +
     '  @init -> {time now | logic if then :got_time else :no_time} -> @out\n'
@@ -476,7 +476,7 @@ test(
 
   var seed_id = D.make_some_space(
     'outer\n' +
-    '  @effect down time-now\n' +
+    '  @effect down cmd:time:now\n' +
     '  @init from-js start\n' +
     '  @out  to-js\n' +
     '  @init -> {time now | logic if then :got_time else :no_time} -> @out\n'
@@ -572,10 +572,10 @@ test(
 
   var space = new D.Space(seed_id)
 
-  // Set wiring rules: route 'time-now' effects to a mock handler
+  // Set wiring rules: route 'cmd:time:now' effects to a mock handler
   space.wiringRules = [
     {
-      pattern: { portType: 'time-now' },
+      pattern: { portType: 'cmd:time:now' },
       handler: function(request, callback) {
         // Mock handler: returns a fixed timestamp
         callback({ year: 2025, month: 6, day: 15, stamp: 777 })
@@ -627,10 +627,10 @@ test(
 
   var space = new D.Space(seed_id)
 
-  // Wiring rules: no specific rule for time-now, but OTHER catches it
+  // Wiring rules: no specific rule for cmd:time:now, but OTHER catches it
   space.wiringRules = [
     {
-      pattern: { portType: 'db-query' },  // doesn't match time-now
+      pattern: { portType: 'db-query' },  // doesn't match cmd:time:now
       handler: function(request, callback) { callback('wrong') }
     },
     {
@@ -776,14 +776,14 @@ test(
   var parent_state = {}
   space.wiringRules = [
     {
-      pattern: { portType: 'var-write' },
+      pattern: { portType: 'cmd:var:write-out' },
       handler: function(request, callback) {
         parent_state[request.params[0]] = request.params[1]
         callback(request.params[1])
       }
     },
     {
-      pattern: { portType: 'var-read' },
+      pattern: { portType: 'cmd:var:read-out' },
       handler: function(request, callback) {
         callback(parent_state[request.params[0]] || '')
       }
@@ -946,7 +946,7 @@ test(
 
   var parent = new D.Space(seed_id)
 
-  // Parent wiring: mock handler for time-now effects
+  // Parent wiring: mock handler for cmd:time:now effects
   parent.wiringRules = [
     {
       pattern: 'OTHER',
@@ -3099,7 +3099,7 @@ test('union: large array does not stack overflow [P-total]',
 // §I2 Handler independence: same program, different handlers, same responses → same behavior
 // =====================================================
 
-// Two spaces run the same DAML. Each has a different handler for time-now
+// Two spaces run the same DAML. Each has a different handler for cmd:time:now
 // that logs requests and replays the same canned response.
 // The request logs and outputs must be identical.
 
@@ -3109,7 +3109,7 @@ test('union: large array does not stack overflow [P-total]',
   var daml = '{time now | __.stamp | math add value 1}'
   var seed_template =
     'NAME\n' +
-    '  @effect down time-now\n' +
+    '  @effect down cmd:time:now\n' +
     '  @init from-js start\n' +
     '  @out  to-js\n' +
     '  @init -> ' + daml + ' -> @out\n'
@@ -3219,7 +3219,7 @@ test('union: large array does not stack overflow [P-total]',
   function make_space(name) {
     var seed_id = D.make_some_space(
       name + '\n' +
-      '  @effect down time-now\n' +
+      '  @effect down cmd:time:now\n' +
       '  @init from-js start\n' +
       '  @out  to-js\n' +
       '  @init -> ' + daml + ' -> @out\n'

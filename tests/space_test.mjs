@@ -62,13 +62,7 @@ var known_failures = new Set([
   'timeout-inherit: timeout inherited from enclosing wire',
   'effectful-unwired-sploot: unwired effectful command sploots in subspace',
   // Spec gaps: behaviors not yet implemented
-  '[spacesyn-subspace-before-ref] correct order works',
-  '[spacesyn-subspace-before-ref] forward ref rejected',
-  '[cmd-name-encode] var read-out uses cmd:var:read-out',
-  '[cmd-name-encode] var write-out uses cmd:var:write-out',
   '[err-match-by-name] error routed to @err',
-  'subspace-own-queue: subspace queues independently from parent',
-  'space-inside-opaque: subspace DAML works identically to outer space',
 ])
 
 // ── Assert port flavour ──────────────────────────────────────────────
@@ -1987,12 +1981,15 @@ space_test(
 // Each subspace gets its own queue, independent of the parent
 space_test(
   'subspace-own-queue: subspace queues independently from parent',
-  `outer
+  `
+  inner
+    @in
+    @out
+    worker {__ | add 10}
+    @in -> worker -> @out
+  outer
     @init from-js
     @out  collect
-    inner
-      worker {__ | add 10}
-      @init -> worker -> @out
     relay {__}
     @init -> inner.in
     inner.out -> relay -> @out`,
@@ -2011,12 +2008,15 @@ space_test(
 // From inside, a space cannot tell if it's outer or subspace
 space_test(
   'space-inside-opaque: subspace DAML works identically to outer space',
-  `outer
+  `
+  inner
+    @in
+    @out
+    worker {__ | math multiply value 2}
+    @in -> worker -> @out
+  outer
     @init from-js
     @out  collect
-    inner
-      worker {__ | math multiply value 2}
-      @init -> worker -> @out
     @init -> inner.in
     inner.out -> @out`,
   [{port: 'init', value: 7}],

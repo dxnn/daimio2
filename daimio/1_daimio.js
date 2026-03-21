@@ -3317,8 +3317,10 @@ D.seedlikes_from_string = function(stringlike, templates) {
             this_seed.stations[name].extraports = this_seed.stations[name].extraports
                                                 ? this_seed.stations[name].extraports.concat([port])
                                                 : [port]
-          } else {
+          } else if(seedlikes[name]) {
             this_seed.subspaces[name] = name       // TODO: foo.in, foo-1.in, foo-2.in, etc
+          } else {
+            D.set_error('Subspace "' + name + '" referenced before definition') // [spacesyn-subspace-before-ref]
           }
           route.push(part)                         // THINK: for a station port this is always 'out' (or down)
         }
