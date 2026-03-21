@@ -143,7 +143,7 @@ state.
 Spaces are fully isolated containers. A subspace cannot read or
 write its parent's space variables directly -- all cross-boundary
 communication goes through ports. This applies at every level of
-nesting: inner spaces can only interact with outer spaces through
+nesting: a subspace can only interact with its parent space through
 explicit port wiring. The parent controls what the child can do
 (via wiring rules and dialect), and the child cannot reach beyond
 what the parent exposes. This is what makes composition safe
@@ -402,9 +402,8 @@ Rationale for decisions that aren't obvious from the spec itself.
 
 ### Why single-response effects?
 The alternative is multi-shot continuations (streaming responses via
-down ports). Single-response was chosen because it aligns with the
-free monad interpretation (single-shot continuations), keeps the
-pipeline model linear, and avoids stream termination logic. If the
+down ports). Single-response was chosen because it keeps the
+pipeline model linear and avoids stream termination logic. If the
 outside wants to send multiple values, it uses an in-port
 (fire-and-forget) -- the down-port response can serve as the trigger
 ("start streaming") while the in-port carries the data.
@@ -783,20 +782,28 @@ A program is a pipeline, serialized as DAML source text. It enters
 an outer space as a ship payload and may be evaluated as a block
 via `process run`, creating a sub-process (P-uniformeval).
 
-Formally, a program is a **free monad over the effect signature,
-composed with a state monad** for space variables:
+A program has two kinds of operations:
 
-  - **State monad**: pure commands and space variable access are
-    synchronous state transitions: `(process, state) -> (process', state')`.
-    This includes block evaluation -- commands like `list map` and
-    `process run` create sub-processes that execute as nested state
-    transitions, sharing space state with the parent process.
-  - **Free monad**: effectful commands cause the process to wait,
-    producing port requests. Each request is an abstract operation
-    with a single-shot continuation. The outer space + wiring
-    interprets these operations by routing requests to handlers.
+  - **Pure operations**: commands and space variable access are
+    synchronous: `(process, state) → (process', state')`. Block
+    evaluation (`list map`, `process run`) creates sub-processes
+    that execute as nested transitions, sharing space state.
+  - **Effectful operations**: the process waits, producing a port
+    request with a single-shot continuation. The parent space +
+    wiring interprets these by routing requests to handlers.
 
-> **Algebraic aside.** A free monad is a tree:
+Under serial execution (section 5), each process has exclusive
+access to space state for its entire lifetime. The state
+transitions are deterministic — no other process can modify
+space state between your segments.
+
+The effect surface is not statically fixed. Block evaluation can
+invoke arbitrary effectful commands at runtime. Daimio handles
+this through demand-created ports and wiring rules (section 6).
+
+> **Algebraic aside.** Formally, a program is a free monad over
+> the effect signature, composed with a state monad for space
+> variables. The free monad is a tree:
 > `Free F a = Pure a | Op(request, k)`. `Pure` means "done,
 > here's the value." `Op` means "I need something from outside,
 > and `k` is what to do with the answer." A handler folds over
@@ -805,22 +812,11 @@ composed with a state monad** for space variables:
 > (free) algebra to the handler algebra — and the initial
 > algebra property guarantees a unique such fold for any handler.
 > This is why handler substitution works: the program (tree) is
-> independent of the handler (algebra).
-
-Under the current serial scheduling model (section 5), each process has
-exclusive access to space state for its entire lifetime. This is
-what makes the composed model clean: the state transitions are
-deterministic, because no other process can modify space state
-between your segments. Without serial execution, state could change
-nondeterministically between async boundaries, and the state monad
-composition would break down.
-
-One caveat: the effect surface is not statically fixed. Block
-evaluation can invoke arbitrary effectful commands determined at
-runtime. This means the free monad is over an open effect
-signature -- the set of possible effects isn't known until the
-block runs. Daimio handles this through demand-created ports and
-wiring rules with OTHER fallbacks (section 6).
+> independent of the handler (algebra). The state monad
+> composition is clean under serial execution; without it, state
+> could change nondeterministically between async boundaries.
+> The effect signature is open (not statically fixed), since
+> block evaluation can invoke arbitrary effectful commands.
 
 Requires: the effective dialect must include whatever commands the
 program invokes, and port wiring must exist (or be
@@ -1047,21 +1043,22 @@ independent of the parent and of its siblings. Sibling subspaces
 can process ships concurrently with each other and with the
 parent (when the parent is waiting on an async effect). [subspace-sibling-concurrent]
 
-Externally, a space is a **reactive automaton** (Mealy machine):
-it accepts ships at in-ports, produces ships at out-ports, and
-maintains internal state between interactions. The parent cannot
-observe or modify the internal state -- only the port interface
-is visible. This external view is coalgebraic:
-`S -> (Input -> Output x S)`.
+Externally, a space accepts ships at in-ports, produces ships
+at out-ports, and maintains internal state between interactions.
+The parent cannot observe or modify the internal state -- only
+the port interface is visible. When a ship docks at a station,
+a process is created to execute the station's block. Transitions
+are effectful programs, executed one at a time per space
+(section 5).
 
-However, the transition function is not a pure function -- it may
-invoke effectful commands, which produce down-port requests that
-cause the process to wait until a response arrives. Internally,
-each station's block is a program (free monad over effects + state
-monad, as described in Programs above). When a ship docks at a
-station, a process is created to execute the station's block.
-The full picture is: a reactive automaton whose transitions are
-effectful programs, executed one at a time per space (section 5).
+> **Algebraic aside.** The external view of a space is
+> coalgebraic: a reactive automaton (Mealy machine) with
+> signature `S → (Input → Output × S)`. However, the
+> transition function is not pure — effectful commands produce
+> port requests that suspend execution. The full picture is: a
+> reactive automaton whose transitions are effectful programs
+> (free monad over effects, as described in Programs above),
+> parameterized by an effect oracle (the handler responses).
 
 **From inside, a space cannot tell whether it is an outer space
 or a subspace.** [space-inside-opaque] The port interface is the same in both cases.
@@ -1353,10 +1350,15 @@ concern.
 ### Future: concurrent scheduling
 
 The serial model could be relaxed to allow multiple processes to
-execute concurrently within a space, interleaving at segment boundaries.
-This is not currently specified. See section 14 for a summary of the
-concurrent scheduling design direction, and `D2-concurrent-scheduling.md`
-for the full aspirational model.
+execute concurrently within a space, interleaving at segment
+boundaries. This is not currently specified and would have
+significant consequences: the clean composition of effectful
+programs with space state (see §4 Programs) depends on serial
+execution guaranteeing exclusive access to state. Under
+concurrent scheduling, space state could change between segments,
+breaking determinism and requiring a different formal model.
+See section 14 for the design direction, and
+`D2-concurrent-scheduling.md` for the full aspirational model.
 
 
 ## 6. Ports, Wiring, and Demand-Creation
@@ -1637,11 +1639,12 @@ OUT-N-IN side has a waiting process):
     sploots (see section 7.2).
 
 > **Algebraic aside.** The continuation `k` in `Op(request, k)`
-> takes exactly one value: `k : Val → Free F a`. The free monad's
-> fold calls `k` once per `Op` node. Calling it zero times leaves
-> the tree stuck; calling it more than once would require a
-> different monad (nondeterminism). Single-response is the only
-> option for the free monad.
+> takes exactly one value: `k : Val → Free F a`. Daimio's
+> interpretation calls `k` once per `Op` node. Calling it zero
+> times leaves the tree stuck. Calling it more than once is
+> possible in other frameworks (nondeterminism, backtracking)
+> but Daimio chooses single-shot — each effect gets one
+> response and the pipeline continues linearly.
 
 ### Up-port mechanics
 
@@ -3736,3 +3739,18 @@ most capability-secure systems in this list. E's vat model
 similar to Daimio's serial execution per space. Miller's 2006
 thesis *Robust Composition* provides the formal foundations
 for object-capability security.
+
+
+## 16. Citations
+
+- Miller, M.S. (2006). *Robust Composition: Towards a Unified
+  Approach to Access Control and Concurrency Control*. PhD Thesis,
+  Johns Hopkins University.
+- Plotkin, G. and Power, J. (2003). "Algebraic Operations and
+  Generic Effects." *Applied Categorical Structures*, 11(1),
+  69-94.
+- Bauer, A. and Pretnar, M. (2015). "Programming with Algebraic
+  Effects and Handlers." *Journal of Logical and Algebraic
+  Methods in Programming*, 84(1), 108-123.
+- Swierstra, W. (2008). "Data Types à la Carte." *Journal of
+  Functional Programming*, 18(4), 423-436.
