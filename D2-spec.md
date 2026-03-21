@@ -900,10 +900,10 @@ you're on. Every port flips when you cross:
 ```
 Direction   Inside (@)     Outside (S@)
 ─────────   ──────────     ────────────
-in          INPUT          OUTPUT
-out         OUTPUT         INPUT
-up          OUT-N-IN       IN-N-OUT
-down        IN-N-OUT       OUT-N-IN
+in          INPUT          OUTPUT          [signal-flip-in]
+out         OUTPUT         INPUT           [signal-flip-out]
+up          OUT-N-IN       IN-N-OUT        [signal-flip-up]
+down        IN-N-OUT       OUT-N-IN        [signal-flip-down]
 cmd         (n/a)          OUT-N-IN
 ```
 
@@ -911,9 +911,10 @@ Four signal types:
   - **INPUT**: one-way source of ships (goes on LHS of `->`)
   - **OUTPUT**: one-way destination for ships (goes on RHS of `->`)
   - **OUT-N-IN**: sends a request, expects a response back
-    (goes on LHS of `<->`)
+    (goes on LHS of `<->` only) [roundtrip-outnin-lhs]
   - **IN-N-OUT**: receives a request, produces a response
     (goes on RHS of `<->`, or MID in a `->` chain)
+    [chain-innout-mid]
 
 The flipping is consistent: `@in:foo` is INPUT (ships come in)
 but `S@in:foo` is OUTPUT (you push ships into the subspace).
@@ -939,6 +940,7 @@ space-level ports (distinct from station ports like
 
 **Error routing:** soft errors route to the port named `out:err`
 (if declared). The runtime matches by name, not by flavour.
+[err-match-by-name]
 
 ```
 flavour   -- the port's behaviour (e.g. "dom-on-click", "in")
@@ -1279,15 +1281,15 @@ processors.
 ```
 
 **`<->`** (round-trip): request goes one way, response comes
-back. Exactly two endpoints. OUT-N-IN on the left, IN-N-OUT
-on the right.
+back [roundtrip-response]. Exactly two endpoints. OUT-N-IN on the
+left, IN-N-OUT on the right.
 
 ```
 S@down:sync   <-> T@up:handler     -- subspace down <-> sibling up
 S@cmd:time:*  <-> T@up:time        -- command port <-> sibling up
-@up:service   <-> stationA         -- parent's up <-> station (from inside)
+@up:service   <-> stationA         -- parent's up <-> station [upport-inside-station]
 S@down:sync   <-> @down:parent-fwd -- forward to parent's parent
-S@cmd:*:*     <-> @cmd             -- command port forwarding
+S@cmd:*:*     <-> @cmd             -- command port forwarding [cmd-forward]
 ```
 
 **Valid positions by signal type:**
@@ -1352,10 +1354,11 @@ use `<->`:
 ### Command ports (`cmd`)
 
 **Transient** — created fresh for each effectful command
-invocation and destroyed when the response (or timeout) arrives.
-`cmd:` ports use `cmd:handler:method` naming (e.g.,
-`cmd:time:now`) and CANNOT appear in space definitions — they
-can only be created by the command itself. [demandport-create]
+invocation and destroyed when the response (or timeout) arrives
+[cmd-transient]. `cmd:` ports use `cmd:handler:method` naming
+(e.g., `cmd:time:now`) [cmd-name-encode] and CANNOT appear in
+space definitions — they can only be created by the command
+itself. [demandport-create]
 
 When a process invokes an effectful command:
 
