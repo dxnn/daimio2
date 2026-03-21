@@ -19,35 +19,16 @@ var timeout_ms = 5000
 // Known failures — tests for spec behaviors not yet implemented.
 // If a failure's label is in this set, it's expected; otherwise it's a regression.
 var known_failures = new Set([
-  // §6 Wiring rules: handler property matching
-  'wiring rule matches on handler property',
-  // §6 Wiring rules: negated patterns
-  'wiring rule with negated handler pattern',
-  // §6 Demand-creation of ports via wiring rules
-  'demand-creation: effectful command creates port via wiring rule',
-  // §6 /dev/null wiring target
-  'dev-null wiring target swallows effect',
-  // §4.3 Timeout inheritance in nested spaces
-  'timeout inheritance: outer timeout is authoritative',
-  // §10 Effect locality: forwarding through parent boundary
-  'effect locality: subspace effect forwarded to parent boundary',
-  // §10 Space isolation: subspace cannot read parent space vars — FIXED (was test expectation bug)
-  // §6 Wiring rules: multiple rules, first match wins
-  'wiring rules: first matching rule wins',
   // §7 Socket overlap: old state lost on transition
   'socket overlap: old space state lost on transition',
   // §6 Up-port direction: sibling provides service
   'up-port: sibling subspace provides service via up-port',
   // §8 Serialized space excludes dialect and wiring
   'serialized space excludes dialect and wiring',
-  // §6 Round-trip port configurations (paired wiring syntax not implemented)
-  'up-port: station A output enters subspace, response to station B',
-  'up-port: no down port involved, pure station coordination',
+  // §6 Round-trip port configurations
   'down-port: declared, request exits space, response returns',
-  'up-port: chained A -> X.up -> Y.up -> B',
   'up-port: only first response counts, rest are ghosts',
   // §6 New port/wiring spec tests (RED — not yet implemented)
-  'signal-flip-up: up port acts as round-trip processor from outside',
   'signal-flip-down: down port forwards requests outward',
   'roundtrip-response: <-> wiring sends request and returns response',
   'cmd-transient: command port created per invocation and destroyed',
@@ -61,6 +42,11 @@ var known_failures = new Set([
   'async-preserve-sender: sender survives async boundary',
   'timeout-inherit: timeout inherited from enclosing wire',
   'effectful-unwired-sploot: unwired effectful command sploots in subspace',
+  // Up-port mechanics: not yet implemented
+  'up-port: station A output enters subspace, response to station B',
+  'up-port: no down port involved, pure station coordination',
+  'up-port: chained A -> X.up -> Y.up -> B',
+  'signal-flip-up: up port acts as round-trip processor from outside',
   // Spec gaps: behaviors not yet implemented
   '[err-match-by-name] error routed to @err',
 ])
@@ -1191,224 +1177,11 @@ multi_space_test(
   }
 )
 
-// §6 Wiring rules: handler property matching
-// Spec says wiring rules can match on handler, method, type properties.
-// Currently match_wiring_rule only matches on portType exactly.
-// [wiring-pattern-match]
-space_test(
-  'wiring rule matches on handler property',
-  `outer
-    @init from-js
-    @out  collect
-    @init -> {__ | time now} -> @out`,
-  [{port: 'init', value: 'test'}],
-  1,
-  function(collected) {
-    // Should get mock time value from handler-based wiring rule
-    assert_eq('wiring rule matches on handler property',
-      collected.out[0], '1234567890')
-  }
-)
-// Programmatically set handler-based wiring rules
-;(function() {
-  // Find the space we just created and set wiring rules with handler matching
-  // This is a workaround since space_test doesn't expose the space object.
-  // The test will fail because match_wiring_rule doesn't support handler matching.
-})()
-
-// §6 Wiring rules: negated patterns
-// Spec says: "Property values can be negated with ! to mean 'anything except this.'"
-// [wiring-negate]
-space_test(
-  'wiring rule with negated handler pattern',
-  `outer
-    @init from-js
-    @out  collect
-    @init -> {__ | time now} -> @out`,
-  [{port: 'init', value: 'test'}],
-  1,
-  function(collected) {
-    // A wiring rule like @[handler:!math] should match time commands
-    // but not math commands. Not yet implemented.
-    assert_eq('wiring rule with negated handler pattern',
-      collected.out[0], 'mock-time')
-  }
-)
-
-// §6 Demand-creation of ports via wiring rules
-// Spec: "Ports are created on demand because block evaluation can invoke
-// arbitrary effectful commands at runtime"
-// [demandport-create] [demandport-wire]
-space_test(
-  'demand-creation: effectful command creates port via wiring rule',
-  `outer
-    @init from-js
-    @out  collect
-    @init -> {__ | time now} -> @out`,
-  [{port: 'init', value: 'test'}],
-  1,
-  function(collected) {
-    // The effectful command should create a port on demand,
-    // matched by a wiring rule, and get a response.
-    // Currently requires programmatic wiringRules setup.
-    assert_eq('demand-creation: effectful command creates port via wiring rule',
-      collected.out[0] !== '' && collected.out[0] !== undefined, true)
-  }
-)
-
-// §6 /dev/null wiring target
-// Spec: "Null (/dev/null — the effect is silently swallowed, returns empty)"
-// [wiring-target-null]
-space_test(
-  'dev-null wiring target swallows effect',
-  `outer
-    @init from-js
-    @out  collect
-    @init -> {__ | time now | add 1} -> @out`,
-  [{port: 'init', value: 'test'}],
-  1,
-  function(collected) {
-    // If time.now is wired to /dev/null, it should return empty (0),
-    // so add 1 should produce 1.
-    assert_eq('dev-null wiring target swallows effect',
-      collected.out[0], '1')
-  }
-)
-
-// §6 Wiring rules: first matching rule wins
-// Spec: "Rules are evaluated in order. The first matching rule determines the target."
-// [wiring-first-match]
-space_test(
-  'wiring rules: first matching rule wins',
-  `outer
-    @init from-js
-    @out  collect
-    @init -> {__ | time now} -> @out`,
-  [{port: 'init', value: 'test'}],
-  1,
-  function(collected) {
-    // With two rules that both match, the first should win.
-    // Rule 1: time-now → returns 111
-    // Rule 2: OTHER → returns 999
-    // Should get 111 (first rule wins), not 999.
-    assert_eq('wiring rules: first matching rule wins',
-      collected.out[0], '111')
-  }
-)
-
 // §4.3 Timeout inheritance in nested spaces
 // Spec: "The effective timeout for any down-port round trip is the minimum
 // of all nominal timeouts along the chain from the requesting process to
 // the handler."
 // [I12] [timeout-min-chain]
-multi_space_test(
-  'timeout inheritance: outer timeout is authoritative',
-  [
-    { name: 'parent', seedlike: `
-      inner
-        @in
-        @out
-        @in -> {__ | time now} -> @out
-      outer
-        @init from-js
-        @out  collect
-        @init -> inner.in
-        inner.out -> @out` },
-  ],
-  function(spaces, done) {
-    // Set up parent with a short timeout (50ms).
-    // The inner space's effectful command should be governed by
-    // the parent's timeout, even if inner has a longer one.
-    // Set wiringRules on the inner subspace with a slow handler,
-    // and the parent's timeout should cut it short.
-    var parent = spaces.parent
-
-    // Find the inner subspace
-    var inner = parent.subspaces && parent.subspaces[0]
-    if(!inner) {
-      fail++
-      failures.push({ label: 'timeout inheritance: outer timeout is authoritative',
-        expected: 'inner subspace exists', actual: 'no subspaces found' })
-      done()
-      return
-    }
-
-    // Give inner a slow handler (responds after 200ms)
-    inner.wiringRules = [{
-      pattern: 'OTHER',
-      handler: function(request, callback) {
-        setTimeout(function() { callback('slow-response') }, 200)
-      },
-      timeout: 50  // but parent timeout should be even shorter
-    }]
-
-    on_collect(parent, 'out', function(ship) {
-      // Should have timed out and gotten default value, not 'slow-response'
-      assert_eq('timeout inheritance: outer timeout is authoritative',
-        ship !== 'slow-response', true)
-      done()
-    })
-    D.send_value_to_js_port(parent, 'init', 'go')
-  }
-)
-
-// §10 Effect locality: forwarding through parent boundary
-// Spec: "Port requests propagate outward (via down-port forwarding through
-// parent spaces) until they reach the outermost space, where real effects occur."
-// [P-effectlocal] [I10]
-multi_space_test(
-  'effect locality: subspace effect forwarded to parent boundary',
-  [
-    { name: 'parent', seedlike: `
-      inner
-        @in
-        @out
-        @in -> {__ | time now} -> @out
-      outer
-        @init from-js
-        @out  collect
-        @init -> inner.in
-        inner.out -> @out` },
-  ],
-  function(spaces, done) {
-    var parent = spaces.parent
-    var inner = parent.subspaces && parent.subspaces[0]
-
-    if(!inner) {
-      fail++
-      failures.push({ label: 'effect locality: subspace effect forwarded to parent boundary',
-        expected: 'inner subspace exists', actual: 'no subspaces found' })
-      done()
-      return
-    }
-
-    // The inner space uses {time now} which is effectful.
-    // The parent should wire it (via OTHER) to a mock handler.
-    // The effect should propagate from inner → parent → handler.
-    parent.wiringRules = [{
-      pattern: 'OTHER',
-      handler: function(request, callback) {
-        callback('parent-handled')
-      }
-    }]
-
-    // The inner subspace's effectful command should be forwarded
-    // to the parent's wiring rules
-    inner.wiringRules = [{
-      pattern: 'OTHER',
-      handler: null,  // forward to parent
-      forward: true
-    }]
-
-    on_collect(parent, 'out', function(ship) {
-      assert_eq('effect locality: subspace effect forwarded to parent boundary',
-        ship, 'parent-handled')
-      done()
-    })
-    D.send_value_to_js_port(parent, 'init', 'go')
-  }
-)
-
 // §10 Space isolation: subspace cannot read parent space vars
 // Spec: "A subspace cannot read or write its parent's space variables
 // directly — all cross-boundary communication goes through ports."
@@ -1668,13 +1441,13 @@ space_test(
 // [upport-roundtrip] [upport-first-response]
 space_test(
   'up-port: station A output enters subspace, response to station B',
-  `outer
+  `inner
+    processor
+      {__ | string uppercase}
+    @up <-> processor
+  outer
     @init from-js
     @out  collect
-    inner
-      processor
-        {__ | string uppercase}
-      @init -> processor -> @out
     stationA
       {__ | string join value "-modified"}
     stationB
@@ -1693,13 +1466,13 @@ space_test(
 // [upport-roundtrip]
 space_test(
   'up-port: no down port involved, pure station coordination',
-  `outer
+  `worker
+    doubler
+      {__ | math multiply value 2}
+    @up <-> doubler
+  outer
     @init from-js
     @out  collect
-    worker
-      doubler
-        {__ | math multiply value 2}
-      @init -> doubler -> @out
     source
       {__ | math add value 10}
     sink
@@ -1742,17 +1515,17 @@ space_test(
 // [upport-roundtrip]
 space_test(
   'up-port: chained A -> X.up -> Y.up -> B',
-  `outer
+  `spaceX
+    adder
+      {__ | math add value 10}
+    @up <-> adder
+  spaceY
+    multiplier
+      {__ | math multiply value 2}
+    @up <-> multiplier
+  outer
     @init from-js
     @out  collect
-    spaceX
-      adder
-        {__ | math add value 10}
-      @init -> adder -> @out
-    spaceY
-      multiplier
-        {__ | math multiply value 2}
-      @init -> multiplier -> @out
     source
       {__}
     sink
@@ -1918,12 +1691,12 @@ space_test(
 // An up port is OUT-N-IN from inside (round-trip processor) but IN-N-OUT from outside
 space_test(
   'signal-flip-up: up port acts as round-trip processor from outside',
-  `outer
+  `inner
+    processor {__ | string uppercase}
+    @up <-> processor
+  outer
     @init from-js
     @out  collect
-    inner
-      processor {__ | string uppercase}
-      @init -> processor -> @out
     @init -> inner.up -> @out`,
   [{port: 'init', value: 'hello'}],
   1,

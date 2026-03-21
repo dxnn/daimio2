@@ -2392,31 +2392,6 @@ D.Space = function(seed_id, parent, prng_seed) {
     }
   }
 
-// NOTE: DON'T DELETE THIS YET -- decide what you're doing with dialects first.
-//  if(this.parent) {
-//    var parent_dialect = this.parent.dialect ? this.parent.dialect : D.DIALECTS.top
-//    this.dialect = new D.Dialect(parent_dialect.commands, parent_dialect.aliases)
-//    // if(seed.dialect.commands && seed.dialect.commands.minus) {
-//    //   var minus = seed.dialect.commands.minus
-//    if(seed.dialect.commands && seed.dialect.minus) {
-//      var minus = seed.dialect.minus
-//      for(var key in minus) {
-//        var value = minus[key]
-//
-//        if(value === true) {
-//          delete this.dialect.commands[key]
-//          continue
-//        }
-//
-//        value.forEach(function(method) {
-//          try {
-//            delete this.dialect.commands[key].methods[method]
-//          } catch(e) {}
-//        })
-//      }
-//    }
-//  }
-
   // add all the ports at once
   this.ports = seed.ports.map(function(port, index) {return new D.Port(port, self)})
 
@@ -2483,54 +2458,6 @@ D.Space.prototype.set_state = function(param, value) {
 
 D.Space.prototype.get_state = function(param) {
   return (typeof this.state[param] != 'undefined') ? this.state[param] : this.seed.state[param]
-}
-
-D.Space.prototype.resolvePort = function(portType) {
-  // Find an existing port matching the portType
-  // Check flavour first, then settings.thing (used by down ports declared as @name down type)
-  for (var i = 0, l = this.ports.length; i < l; i++) {
-    if (this.ports[i].flavour === portType)
-      return this.ports[i]
-  }
-  for (var i = 0, l = this.ports.length; i < l; i++) {
-    if (this.ports[i].settings && this.ports[i].settings.thing === portType)
-      return this.ports[i]
-  }
-
-  // Demand-create: check wiring rules for a matching handler
-  if (this.wiringRules) {
-    var rule = D.match_wiring_rule(this.wiringRules, portType)
-    if (rule && rule.handler) {
-      // Create a synthetic down port that routes to the handler
-      var handler = rule.handler
-      return {
-        outs: [],
-        pair: true,                                        // truthy so m_command.js knows it's wired
-        sync: function(ship, callback) {
-          D.setImmediate(function() {
-            handler(ship, callback)
-          })
-          return NaN
-        }
-      }
-    }
-  }
-
-  return null
-}
-
-D.match_wiring_rule = function(rules, portType) {
-  var other = null
-  for (var i = 0, l = rules.length; i < l; i++) {
-    var rule = rules[i]
-    if (rule.pattern === 'OTHER') {
-      other = rule
-      continue
-    }
-    if (rule.pattern && rule.pattern.portType === portType)
-      return rule
-  }
-  return other                                             // fallback to OTHER if no specific match
 }
 
 D.Space.prototype.loadSubspace = function(daml) {
@@ -3292,6 +3219,25 @@ D.seedlikes_from_string = function(stringlike, templates) {
     continuation = ''
     action = ''
 
+    if(/<->/.test(line)) {
+      // Round-trip wiring: @port <-> station
+      // Creates two routes: port → station._in, station._out → port
+      // Auto-declares the port if not already declared (spec §3)
+      var parts = line.split('<->')
+      if(parts.length == 2) {
+        var lhs = parts[0].trim()
+        var rhs = parts[1].trim()
+        if(lhs[0] == '@') lhs = lhs.slice(1)
+        if(!this_seed.ports[lhs]) {
+          var dir = lhs.split(':')[0]                    // 'up' from 'up:foo', or 'up' from 'up'
+          this_seed.ports[lhs] = [dir]
+        }
+        this_seed.routes.push([lhs, rhs + '.in'])
+        this_seed.routes.push([rhs + '.out', lhs])
+      }
+      return
+    }
+
     if(/->/.test(line)) {                          // THINK: should this use continuations also?
 
       var route = []
@@ -3322,7 +3268,18 @@ D.seedlikes_from_string = function(stringlike, templates) {
           } else {
             D.set_error('Subspace "' + name + '" referenced before definition') // [spacesyn-subspace-before-ref]
           }
-          route.push(part)                         // THINK: for a station port this is always 'out' (or down)
+          if(route.length) {
+            route.push(part)                     // destination (entering subspace)
+            if(!route[0] || !route[1]) {
+              D.set_error('Port not found in line: ' + line)
+              route = []
+            } else {
+              this_seed.routes.push(route)
+              route = [part]                     // also becomes source for next route
+            }
+          } else {
+            route.push(part)                     // source (exiting subspace)
+          }
         }
         else {                                     // station dir matters
           if(!route.length)
