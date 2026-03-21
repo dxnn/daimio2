@@ -150,19 +150,32 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
 } else {
   const { createInterface } = await import('readline')
 
-  function completer(line) {
-    // Find the last unclosed { to get the current command context
-    var depth = 0, start = -1
-    for (var i = line.length - 1; i >= 0; i--) {
-      if (line[i] === '}') depth++
-      else if (line[i] === '{') { if (depth) depth--; else { start = i; break } }
+  // String-aware brace/pipe parsing helpers
+  function find_unclosed_brace(text) {
+    var d = 0, inStr = false
+    for (var i = text.length - 1; i >= 0; i--) {
+      if (text[i] === '"') inStr = !inStr
+      if (inStr) continue
+      if (text[i] === '}') d++
+      else if (text[i] === '{') { if (d) d--; else return i }
     }
+    return -1
+  }
+
+  function last_pipe_segment(str) {
+    var inStr = false, last = -1
+    for (var i = 0; i < str.length; i++) {
+      if (str[i] === '"') inStr = !inStr
+      else if (!inStr && str[i] === '|') last = i
+    }
+    return str.slice(last + 1)
+  }
+
+  function completer(line) {
+    var start = find_unclosed_brace(line)
     if (start === -1) return [[], line]
 
-    var inside = line.slice(start + 1)
-    // Strip leading pipes to get current segment
-    var raw_seg = inside.split(/\|/).pop()
-    var seg = raw_seg.trimStart()
+    var seg = last_pipe_segment(line.slice(start + 1)).trimStart()
     var words = seg.split(/\s+/).filter(Boolean)
 
     var handlers = Object.keys(D.Commands)
@@ -223,32 +236,35 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
     this.cursor += c.length
     this._refreshLine()
   }
-  // Temporary content below the prompt (info, completions).
-  // Strategy: origRefreshLine runs first (redraws prompt, may clear below),
-  // then we write pendingBelow lines AFTER and move cursor back up.
-  // On the next refresh (user action), \x1b[0J clears old content first.
-  var pendingBelow = null   // array of pre-formatted strings to show below prompt
-  var hasBelow = false      // true if there are info/completion lines on screen
+  // Content below the prompt: completions + desc + help, all shown together.
+  // On each refresh: clear old content, redraw prompt, build and show new content.
+  var hasBelow = false
   var origRefreshLine = rl._refreshLine.bind(rl)
+
   rl._refreshLine = function() {
     if (hasBelow) this.output.write('\x1b[0J')
     hasBelow = false
     origRefreshLine()
-    if (pendingBelow) {
-      var lines = pendingBelow
-      pendingBelow = null
-      this.output.write('\x1b7')  // save cursor position (row + column)
+
+    var below = build_below(this.line.slice(0, this.cursor))
+    if (below && below.length > 0) {
+      var cols = this.columns || 80
+      var rows = 1
       this.output.write('\r\n')
-      for (var i = 0; i < lines.length; i++)
-        this.output.write(lines[i] + '\r\n')
-      this.output.write('\x1b8')  // restore cursor position
+      for (var i = 0; i < below.length; i++) {
+        this.output.write(below[i] + '\r\n')
+        var vlen = below[i].replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').length
+        rows += Math.max(1, Math.ceil(vlen / cols))
+      }
+      this.output.write('\x1b[' + rows + 'A')
+      this.output.write('\x1b[' + ((this._prompt || '').length + this.cursor + 1) + 'G')
       hasBelow = true
     }
   }
-  // Tab completion: first tab shows all choices + context info, second tab inserts first choice
+
+  // Colors and helpers
   var C_DESC = '\x1b[38;5;250m'
   var C_HELP = '\x1b[38;5;243m'
-  var prevTabLine = null, prevTabHits = null, prevTabPartial = null
 
   function format_lines(lines, color) {
     if (!lines || !lines.length) return []
@@ -261,13 +277,9 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
   function to_help_array(h) { return h ? (Array.isArray(h) ? h : [h]) : null }
 
   function tab_context(line) {
-    var d = 0, start = -1
-    for (var i = line.length - 1; i >= 0; i--) {
-      if (line[i] === '}') d++
-      else if (line[i] === '{') { if (d) d--; else { start = i; break } }
-    }
+    var start = find_unclosed_brace(line)
     if (start === -1) return { phase: 'handler' }
-    var seg = line.slice(start + 1).split(/\|/).pop().trimStart()
+    var seg = last_pipe_segment(line.slice(start + 1)).trimStart()
     var words = seg.split(/\s+/).filter(Boolean)
     var ends = seg.endsWith(' ')
     var h = words[0], cmd = h && D.Commands[h]
@@ -279,85 +291,74 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
     return { phase: 'param', cmd: cmd, method: method }
   }
 
-  function completion_info(ctx, word) {
-    if (ctx.phase === 'handler') {
-      var c = D.Commands[word]
-      if (!c) return null
-      return { desc: c.desc || null, help: to_help_array(c.help) }
-    }
-    if (ctx.phase === 'method' && ctx.cmd) {
-      var m = ctx.cmd.methods && ctx.cmd.methods[word]
-      if (!m) return null
-      return { desc: m.desc || null, help: to_help_array(m.help) }
-    }
-    if (ctx.phase === 'param' && ctx.method) {
-      for (var i = 0; i < ctx.method.params.length; i++) {
-        if (ctx.method.params[i].key === word)
-          return { desc: ctx.method.params[i].desc || null, help: null }
+  // Build everything shown below the prompt: completions, then desc, then help
+  function build_below(text) {
+    // Must be inside an unclosed brace with a non-empty segment
+    var start = find_unclosed_brace(text)
+    if (start === -1) return null
+    var seg = last_pipe_segment(text.slice(start + 1)).trimStart()
+    if (seg === '') return null
+
+    var ctx = tab_context(text)
+    var lines = []
+
+    // 1. Completion columns (on top)
+    var result = completer(text)
+    var hits = result[0], partial = result[1]
+    if (hits.length > 0 && !(hits.length === 1 && hits[0].trimEnd() === partial)) {
+      var maxLen = Math.max(...hits.map(function(h) { return h.length })) + 2
+      var termCols = rl.columns || 80
+      var colCount = Math.max(1, Math.floor(termCols / maxLen))
+      for (var i = 0; i < hits.length; i += colCount) {
+        var row = ''
+        for (var j = i; j < Math.min(i + colCount, hits.length); j++)
+          row += hits[j].padEnd(maxLen)
+        lines.push(row.trimEnd())
       }
     }
-    return null
+
+    // 2-3. Desc and help (context-appropriate)
+    var words = seg.split(/\s+/).filter(Boolean)
+    var ends = seg.endsWith(' ')
+
+    if (ctx.phase === 'param' && ctx.method) {
+      // If last word before space is a param name, show that param's desc
+      var paramDesc = null
+      if (ends && words.length > 2) {
+        var lastWord = words[words.length - 1]
+        if (ctx.method.params) {
+          for (var k = 0; k < ctx.method.params.length; k++) {
+            if (ctx.method.params[k].key === lastWord) {
+              paramDesc = ctx.method.params[k].desc
+              break
+            }
+          }
+        }
+      }
+      if (paramDesc) {
+        lines = lines.concat(format_lines([paramDesc], C_DESC))
+      } else {
+        if (ctx.method.desc) lines = lines.concat(format_lines([ctx.method.desc], C_DESC))
+        if (ctx.method.help) lines = lines.concat(format_lines(to_help_array(ctx.method.help), C_HELP))
+      }
+    } else if (ctx.phase === 'method' && ctx.cmd) {
+      if (ctx.cmd.desc) lines = lines.concat(format_lines([ctx.cmd.desc], C_DESC))
+      if (ctx.cmd.help) lines = lines.concat(format_lines(to_help_array(ctx.cmd.help), C_HELP))
+    }
+
+    return lines.length > 0 ? lines : null
   }
 
-  function show_desc_help(info) {
-    if (!info || (!info.desc && !info.help)) return
-    var lines = []
-    if (info.desc) lines = lines.concat(format_lines([info.desc], C_DESC))
-    if (info.help) lines = lines.concat(format_lines(info.help, C_HELP))
-    pendingBelow = lines
-    rl._refreshLine()
-  }
-
+  // Tab: insert first match
   rl._tabComplete = function() {
     var line = this.line.slice(0, this.cursor)
     var result = completer(line)
     var hits = result[0], partial = result[1]
     if (!hits.length) return
 
-    var ctx = tab_context(line)
-
-    if (hits.length === 1) {
-      this._insertString(hits[0].slice(partial.length))
-      show_desc_help(completion_info(ctx, hits[0].trimEnd()))
-      prevTabLine = null
-      return
-    }
-
-    if (prevTabLine === line && prevTabHits) {
-      // Second tab: insert first choice
-      this._insertString(prevTabHits[0].slice(prevTabPartial.length) + ' ')
-      show_desc_help(completion_info(ctx, prevTabHits[0].trimEnd()))
-      prevTabLine = null
-      prevTabHits = null
-      return
-    }
-
-    // First tab: show context info + all choices
-    prevTabLine = line
-    prevTabHits = hits
-    prevTabPartial = partial
-    var lines = []
-
-    // Context header
-    if (ctx.phase === 'method' && ctx.cmd) {
-      if (ctx.cmd.desc) lines = lines.concat(format_lines([ctx.cmd.desc], C_DESC))
-      if (ctx.cmd.help) lines = lines.concat(format_lines(to_help_array(ctx.cmd.help), C_HELP))
-    } else if (ctx.phase === 'param' && ctx.method) {
-      if (ctx.method.desc) lines = lines.concat(format_lines([ctx.method.desc], C_DESC))
-      if (ctx.method.help) lines = lines.concat(format_lines(to_help_array(ctx.method.help), C_HELP))
-    }
-
-    var maxLen = Math.max(...hits.map(h => h.length)) + 2
-    var cols = Math.max(1, Math.floor((this.columns || 80) / maxLen))
-    for (var i = 0; i < hits.length; i += cols) {
-      var row = ''
-      for (var j = i; j < Math.min(i + cols, hits.length); j++) {
-        row += hits[j].padEnd(maxLen)
-      }
-      lines.push(row.trimEnd())
-    }
-    pendingBelow = lines
-    this._refreshLine()
+    var completion = hits[0].slice(partial.length)
+    if (!completion.endsWith(' ')) completion += ' '
+    this._insertString(completion)
   }
   let buf = ''
 
