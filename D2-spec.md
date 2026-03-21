@@ -425,8 +425,8 @@ clear where isolation boundaries are being crossed. Syntactic sugar
 may be added later, but the underlying mechanism will always be a
 port round trip.
 
-### Why space syntax as the serialization format?
-The alternative is a separate binary format or manifest. Space syntax
+### Why Astroglot as the serialization format?
+The alternative is a separate binary format or manifest. Astroglot
 was chosen because it already supports station definitions (with DAML
 blocks inside), subspace definitions, and space variable declarations
 with values. No new format needed -- a serialized space is just
@@ -494,61 +494,123 @@ offline program shipping.
 
 # Part II: Spaces -- The Outer Topology
 
-## 3. Space Syntax
+## 3. Astroglot (Space Syntax)
 
-Space syntax is the textual format for defining a space's topology.
-It is distinct from DAML (the block language, section 9) -- space syntax
-describes structure (stations, ports, wiring, subspaces), while
-DAML describes behavior (pipelines, commands, values). Station
-definitions contain DAML inside them, but the surrounding topology
-is space syntax.
+**Astroglot** is the language for defining a space's topology.
+It is distinct from DAML (the block language, section 9) --
+Astroglot describes structure (stations, ports, wiring,
+subspaces), while DAML describes behavior (pipelines, commands,
+values). Station definitions contain DAML inside them, but the
+surrounding topology is Astroglot.
 
 ### Grammar
 
-Space syntax is **indentation-based**. A top-level name at column 0
-declares a space. [spacesyn-toplevel] Indented lines below it define the space's contents.
+Astroglot is **indentation-based** with exactly two levels:
+
+  - **Level 0** (column 0): space names. Each name starts a new
+    space definition. [spacesyn-toplevel]
+  - **Level 1** (indented): properties of the current space —
+    ports, stations, wires, state.
+  - **Deeper**: continuation of the previous property (e.g.,
+    multiline station DAML), joined with spaces.
+
+Blank lines are ignored. Comment lines start with `/`.
 
 ```
-space_def  ::= name NL (indent line NL)*     -- NL = newline
+file         ::= (space_def | comment | blank)*
 
-line       ::= port_decl
-             | station_decl
-             | route_decl
-             | state_decl
-             | dialect_decl
+space_def    ::= name NL (indent property NL)*
+                                        -- name at column 0 declares a space
 
-port_decl  ::= '@' dir ':' name (flavour param*)?  -- @in:click dom-on-click btn1 [spacesyn-port]
-                                                   -- flavour defaults to generic for direction
-                                                   -- cmd: ports cannot be declared here
-dir        ::= 'in' | 'out' | 'up' | 'down'
-station_decl ::= name NL indent daml       -- station name, then DAML block [spacesyn-station]
-wire_decl  ::= faf | contract | cmd_wire
-faf        ::= endpoint ('->' endpoint)+            -- FAF: fire-and-forget [spacesyn-route]
-contract   ::= endpoint '<->' endpoint              -- contract: one out, one back
-cmd_wire   ::= subspace '@cmd:' pattern '<->' endpoint   -- command port contract
-             | subspace '@cmd:' pattern '<->' '@cmd'     -- command port forwarding
-state_decl ::= '$' name json_value?         -- $count 0, $items [] [spacesyn-state]
-dialect_decl ::= '{' json_object '}'        -- inline JSON restrictions
+property     ::= port_decl
+               | station_decl
+               | wire_decl
+               | state_decl
 
-endpoint   ::= '@' dir (':' name)?         -- space-level port (@in, @in:click, @out:display)
-             | name                        -- station (implicit _in/_out)
-             | name '@' name               -- station named port (splitter@left)
-             | name '@' dir (':' name)?    -- subspace port (sub@up, sub@up:adder)
-             | '{' daml '}'                -- anonymous inline station
+-- Ports -------------------------------------------------------
+
+port_decl    ::= '@' dir (':' name)? (WS flavour (WS param)*)?
+                                        -- @in:click dom-on-click btn1 [spacesyn-port]
+                                        -- flavour defaults to generic for direction
+                                        -- cmd: ports cannot be declared here
+dir          ::= 'in' | 'out' | 'up' | 'down'
+
+-- Stations ----------------------------------------------------
+
+station_decl ::= name WS daml           -- single-line: processor {__ | add 1}
+               | name NL (indent+ daml NL)+
+                                        -- multiline: name, then indented DAML lines
+                                        -- continuation lines joined with spaces
+                                        -- ends when next property-level line appears
+                                        -- [spacesyn-station]
+
+-- Wiring ------------------------------------------------------
+
+wire_decl    ::= faf | contract | cmd_wire
+faf          ::= endpoint ('->' endpoint)+
+                                        -- FAF: fire-and-forget [spacesyn-route]
+contract     ::= endpoint '<->' endpoint
+                                        -- contract: one out, one back
+cmd_wire     ::= subspace '@cmd:' glob '<->' endpoint
+               | subspace '@cmd:' glob '<->' '@cmd'
+                                        -- command port wiring/forwarding
+glob         ::= (name | '*') (':' (name | '*'))*
+                                        -- e.g. time:*, *:*, var:read-out
+
+-- State -------------------------------------------------------
+
+state_decl   ::= '$' name (WS json_value)?
+                                        -- $count 0, $items [1,2,3] [spacesyn-state]
+                                        -- value is JSON; if omitted or invalid,
+                                        -- variable is not set
+
+-- Endpoints ---------------------------------------------------
+
+endpoint     ::= '@' dir (':' name)?    -- space-level port (@in, @out:display)
+               | name                   -- station (implicit _in/_out)
+               | name '@' name          -- station named port (splitter@left)
+               | name '@' dir (':' name)?
+                                        -- subspace port (sub@up, sub@up:adder)
+               | '{' daml '}'           -- anonymous inline station
+
+-- Lexical -----------------------------------------------------
+
+name         ::= [a-z][a-z0-9_-]*      -- lowercase, hyphens, underscores
+WS           ::= ' '+                   -- spaces only (no tabs)
+NL           ::= '\n'
+indent       ::= ' '+                   -- deeper than parent level
+comment      ::= '/' .*                 -- rest of line ignored
+blank        ::= WS? NL                 -- ignored
 ```
+
+**Subspaces** are referenced in wire endpoints by name. A
+subspace must be defined earlier in the file than the space that
+references it [spacesyn-subspace-before-ref]. The space named
+`outer` (if present) is the root; otherwise the last space
+defined.
+
+**Implicit port creation.** If a port endpoint (`@dir:name` or
+bare `@dir`) appears in wiring but was not explicitly declared,
+it is created with the default flavour for its direction.
+[port-implicit-create]
+
+**Station DAML restrictions.** A continuation line containing
+`->` is treated as a wire, not as station DAML. Avoid `->` in
+station blocks.
 
 Every station automatically gets two implicit ports: `_in` and
 `_out`. [spacesyn-implicit-ports] When a station name appears in a route
 without an `@port` suffix, it expands to `_in` (as a destination)
 or `_out` (as a source). [spacesyn-route-expand]
 
-**Implicit port creation.** If a port is referenced in wiring
-but not explicitly declared, it is created with the default
-flavour for its direction [port-implicit-create]. This applies
-to all four declarable directions (`in`, `out`, `up`, `down`)
-and to both bare (`@in`) and named (`@in:foo`) forms. `cmd:`
-ports are never created this way — they are demand-created by
-commands only.
+Bare ports (`@in`) and named ports (`@in:foo`) are distinct —
+they can coexist on the same space without ambiguity.
+[port-bare-named-coexist] Explicit declarations are only
+needed for non-default flavours (e.g.,
+`@in:click dom-on-click button1`). [port-default-flavour]
+Subspace ports are NOT created implicitly by the parent — they
+must be declared (or implicitly created by wiring) inside the
+subspace's own definition. [port-no-parent-implicit]
 
 ```
 inner
@@ -557,30 +619,10 @@ inner
   @in -> processor -> @out          -- @in and @out created implicitly
 ```
 
-This is equivalent to explicitly declaring them:
-```
-inner
-  @in
-  @out
-  processor
-    {__ | string uppercase}
-  @in -> processor -> @out
-```
-
-Bare ports (`@in`) and named ports (`@in:foo`) are distinct —
-they can coexist on the same space without ambiguity
-[port-bare-named-coexist]. Explicit declarations are only
-needed for non-default flavours (e.g.,
-`@in:click dom-on-click button1`) [port-default-flavour].
-Subspace ports are NOT created implicitly by the parent — they
-must be declared (or implicitly created by wiring) inside the
-subspace's own definition [port-no-parent-implicit].
-
 Anonymous inline stations can appear in routes as `{DAML}`: [spacesyn-anon-station]
 ```
 @in -> {__ | add 1} -> {__ | times 2} -> @out
 ```
-These create unnamed stations with the given DAML block.
 
 ### Examples
 
@@ -631,13 +673,13 @@ each station can access.
 
 ### Static declarations
 
-A space definition is a static declaration -- it describes topology,
+An Astroglot definition is a static declaration -- it describes topology,
 not behavior. Behavior lives in the station blocks (section 9) and in the
 wiring rules that determine how effects are routed (section 6).
 
 ### Space definition errors
 
-A malformed space definition is a **hard error** [spacedef-hard-error]
+A malformed Astroglot definition is a **hard error** [spacedef-hard-error]
 — the space fails to compile and no spaceseed is created. This is different
 from DAML pipeline errors, which just sploot. The space
 definition is static topology; there is no pipeline to continue
@@ -661,7 +703,7 @@ produced.
 
 ### Spaceseeds
 
-A **spaceseed** is the compiled result of parsing a space definition.
+A **spaceseed** is the compiled result of parsing Astroglot.
 It describes the static topology: stations, ports, routes, subspaces,
 and initial state. A spaceseed is inert -- it does not process ships
 or hold live state. To run, it must be instantiated into a space
@@ -896,7 +938,7 @@ the receiving environment:
 - **Program** -- a pipeline as DAML source text. Needs dialect +
   state + ports from the host (see Programs above). The program
   is "parasitic" -- it borrows everything.
-- **Space** -- a serialized space definition (space syntax). Needs
+- **Space** -- a serialized space definition (Astroglot). Needs
   port wiring + dialect from the parent (see Spaces below). The
   space is "self-reliant" -- it brings its own programs and state.
 
@@ -1106,7 +1148,7 @@ A space is "self-reliant" -- it brings its own programs and state.
 But it is not self-sufficient: without wiring, its effects go
 nowhere.
 
-Spaces can also be serialized as space syntax and loaded into
+Spaces can also be serialized as Astroglot and loaded into
 sockets at runtime. Socketed spaces have additional properties
 around loading, transitions, and state ephemerality -- see section 8.
 
@@ -1905,9 +1947,9 @@ This is synchronous -- the process does not wait.
 
 ### Serialized space format
 
-A serialized space is **space syntax** (section 3) -- the textual format
-for defining topology, with DAML inside station blocks. Space
-syntax supports:
+A serialized space is **Astroglot** (section 3) -- the textual
+format for defining topology, with DAML inside station blocks.
+Astroglot supports:
   - Station definitions with their DAML blocks
   - Subspace definitions (including socketed subspaces)
   - Space variable declarations with current values
