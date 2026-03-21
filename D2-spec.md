@@ -257,6 +257,14 @@ were secretly doing.
 The partition is checkable at command registration time: every
 command definition must have exactly one of `fun` or `effect`.
 
+> **Algebraic aside.** In the free monad tree, `Pure` nodes are
+> computation (transforming values). `Op` nodes are effect
+> requests (asking the outside for something). A command that
+> does both would be a node that computes AND requests — but
+> the tree structure separates these: computation happens in
+> the continuations between `Op` nodes, never inside them. The
+> effect partition is forced by the tree shape.
+
 ### Handler parametricity [P-handlersub]
 Given the same sequence of responses from effect handlers, a DAML
 program produces the same effect requests regardless of which
@@ -523,10 +531,10 @@ cmd_wire   ::= subspace '@cmd:' pattern '<->' endpoint   -- command port wiring
 state_decl ::= '$' name json_value?         -- $count 0, $items [] [spacesyn-state]
 dialect_decl ::= '{' json_object '}'        -- inline JSON restrictions
 
-endpoint   ::= '@' dir ':' name            -- space-level port (@in:click, @out:display)
+endpoint   ::= '@' dir (':' name)?         -- space-level port (@in, @in:click, @out:display)
              | name                        -- station (implicit _in/_out)
              | name '@' name               -- station named port (splitter@left)
-             | name '@' dir ':' name       -- subspace port (sub@up:adder, sub@in:data)
+             | name '@' dir (':' name)?    -- subspace port (sub@up, sub@up:adder)
              | '{' daml '}'                -- anonymous inline station
 ```
 
@@ -535,9 +543,39 @@ Every station automatically gets two implicit ports: `_in` and
 without an `@port` suffix, it expands to `_in` (as a destination)
 or `_out` (as a source). [spacesyn-route-expand]
 
+**Implicit port creation.** If a port is referenced in wiring
+but not explicitly declared, it is created with the default
+flavour for its direction. This applies to all four declarable
+directions (`in`, `out`, `up`, `down`) and to both bare (`@in`)
+and named (`@in:foo`) forms. `cmd:` ports are never created
+this way — they are demand-created by commands only.
+
+```
+inner
+  processor
+    {__ | string uppercase}
+  @in -> processor -> @out          -- @in and @out created implicitly
+```
+
+This is equivalent to explicitly declaring them:
+```
+inner
+  @in
+  @out
+  processor
+    {__ | string uppercase}
+  @in -> processor -> @out
+```
+
+Explicit declarations are only needed for non-default flavours
+(e.g., `@in:click dom-on-click button1`). Subspace ports are
+NOT created implicitly by the parent — they must be declared
+(or implicitly created by wiring) inside the subspace's own
+definition.
+
 Anonymous inline stations can appear in routes as `{DAML}`: [spacesyn-anon-station]
 ```
-@in:init -> {__ | add 1} -> {__ | times 2} -> @out:result
+@in -> {__ | add 1} -> {__ | times 2} -> @out
 ```
 These create unnamed stations with the given DAML block.
 
@@ -556,18 +594,16 @@ Subspaces must be defined before they are referenced. In the
 example below, `inner` is defined first, then `outer` references
 it in its routes [spacesyn-subspace-before-ref].
 
-A space with subspaces:
+A space with subspaces (inner's ports created implicitly by wiring):
 ```
 inner
-  @in:data
-  @out:result
-  @in:data -> {__ | times 2} -> @out:result
+  @in -> {__ | times 2} -> @out
 
 outer
   @in:init from-js 20
   @out:result  assert  42
-  @in:init -> inner@in:data
-  inner@out:result -> @out:result
+  @in:init -> inner@in
+  inner@out -> @out:result
 ```
 
 A station with named out-ports:
@@ -731,6 +767,17 @@ composed with a state monad** for space variables:
     producing port requests. Each request is an abstract operation
     with a single-shot continuation. The outer space + wiring
     interprets these operations by routing requests to handlers.
+
+> **Algebraic aside.** A free monad is a tree:
+> `Free F a = Pure a | Op(request, k)`. `Pure` means "done,
+> here's the value." `Op` means "I need something from outside,
+> and `k` is what to do with the answer." A handler folds over
+> the tree: at each `Op`, it handles the request and feeds the
+> result to `k`. The fold is a catamorphism from the initial
+> (free) algebra to the handler algebra — and the initial
+> algebra property guarantees a unique such fold for any handler.
+> This is why handler substitution works: the program (tree) is
+> independent of the handler (algebra).
 
 Under the current serial scheduling model (section 5), each process has
 exclusive access to space state for its entire lifetime. This is
@@ -994,6 +1041,15 @@ of testability: any space can be tested by nesting it inside a
 parent that provides mock handlers, and the space cannot tell the
 difference.
 
+> **Algebraic aside.** Spaces compose because interpretation
+> composes. When space B is inside space A, A provides an algebra
+> for B's effects (via wiring). But A's algebra may itself produce
+> effects (forwarding to A's own down-ports), creating `Op` nodes
+> in A's free monad tree. A's parent then provides the algebra for
+> those. Each space boundary is one layer of interpretation: the
+> child produces a tree, the parent folds it — and the fold may
+> produce a new tree for the grandparent to fold.
+
 A subspace depends on the parent for:
   - **Port wiring**: the parent's wiring rules determine how
     the space's down-port requests are handled (section 6)
@@ -1140,6 +1196,13 @@ live space. To change behavior at runtime, use a socket transition
 (§8) to replace the subspace, or have the App route ships to a
 different outer space entirely.
 
+> **Algebraic aside.** The fold of a free monad uses a single
+> algebra for the entire tree. Changing the algebra mid-fold
+> means the tree is partially interpreted by one handler and
+> partially by another — the compositionality and
+> substitutability guarantees no longer hold. You can only
+> change algebras between folds (between ships).
+
 
 
 
@@ -1284,6 +1347,12 @@ processors.
 back [roundtrip-response]. Exactly two endpoints. OUT-N-IN on the
 left, IN-N-OUT on the right.
 
+> **Algebraic aside.** `<->` binds a free monad (the OUT-N-IN
+> side, which produces `Op` nodes) to an algebra (the IN-N-OUT
+> side, which interprets them). Exactly two endpoints because a
+> catamorphism maps one tree to one interpreter — you can't fold
+> a tree into two algebras simultaneously.
+
 ```
 S@down:sync   <-> T@up:handler     -- subspace down <-> sibling up
 S@cmd:time:*  <-> T@up:time        -- command port <-> sibling up
@@ -1291,6 +1360,13 @@ S@cmd:time:*  <-> T@up:time        -- command port <-> sibling up
 S@down:sync   <-> @down:parent-fwd -- forward to parent's parent
 S@cmd:*:*     <-> @cmd             -- command port forwarding [cmd-forward]
 ```
+
+> **Algebraic aside.** Forwarding via `@cmd` embeds the child's
+> effect into the parent's free monad: the child's `Op` node is
+> re-wrapped as an `Op` node in the parent's tree, with the
+> continuations chaining. The request passes through unchanged
+> because the parent isn't interpreting the effect — it's
+> deferring interpretation to the next level up.
 
 **Valid positions by signal type:**
 
@@ -1484,6 +1560,13 @@ A down-port carries **exactly one** request/response pair at a
 time [singleresponse-one]. The port is occupied while the process
 waits and freed when the response (or timeout) arrives.
 
+> **Algebraic aside.** The continuation `k` in `Op(request, k)`
+> takes exactly one value: `k : Val → Free F a`. The free monad's
+> fold calls `k` once per `Op` node. Calling it zero times leaves
+> the tree stuck; calling it more than once would require a
+> different monad (nondeterminism). Single-response is the only
+> option for the free monad.
+
 ### Up-port mechanics
 
 An up-port is the mirror of a down-port: a **round-trip channel
@@ -1499,7 +1582,8 @@ S@cmd:time:*  <-> T@up:time       -- command port <-> this up
 
 From inside, an up-port is OUT-N-IN, so it uses `<->`:
 ```
-@up:service <-> stationA          -- up-port round-trip to station
+@up <-> stationA                  -- bare up-port round-trip to station
+@up:service <-> stationA          -- named up-port
 ```
 
 **Round-trip lifecycle** [upport-roundtrip]:
@@ -1551,19 +1635,24 @@ blocked. Everything else is forwarded outward through A's own
 
 **Declared up-port** (station coordination via `->` chain):
 ```
+inner_def
+  processor
+    {__ | string uppercase}
+  @up <-> processor
+
 outer
   stationA
-    {__ | string uppercase}
+    {__ | string join value "-go"}
   stationB
     {__ | string reverse}
   subspace inner_def
-  stationA -> inner@up:process -> stationB
+  stationA -> inner@up -> stationB
 ```
 
-stationA's output enters `inner` via `up:process`. The subspace
-processes it. The first response goes to stationB. The up-port
-guarantees one-in-one-out: stationB gets exactly one ship per
-stationA output.
+stationA's output enters `inner` via its up-port. The subspace
+processes it (uppercases). The first response goes to stationB.
+The up-port guarantees one-in-one-out: stationB gets exactly
+one ship per stationA output.
 
 **Declared down-port** (subspace requesting external service):
 
@@ -1572,8 +1661,8 @@ Inside `inner`:
 inner
   processor
     {__ | >@out:need}
-  @in:init -> processor -> @out:result
-  @up:service <-> processor
+  @in -> processor -> @out
+  @up <-> processor
 ```
 
 In the parent, wiring inner's down port:
@@ -1708,6 +1797,12 @@ An inner wire CAN shorten the wait by having a tighter timeout.
 
 When a timeout fires, the waiting process sploots. [timeout-resume-empty]
 The request is marked completed.
+
+> **Algebraic aside.** The fold must feed a value to the
+> continuation `k` for the tree to proceed. When the algebra
+> (handler) fails to produce one, the empty value serves as the
+> zero — the canonical "nothing happened" that lets the tree
+> continue. Totality requires that every `Op` node resolves.
 
 If a response later arrives for an already-completed request (a
 **ghost response**), it is dropped and a soft error is sent to
