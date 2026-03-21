@@ -46,6 +46,29 @@ var known_failures = new Set([
   'down-port: declared, request exits space, response returns',
   'up-port: chained A -> X.up -> Y.up -> B',
   'up-port: only first response counts, rest are ghosts',
+  // §6 New port/wiring spec tests (RED — not yet implemented)
+  'signal-flip-up: up port acts as round-trip processor from outside',
+  'signal-flip-down: down port forwards requests outward',
+  'roundtrip-response: <-> wiring sends request and returns response',
+  'cmd-transient: command port created per invocation and destroyed',
+  'cmd-forward: command port forwarding to parent boundary',
+  'wiring-default-timeout: space defaultTimeout applies to wiring rules',
+  'wiring-target-station: wiring rule targets a station',
+  'wiring-target-upport: wiring rule targets sibling up-port',
+  'wiring-target-forward: wiring rule forwards to parent boundary',
+  'singleresponse-one: down-port carries one request/response at a time',
+  'upport-inside-station: up-port wired to station inside space',
+  'async-preserve-sender: sender survives async boundary',
+  'timeout-inherit: timeout inherited from enclosing wire',
+  'effectful-unwired-sploot: unwired effectful command sploots in subspace',
+  // Spec gaps: behaviors not yet implemented
+  '[spacesyn-subspace-before-ref] correct order works',
+  '[spacesyn-subspace-before-ref] forward ref rejected',
+  '[cmd-name-encode] var read-out uses cmd:var:read-out',
+  '[cmd-name-encode] var write-out uses cmd:var:write-out',
+  '[err-match-by-name] error routed to @err',
+  'subspace-own-queue: subspace queues independently from parent',
+  'space-inside-opaque: subspace DAML works identically to outer space',
 ])
 
 // ── Assert port flavour ──────────────────────────────────────────────
@@ -1797,6 +1820,613 @@ space_test(
     assert_eq('pipeline continued', collected.out && collected.out.length > 0, true)
   }
 )
+
+// ── New port/wiring spec tests (RED — guide future implementation) ───
+
+// §3 [spacesyn-toplevel]
+// A top-level name at column 0 declares a space
+space_test(
+  'spacesyn-toplevel: top-level name declares a space',
+  `myspace
+    @init from-js
+    @out  collect
+    worker {__ | add 1}
+    @init -> worker -> @out`,
+  [{port: 'init', value: 5}],
+  1,
+  function(collected) {
+    assert_eq('[spacesyn-toplevel]', collected.out[0], '6')
+  }
+)
+
+// §3 [spacesyn-route-expand]
+// Station name in route expands to .in (destination) or .out (source)
+space_test(
+  'spacesyn-route-expand: station name expands to _in/_out',
+  `outer
+    @init from-js
+    @out  collect
+    first  {__ | add 10}
+    second {__ | add 100}
+    @init -> first -> second -> @out`,
+  [{port: 'init', value: 1}],
+  1,
+  function(collected) {
+    // 1 -> first._in (add 10 = 11) -> first._out -> second._in (add 100 = 111) -> second._out -> @out
+    assert_eq('[spacesyn-route-expand]', collected.out[0], '111')
+  }
+)
+
+// §3 [spacesyn-subspace-before-ref]
+// Subspaces must be defined before they are referenced in routes.
+// Correct order: child defined first, outer references child.in after.
+// Forward ref (outer first, child after) should not produce a working space.
+;(function() {
+  // [spacesyn-subspace-before-ref]
+  // Correct order works
+  var good = 'child\n  @in from-js\n  @out to-js\nouter\n  @init from-js\n  @out to-js\n  @init -> child.in\n'
+  var good_id = D.make_some_space(good)
+  var good_space = new D.Space(good_id)
+  var has_subspace = good_space.subspaces && good_space.subspaces.length > 0
+  if(has_subspace) pass++
+  else {
+    fail++
+    failures.push({ label: '[spacesyn-subspace-before-ref] correct order works',
+      expected: 'subspace created', actual: 'no subspace' })
+  }
+
+  // Forward ref: outer references child before child is defined
+  var bad = 'outer\n  @init from-js\n  @out to-js\n  @init -> child.in\nchild\n  @in from-js\n  @out to-js\n'
+  var bad_id = D.make_some_space(bad)
+  var bad_space = new D.Space(bad_id)
+  var bad_has_subspace = bad_space.subspaces && bad_space.subspaces.length > 0
+  if(!bad_has_subspace) pass++
+  else {
+    fail++
+    failures.push({ label: '[spacesyn-subspace-before-ref] forward ref rejected',
+      expected: 'no subspace (forward ref rejected)', actual: 'subspace created' })
+  }
+})()
+
+// §4 [signal-flip-in]
+// An in port is INPUT from inside, OUTPUT from outside
+space_test(
+  'signal-flip-in: in port receives from outside, delivers inside',
+  `outer
+    @init from-js
+    @out  collect
+    echo {__}
+    @init -> echo -> @out`,
+  [{port: 'init', value: 'from-outside'}],
+  1,
+  function(collected) {
+    assert_eq('[signal-flip-in]', collected.out[0], 'from-outside')
+  }
+)
+
+// §4 [signal-flip-out]
+// An out port is OUTPUT from inside, INPUT from outside
+space_test(
+  'signal-flip-out: out port sends from inside to outside',
+  `outer
+    @init from-js
+    @out  collect
+    sender {__ | add 1}
+    @init -> sender -> @out`,
+  [{port: 'init', value: 10}],
+  1,
+  function(collected) {
+    assert_eq('[signal-flip-out]', collected.out[0], '11')
+  }
+)
+
+// §4 [signal-flip-up]
+// An up port is OUT-N-IN from inside (round-trip processor) but IN-N-OUT from outside
+space_test(
+  'signal-flip-up: up port acts as round-trip processor from outside',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      processor {__ | string uppercase}
+      @init -> processor -> @out
+    @init -> inner.up -> @out`,
+  [{port: 'init', value: 'hello'}],
+  1,
+  function(collected) {
+    assert_eq('[signal-flip-up]', collected.out[0], 'HELLO')
+  },
+  100
+)
+
+// §4 [signal-flip-down]
+// A down port is IN-N-OUT from inside (receives requests), OUT-N-IN from outside
+space_test(
+  'signal-flip-down: down port forwards requests outward',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      requester {__ | >@need}
+      @init -> requester
+      requester.need -> @out
+    handler {__ | string uppercase}
+    @init -> inner.down -> handler -> @out`,
+  [{port: 'init', value: 'test'}],
+  1,
+  function(collected) {
+    assert_eq('[signal-flip-down]', collected.out[0], 'TEST')
+  },
+  100
+)
+
+// §4 [err-match-by-name]
+// Soft errors route to the port named out:err (matched by name, not flavour)
+space_test(
+  'err-match-by-name: errors route to @err port by name',
+  `outer
+    @init from-js
+    @out  collect
+    @err  collect
+    bad {__ | nonexistent command}
+    @init -> bad -> @out`,
+  [{port: 'init', value: 'test'}],
+  1,
+  function(collected) {
+    // Error should have routed to @err
+    if(collected.err && collected.err.length > 0) pass++
+    else {
+      fail++
+      failures.push({ label: '[err-match-by-name] error routed to @err',
+        expected: 'error ship in @err', actual: JSON.stringify(collected) })
+    }
+  }
+)
+
+// §4 [subspace-own-queue]
+// Each subspace gets its own queue, independent of the parent
+space_test(
+  'subspace-own-queue: subspace queues independently from parent',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      worker {__ | add 10}
+      @init -> worker -> @out
+    relay {__}
+    @init -> inner.in
+    inner.out -> relay -> @out`,
+  [{port: 'init', value: 1}, {port: 'init', value: 2}, {port: 'init', value: 3}],
+  3,
+  function(collected) {
+    // All three ships should arrive, order preserved by inner's queue
+    assert_eq('[subspace-own-queue] count', collected.out.length, 3)
+    assert_eq('[subspace-own-queue] first', collected.out[0], '11')
+    assert_eq('[subspace-own-queue] second', collected.out[1], '12')
+    assert_eq('[subspace-own-queue] third', collected.out[2], '13')
+  }
+)
+
+// §4 [space-inside-opaque]
+// From inside, a space cannot tell if it's outer or subspace
+space_test(
+  'space-inside-opaque: subspace DAML works identically to outer space',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      worker {__ | math multiply value 2}
+      @init -> worker -> @out
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 7}],
+  1,
+  function(collected) {
+    assert_eq('[space-inside-opaque]', collected.out[0], '14')
+  }
+)
+
+// §5 [dunderin-dock]
+// When a ship docks, __in is initialized to the ship's value
+space_test(
+  'dunderin-dock: __in is initialized to ship value',
+  `outer
+    @init from-js
+    @out  collect
+    checker {__ | add 1 || __in}
+    @init -> checker -> @out`,
+  [{port: 'init', value: 42}],
+  1,
+  function(collected) {
+    // __ | add 1 produces 43, but || resets pipe. __in should be the original 42.
+    assert_eq('[dunderin-dock]', collected.out[0], '42')
+  }
+)
+
+// §5 [serial-per-space]
+// Serialization is per-space, not per-station. Sibling subspaces are independent.
+multi_space_test(
+  'serial-per-space: sibling subspaces process independently',
+  [
+    { name: 'a', seedlike: `
+      spaceA
+        @init from-js start
+        @out  collect
+        worker {__ | add 100}
+        @init -> worker -> @out` },
+    { name: 'b', seedlike: `
+      spaceB
+        @init from-js start
+        @out  collect
+        worker {__ | add 200}
+        @init -> worker -> @out` },
+  ],
+  function(spaces, done) {
+    var results = {a: null, b: null}
+    on_collect(spaces.a, 'out', function(ship) {
+      results.a = ship
+      if(results.a !== null && results.b !== null) {
+        assert_eq('[serial-per-space] a', results.a, '101')
+        assert_eq('[serial-per-space] b', results.b, '201')
+        done()
+      }
+    })
+    on_collect(spaces.b, 'out', function(ship) {
+      results.b = ship
+      if(results.a !== null && results.b !== null) {
+        assert_eq('[serial-per-space] a', results.a, '101')
+        assert_eq('[serial-per-space] b', results.b, '201')
+        done()
+      }
+    })
+    D.send_value_to_js_port(spaces.a, 'init', 1)
+    D.send_value_to_js_port(spaces.b, 'init', 1)
+  }
+)
+
+// §5 [subprocess-sync-dfs]
+// Sub-processes execute synchronously and depth-first
+space_test(
+  'subprocess-sync-dfs: block eval is synchronous depth-first',
+  `outer
+    @init from-js
+    @out  collect
+    mapper {(1 2 3) | list map block "{__ | math multiply value 2}"}
+    @init -> mapper -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    // map creates sub-processes for each element, executing sync depth-first
+    // result: [2, 4, 6]
+    assert_eq('[subprocess-sync-dfs]', collected.out[0], '[2,4,6]')
+  }
+)
+
+// §5 [routing-after-complete]
+// Routed ships arrive after the current process completes
+space_test(
+  'routing-after-complete: port-sent ships arrive after current process',
+  `outer
+    @init from-js
+    @out  collect
+    sender  {__ | >@extra || __ | add 100}
+    receiver {__ | add 1000}
+    sender.extra -> receiver -> @out
+    @init -> sender -> @out`,
+  [{port: 'init', value: 1}],
+  2,
+  function(collected) {
+    // sender runs: >@extra sends 1 deferred, then adds 100 -> 101 exits to @out
+    // receiver gets 1 after sender completes, adds 1000 -> 1001 exits to @out
+    // @out should get 101 first (from sender._out), then 1001 (from receiver._out)
+    assert_eq('[routing-after-complete] first', collected.out[0], '101')
+    assert_eq('[routing-after-complete] second', collected.out[1], '1001')
+  }
+)
+
+// §6 [roundtrip-response]
+// <-> wiring: request goes one way, response comes back
+space_test(
+  'roundtrip-response: <-> wiring sends request and returns response',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      worker {__ | string uppercase}
+      @init -> worker -> @out
+    @init -> inner.down -> @out
+    inner@cmd:*:* <-> inner.up`,
+  [{port: 'init', value: 'hello'}],
+  1,
+  function(collected) {
+    assert_eq('[roundtrip-response]', collected.out[0], 'HELLO')
+  },
+  100
+)
+
+// §6 [cmd-transient]
+// Command ports are transient — created fresh per invocation, destroyed after response
+space_test(
+  'cmd-transient: command port created per invocation and destroyed',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      worker {var read-out name :x | add 1 | var write-out name :x}
+      @init -> worker -> worker -> @out
+    handler
+      {__}
+    inner@cmd:var:* <-> handler
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 'start'}],
+  1,
+  function(collected) {
+    // Two sequential var read-out/write-out invocations, each creates a fresh cmd port
+    assert_eq('[cmd-transient] completed', collected.out.length > 0, true)
+  },
+  100
+)
+
+// §6 [cmd-name-encode]
+// Command ports use cmd:handler:method naming
+;(function() {
+  // Verify the naming convention for command port types
+  // effectful commands in var.js use portType 'var-read' and 'var-write'
+  // The spec says cmd:handler:method (e.g., cmd:var:read-out)
+  var var_handler = D.Commands.var
+  if(var_handler && var_handler.methods) {
+    var read_method = var_handler.methods['read-out']
+    var write_method = var_handler.methods['write-out']
+    if(read_method && read_method.effect && read_method.effect.portType === 'cmd:var:read-out') pass++
+    else {
+      fail++
+      failures.push({ label: '[cmd-name-encode] var read-out uses cmd:var:read-out',
+        expected: 'cmd:var:read-out',
+        actual: read_method ? (read_method.effect ? read_method.effect.portType : 'no effect') : 'no method' })
+    }
+    if(write_method && write_method.effect && write_method.effect.portType === 'cmd:var:write-out') pass++
+    else {
+      fail++
+      failures.push({ label: '[cmd-name-encode] var write-out uses cmd:var:write-out',
+        expected: 'cmd:var:write-out',
+        actual: write_method ? (write_method.effect ? write_method.effect.portType : 'no effect') : 'no method' })
+    }
+  } else {
+    fail += 2
+    failures.push({ label: '[cmd-name-encode] var handler exists', expected: 'var handler', actual: 'missing' })
+  }
+})()
+
+// §6 [cmd-forward]
+// Command ports can be forwarded: S@cmd:*:* <-> @cmd forwards all
+space_test(
+  'cmd-forward: command port forwarding to parent boundary',
+  `outer
+    @init from-js
+    @out  collect
+    middle
+      inner
+        worker {var read-out name :x}
+        @init -> worker -> @out
+      inner@cmd:*:* <-> @cmd
+    middle@cmd:*:* <-> @cmd
+    @init -> middle.in
+    middle.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    // var read-out in inner forwards through middle to outer
+    // Without a handler at outer level, it should sploot
+    assert_eq('[cmd-forward] completed', collected.out.length > 0, true)
+  },
+  100
+)
+
+// §6 [wiring-default-timeout]
+// The space's defaultTimeout applies to all wiring rules unless overridden
+space_test(
+  'wiring-default-timeout: space defaultTimeout applies to wiring rules',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      worker {var read-out name :x}
+      @init -> worker -> @out
+    inner@cmd:var:* <-> handler
+    handler {__}
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    assert_eq('[wiring-default-timeout] completed', collected.out.length > 0, true)
+  },
+  100
+)
+
+// §6 [wiring-target-station]
+// Wiring rule target can be a station in the same space
+space_test(
+  'wiring-target-station: wiring rule targets a station',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      caller {var read-out name :greeting}
+      @init -> caller -> @out
+    handler
+      {:hello}
+    inner@cmd:var:read-out <-> handler
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    assert_eq('[wiring-target-station]', collected.out[0], 'hello')
+  },
+  100
+)
+
+// §6 [wiring-target-upport]
+// Wiring rule target can be an up-port on a sibling subspace
+space_test(
+  'wiring-target-upport: wiring rule targets sibling up-port',
+  `outer
+    @init from-js
+    @out  collect
+    requester
+      caller {var read-out name :x}
+      @init -> caller -> @out
+    provider
+      responder {:provided}
+      @init -> responder -> @out
+    requester@cmd:var:read-out <-> provider.up
+    @init -> requester.in
+    requester.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    assert_eq('[wiring-target-upport]', collected.out[0], 'provided')
+  },
+  100
+)
+
+// §6 [wiring-target-forward]
+// Wiring rule target can be a down-port on parent's boundary (forwarding outward)
+space_test(
+  'wiring-target-forward: wiring rule forwards to parent boundary',
+  `outer
+    @init from-js
+    @out  collect
+    middle
+      inner
+        caller {var read-out name :x}
+        @init -> caller -> @out
+      inner@cmd:var:* <-> @cmd
+    middle@cmd:var:* <-> @cmd
+    @init -> middle.in
+    middle.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    // var read-out forwards from inner -> middle -> outer (unwired, sploots)
+    assert_eq('[wiring-target-forward] completed', collected.out.length > 0, true)
+  },
+  100
+)
+
+// §6 [singleresponse-one]
+// A down-port carries exactly one request/response pair at a time
+space_test(
+  'singleresponse-one: down-port carries one request/response at a time',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      caller {var read-out name :x | add 1}
+      @init -> caller -> @out
+    handler {:42}
+    inner@cmd:var:read-out <-> handler
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    // The response (42) continues in the pipeline: add 1 = 43
+    assert_eq('[singleresponse-one]', collected.out[0], '43')
+  },
+  100
+)
+
+// §6 [upport-inside-station]
+// An up-port can be inside a space: @up:service <-> stationA
+space_test(
+  'upport-inside-station: up-port wired to station inside space',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      handler {__ | string uppercase}
+      @up:service <-> handler
+      @init -> @down:need -> @out
+    inner@down:need <-> inner@up:service
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 'test'}],
+  1,
+  function(collected) {
+    assert_eq('[upport-inside-station]', collected.out[0], 'TEST')
+  },
+  100
+)
+
+// §7 [async-preserve-sender]
+// Sender is preserved across async boundary
+space_test(
+  'async-preserve-sender: sender survives async boundary',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      caller {var read-out name :x}
+      @init -> caller -> @out
+    handler {:response}
+    inner@cmd:var:read-out <-> handler
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    assert_eq('[async-preserve-sender]', collected.out[0], 'response')
+  },
+  100
+)
+
+// §7 [timeout-inherit]
+// A wire's nominal timeout is inherited from nearest enclosing wire with explicit value
+space_test(
+  'timeout-inherit: timeout inherited from enclosing wire',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      caller {var read-out name :slow}
+      @init -> caller -> @out
+    inner@cmd:var:* <-> @cmd
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    // With no handler at outer level, this should timeout and sploot
+    assert_eq('[timeout-inherit] splooted', collected.out[0], '')
+  },
+  200
+)
+
+// §6 [effectful-unwired-sploot] (space-level)
+// Effectful command with unwired port sploots
+space_test(
+  'effectful-unwired-sploot: unwired effectful command sploots in subspace',
+  `outer
+    @init from-js
+    @out  collect
+    inner
+      caller {var read-out name :x || :fallback}
+      @init -> caller -> @out
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    // var read-out has no wiring rule in parent -> sploots -> pipeline continues with empty
+    // || resets -> :fallback
+    assert_eq('[effectful-unwired-sploot]', collected.out[0], 'fallback')
+  },
+  100
+)
+
 
 // ── Done registering ─────────────────────────────────────────────────
 
