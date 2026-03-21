@@ -3484,6 +3484,31 @@ broadcast), and the routing between them. An App connects multiple
 actors to multiple spaces with different dialects and different
 resource backends. This architecture is sketched in `extra/D_new.txt` but not yet specified.
 
+### OCapN integration
+
+Daimio's sender/dialect model is conceptually close to object
+capabilities: a sender's dialect is an unforgeable set of
+permitted operations, analogous to a capability set. The
+**OCapN** (Object Capability Network) pre-standard defines
+CapTP (Capability Transport Protocol) for messaging between
+distributed capability-secured objects, with promise pipelining
+and secure third-party handoffs.
+
+If a Daimio-powered App uses CapTP for messaging between
+machines, it can integrate Daimio's dialect restrictions
+directly into its capabilities. The mapping is natural: a
+CapTP capability received from a remote peer becomes a Daimio
+sender whose dialect is derived from the capability's
+attenuation. Daimio output carrying a sender becomes a CapTP
+message with the corresponding capability. Daimio itself
+doesn't change — it just sees senders with dialects, same as
+always. The App is the bridge.
+
+This would allow interoperation with Spritely Goblins, Agoric,
+and any future OCapN-compatible system, positioning
+Daimio-powered apps as nodes in the emerging capability-secure
+distributed computing ecosystem.
+
 ### TODA integration
 
 First-class digital assets via TODA files. Your user account,
@@ -3492,3 +3517,55 @@ that don't need to live on someone else's server. Combined with
 self-authenticating messages, this enables channel-independent
 identity and Bring Your Own Backend -- you carry your assets and
 computational resources into any app.
+
+
+## 15. Related Work
+
+Several systems address overlapping parts of Daimio's problem
+space: programmable applications, multi-user code sharing, and
+capability-secured execution. Daimio was not designed from these
+systems — it grew from its own motivations (§0) — but they
+are interesting neighbors.
+
+**LambdaMOO** (Curtis, 1990). Users write code in a shared
+live environment. The system sandboxes execution with tick
+limits, recursion limits, and quotas. The closest precedent for
+multi-user end-user programming. Uses ACL-based security (owner
+permissions on objects/verbs), not capabilities.
+
+**Sandstorm.io** (Varda, 2014). Capability-based web
+application platform using containerized "grains" with
+Powerbox-mediated capability grants. Operates at the application
+level (composing pre-built apps), not the language level
+(writing and sharing code within apps).
+
+**Spritely Goblins and OCapN** (Lemmer-Webber, 2019). The
+most principled capability-secure distributed programming model,
+based on Mark Miller's E language. Targets developers writing
+Scheme, not end users writing piped commands. The
+object-capability formalism ("what you hold onto is what you can
+do") is a natural fit for Daimio's dialect model — see §14
+"OCapN integration."
+
+**Agoric / Hardened JavaScript** (Miller, Tribble, 2018).
+Capability security at production scale in a mainstream
+language. SES Compartments with attenuated endowments are
+conceptually similar to dialect subsetting. Demonstrates that
+the approach works in practice.
+
+**Roblox / Luau**. Capability-constrained end-user programming
+at global scale (380M monthly active users). Sandboxed
+execution with isolated global tables and controlled API access.
+The closest production analog to dialect + wiring restriction.
+
+**Croquet / Multisynq** (Kay, Smith, Reed, 2003). Replicated
+computation for peer-to-peer collaboration. Strict Model/View
+separation and deterministic replay. The determinism constraint
+makes casual user scripting harder than Daimio's model.
+
+**The E language** (Miller, 1997). The theoretical ancestor of
+most capability-secure systems in this list. E's vat model
+(single-threaded event queue per process) is structurally
+similar to Daimio's serial execution per space. Miller's 2006
+thesis *Robust Composition* provides the formal foundations
+for object-capability security.
