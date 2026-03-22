@@ -992,6 +992,8 @@ named ports via `>@portname`, but only if a route declares it
 (`station@portname -> destination`). Without a route, `>@portname`
 sploots. [station-port-requires-route] This is a security
 boundary — untrusted code cannot send to arbitrary ports.
+Tradeoff: moving a station to a different space silently breaks
+its `>@` sends if the new space's routes don't declare them.
 
 The station itself is simple -- it's a block with `_in`, `_out`,
 plus any named ports declared by routes. All the interesting port
@@ -1631,6 +1633,31 @@ can appear as transparent processors. Enter-N-Exit ports
 @in:data -> @down:foo -> @out:bar  -- down-port as processor in chain
 ```
 
+**Walkthrough: a complete round-trip.** Space `outer` contains
+subspaces `worker` and `client`. `client` invokes `{time now}`:
+
+```
+client                             worker
+  @up <-> processor                  @up <-> clock
+                                       clock: {time now}
+
+outer
+  client@cmd:time:* <-> worker@up
+```
+
+  1. `client`'s process hits `{time now}`. A transient `cmd:time:now`
+     port is created on `client` (Enter-N-Exit).
+  2. `outer`'s wiring rule matches: `client@cmd:time:* <-> worker@up`.
+  3. The request enters `worker` through `worker@up` (Exit-N-Reenter
+     from `outer`'s perspective). Inside `worker`, `@up` is
+     Enter-N-Exit — `clock` handles it.
+  4. `clock` evaluates `{time now}` — but this is inside `worker`,
+     so it creates ANOTHER `cmd:time:now` port on `worker`. If
+     `outer` wires `worker@cmd:time:*` to a handler, it resolves.
+  5. The response flows back: handler → `worker`'s process →
+     `worker@up` out-side → `outer`'s wiring → `client`'s
+     `cmd:time:now` port → `client`'s waiting process resumes.
+
 ### Command ports (`cmd`)
 
 **Transient** — created fresh for each effectful command
@@ -2247,6 +2274,18 @@ becomes a Par selector [path-eval-selector]. There is no bare `()`
 in dot-path syntax -- Par requires evaluation, so it uses curlies
 [path-par-curlies].
 
+### String literals are blocks
+
+**Every `"..."` literal in DAML source compiles to a block at
+parse time.** There is no distinction between "simple strings"
+and "blocks" at the syntax level — `"hello"`, `"hello {$name}"`,
+and `"{__ | add 1}"` are all blocks. The difference between
+blocks and strings is one of origin, not syntax: literals in
+source are live (blocks); text arriving from Outside is dead
+(strings). When a block reaches a string-typed command param,
+it is coerced to its source text automatically. See "Blocks and
+strings" in §11 for the full lifecycle.
+
 ### Comments
 
 Inside a pipeline, `/` and `//` introduce comments:
@@ -2328,7 +2367,10 @@ A collection is either keyed or unkeyed.
 
 `*` is an alias for `list pair`, which takes an alternating list
 of keys and values and produces a keyed collection:
-`{* (:a 1 :b 2)}` → `{a: 1, b: 2}`.
+`{* (:a 1 :b 2)}` → `{a: 1, b: 2}`. Note: `*` is a
+special-cased alias name — it does not match the `name`
+production in the grammar. The parser recognizes it as a
+built-in alias before normal tokenization.
 
 Ideally, the distinction would be invisible to the end user: anything
 you want to do with a collection, you should be able to do. Achieving
@@ -2374,8 +2416,10 @@ value, which becomes whatever zero the consuming command expects.
 
 A value is **falsy** if it is the empty value in any of its forms:
 `0`, `""`, or `[]` (empty list) [truthy-falsy]. Everything else is
-**truthy**: non-zero numbers, non-empty strings, non-empty lists
-[truthy-truthy].
+**truthy**: non-zero numbers, non-empty strings, non-empty lists,
+and blocks [truthy-truthy]. NaN does not exist as a Val — number
+coercion converts NaN to 0 (see [coerce-number]), so NaN never
+reaches a truthiness check.
 
 This follows from the empty value being the universal "nothing."
 Truthiness is "are you something or nothing?" Commands like
@@ -3046,11 +3090,13 @@ two syntactic forms, but they produce the same thing:
 {begin foo}Hello, {name}!{end foo}   -- named block (multi-line friendly)
 ```
 
-Both are parsed into the same Block segment via the same code path. [block-forms-equivalent]
-A quoted block is DAML wrapped in quotes. A named block is syntactic
-sugar: the parser transforms `{begin foo | pipeline}body{end foo}`
-by compiling the body into a block and prepending it as the first
-segment of `pipeline`. [block-named-pipe] So
+Both produce Block values. [block-forms-equivalent]
+
+A quoted block is DAML wrapped in quotes. A named block is
+syntactic sugar: the parser compiles the body into an
+**unevaluated block** and prepends it as the first segment of
+`pipeline`. [block-named-pipe] The body is NOT evaluated during
+parsing — it is a block value. So
 `{begin foo | >$greeting ||}body{end foo}` becomes
 `<body-block> | >$greeting ||`. The name exists only for matching
 the end tag.
@@ -3160,6 +3206,16 @@ the effective dialect at runtime.
 pipeline gets fresh internal keys. This ensures that multiple
 uses of the same alias (e.g. `{({1 | then :yay} {0 | then :boo})}`)
 don't corrupt each other's wiring [alias-multi-invoke].
+
+**Parsing.** Aliases are resolved during the munging phase, after
+tokenization. The parser first identifies `handler method` pairs;
+if the handler token matches a registered alias, it is expanded
+before method resolution. This means alias names occupy the
+handler slot — an alias `map` would shadow the `list map` handler
+for tokens where `map` appears as the first word. The trailing
+token in an alias expansion (e.g., `value` in `math add value`)
+becomes a positional slot that captures the next value in the
+pipeline.
 
 ### Transition relation for synchronous steps
 
