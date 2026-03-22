@@ -201,12 +201,13 @@ them to its own boundary, or swallows them. Dialects restrict
 downward: an invited actor or loaded subspace can never exceed the
 host's permissions. This composes recursively to arbitrary depth.
 
-### Content-addressed deduplication [P-contentaddr]
+### Normal form and deduplication [P-contentaddr]
 The compiler produces a **structural normal form** for blocks and
-spaceseeds, then hashes the result. Structurally equivalent code
-compiles to the same identity — the engine deduplicates
-automatically. See section 10 "Block identity and normal form" and
-section 3 "Spaceseeds" for the normalization details.
+spaceseeds. Structurally equivalent code produces identical normal
+forms — the engine deduplicates automatically. See section 10
+"Block identity and normal form" and section 3 "Spaceseeds."
+Implementations SHOULD use content-addressing (hashing the
+canonical serialization) for efficient identity checks.
 
 ### Liveness [P-liveness]
 No process waits forever. Every down-port request has a finite
@@ -778,28 +779,22 @@ Subspaces are **referenced by ID**, not inline. A spaceseed's
 point into a flat global table (`D.SPACESEEDS`). The same seed
 can be shared by multiple parent spaces.
 
-A spaceseed's identity is the hash of its serialized form:
+Two spaceseeds are **identical** iff their normal forms are equal.
+Station blocks are referenced by their normalized block IDs (see
+section 10 "Block identity and normal form"), and subspaces by
+their seed IDs. So identity transitively covers the full
+structure — topology, blocks, and nested subspaces. Identical
+space definitions produce identical spaceseeds. [seed-content-addr]
 
-```
-spaceseed.id = hash(canonical_serialize(spaceseed))
-```
+Implementations SHOULD use content-addressing (a hash of a
+canonical serialization) for efficient identity checks. The
+canonical serialization must sort map keys lexicographically.
+Any collision-resistant hash works.
 
-Serialization must be **canonical**: map keys are sorted
-lexicographically before serialization. This ensures identical
-definitions produce identical hashes regardless of implementation
-language or insertion order.
-
-Station blocks are referenced by their normalized block IDs
-(see section 10 "Block identity and normal form"), and subspaces
-are referenced by their seed IDs. So the hash transitively
-covers the full structural normal form — topology, blocks, and
-nested subspaces. Identical space definitions produce the same
-spaceseed ID. [seed-content-addr]
-
-Note: unlike blocks, spaceseeds are not currently normalized
-beyond block and subspace content-addressing. Reordering
-stations or routes in the space definition would produce a
-different seed ID even if the topology is equivalent.
+Note: spaceseeds are not currently normalized beyond block and
+subspace content-addressing. Reordering stations or routes
+would produce a different normal form even if the topology is
+equivalent.
 
 Multiple spaces can share the same spaceseed -- each is
 instantiated into a live space (see Spaces below) with its own
@@ -2340,8 +2335,12 @@ A collection is either keyed or unkeyed.
 
 ```
 (1 2 3)            -- unkeyed (positional only)
-{* (:a 1 :b 2)}   -- keyed (string keys; `*` is an alias for `list pair`)
+{* (:a 1 :b 2)}   -- keyed (string keys)
 ```
+
+`*` is an alias for `list pair`, which takes an alternating list
+of keys and values and produces a keyed collection:
+`{* (:a 1 :b 2)}` → `{a: 1, b: 2}`.
 
 Ideally, the distinction would be invisible to the end user: anything
 you want to do with a collection, you should be able to do. Achieving
@@ -2855,23 +2854,21 @@ hashing. The normalization (`wash_keys`) does:
      inputs, original key) is removed. Only segment type and
      value survive. [compile-normalize]
 
-The normalized block is canonically serialized and hashed (keys
-sorted lexicographically, same as spaceseeds — see §3):
-
-```
-block.id = hash(canonical_serialize(normalized_block))
-```
-
+Two blocks are **identical** iff their normal forms are equal.
 Two DAML strings that compile to the same sequence of segment
-types, values, and wiring produce the same block ID —
+types, values, and wiring produce identical blocks —
 regardless of surrounding context or compilation order.
-[blockid-same] Blocks are stored in `D.BLOCKS` keyed by ID;
-duplicates reuse the existing block. [blockid-dedup]
+[blockid-same] Identical blocks are deduplicated automatically.
+[blockid-dedup]
+
+Implementations SHOULD use content-addressing (a hash of a
+canonical serialization with keys sorted lexicographically) for
+efficient identity checks — same as spaceseeds (see §3).
 
 Note: this is structural equivalence, not full semantic
 equivalence. Different variable names (`_a` vs `_b`) or
-reordered operations produce different IDs even if they compute
-the same result.
+reordered operations produce different normal forms even if they
+compute the same result.
 
 ### Processes
 ```
@@ -2906,6 +2903,22 @@ bindings in the sub-process (via `>x`) are local to that
 sub-process and do not propagate back. The inheritance is
 one-way: parent to child, never child to parent.
 
+**Bound and free variables.** A pvar is **bound** in a block if
+`>x` appears before any `_x` read. A pvar is **free** if `_x`
+is read without a prior `>x` in that block. Free variables
+inherit from the parent scope. Bound variables shadow the
+inherited value.
+
+```
+{(1 2) | >x | map block "{__ | >x | (_x _x)}"}  -- x is bound: [[1,1],[2,2]]
+{(1 2) | >x | map block "{__ | (_x _x)}"}        -- x is free:  [[(1 2),(1 2)],...]
+{(1 2) | >x | map block "{_x | >x | (_x _x)}"}  -- x is free (read before write): [[(1 2),(1 2)],...]
+```
+
+If `_x` is read before `>x` writes, `x` is free — the read
+resolves to the inherited value and the subsequent `>x` is
+ineffective.
+
 **Sub-processes** are synchronous and depth-first. When a command
 evaluates a block, the sub-process runs to completion (or waits)
 before the parent process continues. Sub-processes can nest to
@@ -2934,12 +2947,13 @@ string [template-concat]. Each segment's output is stringified:
 numbers become their string representation, lists become JSON,
 empty becomes `""` [template-stringify].
 
-If a template contains a single command and no surrounding text,
-there is no terminator -- the command's value passes through with
-its original type [template-single-passthru]. This is why
-`{math add value 1 to 2}` returns the number `3`, but
-`{math add value 1 to 2} ` (with trailing space) returns the
-string `"3 "`.
+If a template contains a single command and no other characters
+at all (not even whitespace), there is no terminator — the
+command's value passes through with its original type
+[template-single-passthru]. This is why `{math add value 1 to 2}`
+returns the number `3`, but `{math add value 1 to 2} ` (with
+trailing space) returns the string `"3 "` — the space counts as
+surrounding text, triggering string concatenation.
 
 ### The implicit pipe value
 
@@ -3071,10 +3085,12 @@ two syntactic forms, but they produce the same thing:
 
 Both are parsed into the same Block segment via the same code path. [block-forms-equivalent]
 A quoted block is DAML wrapped in quotes. A named block is syntactic
-sugar: the parser transforms `{begin foo | cmd}body{end foo}` into
-a pipeline where the body becomes a quoted block passed as the first
-value to `cmd`. [block-named-pipe] The name exists only for matching the end tag and
-readability.
+sugar: the parser transforms `{begin foo | pipeline}body{end foo}`
+by compiling the body into a block and prepending it as the first
+segment of `pipeline`. [block-named-pipe] So
+`{begin foo | >$greeting ||}body{end foo}` becomes
+`<body-block> | >$greeting ||`. The name exists only for matching
+the end tag.
 
 Named blocks do not automatically create a variable or squelch
 output. [block-named-no-squelch] To save one for reuse, pipe it explicitly:
@@ -3775,6 +3791,80 @@ wiring. A future extension could allow subspaces to have their
 own further-restricted dialects, giving finer-grained control.
 This would require dialect intersection at each space boundary
 instead of once at dock time.
+
+### Stronger normal forms
+
+The current normal forms for blocks and spaceseeds leave room
+for improvement. Several reductions could make identity checks
+more powerful:
+
+**Block normal form improvements:**
+  - **Variable renaming (alpha-equivalence).** `{3 | >x | _x}`
+    and `{3 | >y | _y}` compute the same thing but have
+    different normal forms because variable names differ. An
+    alpha-normalizing pass (rename all vars to canonical names
+    like `_0`, `_1` by binding order) would equate them.
+  - **Dead variable elimination.** `{3 | >x | 5}` — `_x` is
+    never read. The `>x` segment could be eliminated (it's
+    dead code), but the current normalizer only removes segments
+    not linked to the final output. `>x` is a VariableSet, which
+    is retained as a potential side-effect. A smarter pass could
+    prove `_x` is unread and remove it.
+  - **Constant folding.** `{3 | add 2}` could reduce to `{5}` at
+    compile time. The optimizer already does this for some cases
+    (OPT_simple_math), but the result is not reflected in the
+    normal form.
+
+**Spaceseed normal form improvements:**
+  - **Station/route ordering.** Reordering stations or routes
+    produces a different seed even if the topology is the same.
+    A canonical ordering (e.g., topological sort of stations,
+    lexicographic sort of routes) would equate these.
+  - **Port index normalization.** Port indices depend on
+    declaration order. Renumbering by canonical station/port
+    order would make the seed independent of declaration
+    sequence.
+
+Stronger normal forms improve deduplication (more sharing in the
+copy/paste/evolve model) and make identity checks more useful for
+caching, testing, and the future content-addressed editor (see
+below).
+
+**Interaction with `process quote`.** Stronger optimization
+changes what `process quote` returns: if `{3 | add 2}` is
+reduced to `{5}`, quoting it yields `"5"`. This is acceptable
+— `quote` returns the canonical form, not the original source.
+Block IDs remain the sole reference mechanism everywhere. If
+original source text is needed, it should be stored explicitly
+rather than carried implicitly on every block reference.
+
+**Pipeline variable optimization.** Pipeline vars could be
+renamed to canonical indices (`_0`, `_1`) or eliminated
+entirely (replaced with direct flow edges), producing stronger
+normal forms. The compiler can safely eliminate pvars when:
+
+  1. The block has no free pvars (all pvars are bound and read
+     within the same block), AND
+  2. The block contains no block-eval expressions (`process run`,
+     `list map`, etc.) — OR it does, but only with static blocks
+     that themselves do not invoke `process unquote`.
+
+When these conditions hold, no external code can reference the
+parent's pvar names, so renaming and elimination are safe. When
+they don't hold (dynamic `unquote` could revive a dead string
+referencing any name), pvar names must be preserved.
+
+**Dead string literals.** Currently all `"..."` in DAML source
+are live (compiled into blocks). There is no way to write a
+dead string containing DAML without first compiling it and then
+quoting it back. A dead string syntax (e.g., single quotes
+`'{3 | add 2}'`) would let authors store DAML text directly
+as inert data — never compiled, never optimized, exact text
+preserved. `process unquote` would bring it to life when
+needed. This cleanly separates "I want this text" from "I want
+this computation," and eliminates the tension between
+optimization and `process quote`: live blocks optimize freely;
+dead strings are untouched.
 
 ### Virtual round-trip pairing
 
