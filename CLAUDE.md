@@ -19,6 +19,11 @@ node tests/editor_test.mjs     # 84 editor module tests (tokens, context, comple
 
 All eight test suites must pass before any change is considered complete.
 
+## Local server
+
+HTML files are always available at `http://localhost:8080/new/daimio2/` — no need to
+launch a separate server. E.g. `http://localhost:8080/new/daimio2/demos/spaceeditor.html`.
+
 ## Test-driven development
 
 Always write a failing test first, before changing code, unless you can prove that a

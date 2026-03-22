@@ -675,12 +675,12 @@ test(
 // identical segment structures (same hash). quote should
 // return the source of THIS block, not the first-parsed synonym.
 test(
-  'quote preserves original source despite synonymization [blockid-same] [P-contentaddr]',
+  'quote preserves original source despite synonymization [quote-kills]',
   '{"{777}" | quote}',
   '{777}'
 )
 test(
-  'quote preserves original source for alias-like blocks [blockid-same] [P-contentaddr]',
+  'quote preserves original source for alias-like blocks [quote-kills]',
   '{"{xxx}" | quote}',
   '{xxx}'
 )

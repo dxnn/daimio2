@@ -201,13 +201,7 @@ them to its own boundary, or swallows them. Dialects restrict
 downward: an invited actor or loaded subspace can never exceed the
 host's permissions. This composes recursively to arbitrary depth.
 
-### Normal form and deduplication [P-contentaddr]
-The compiler produces a **structural normal form** for blocks and
-spaceseeds. Structurally equivalent code produces identical normal
-forms — the engine deduplicates automatically. See section 10
-"Block identity and normal form" and section 3 "Spaceseeds."
-Implementations SHOULD use content-addressing (hashing the
-canonical serialization) for efficient identity checks.
+
 
 ### Liveness [P-liveness]
 No process waits forever. Every down-port request has a finite
@@ -737,14 +731,9 @@ and initial state. A spaceseed is inert -- it does not process ships
 or hold live state. To run, it must be instantiated into a space
 (see Spaces below).
 
-It is a content-addressed data structure: the seed's identifier is
-derived from its content, so identical definitions produce the same
-seed. [seed-content-addr]
-
 ```
 spaceseed = {
-  id             : hash            -- content-based identifier
-  stations       : [BlockId]       -- compiled DAML blocks (1-indexed)
+  stations       : [Block]         -- compiled DAML blocks (1-indexed)
   ports          : [PortDescriptor] -- port declarations + implicit station ports
   fafRoutes      : [[int, int]]    -- FAF connections: pairs of port indices
   contracts      : [[int, int]]    -- contract connections: pairs of port indices
@@ -774,27 +763,12 @@ are added as extra ports: `station@left -> @out:result` creates a `left`
 port on the station, for instance. Routes are pairs of
 port indices connecting the topology.
 
-Subspaces are **referenced by ID**, not inline. A spaceseed's
-`subspaces` field is a map from names to seed IDs. The seed IDs
-point into a flat global table (`D.SPACESEEDS`). The same seed
-can be shared by multiple parent spaces.
+Subspaces are referenced by name. The same spaceseed can be
+shared by multiple parent spaces.
 
-Two spaceseeds are **identical** iff their normal forms are equal.
-Station blocks are referenced by their normalized block IDs (see
-section 10 "Block identity and normal form"), and subspaces by
-their seed IDs. So identity transitively covers the full
-structure — topology, blocks, and nested subspaces. Identical
-space definitions produce identical spaceseeds. [seed-content-addr]
-
-Implementations SHOULD use content-addressing (a hash of a
-canonical serialization) for efficient identity checks. The
-canonical serialization must sort map keys lexicographically.
-Any collision-resistant hash works.
-
-Note: spaceseeds are not currently normalized beyond block and
-subspace content-addressing. Reordering stations or routes
-would produce a different normal form even if the topology is
-equivalent.
+Spaceseed identity, normal forms, and content-addressing are
+implementation concerns — see §14 "Stronger normal forms." None
+of this is observable from inside DAML or Astroglot.
 
 Multiple spaces can share the same spaceseed -- each is
 instantiated into a live space (see Spaces below) with its own
@@ -927,7 +901,16 @@ ship = (value, sender?)
 ```
 
 A ship is a value being ferried between ports, optionally carrying
-a sender. When a ship arrives at a station's in-port, a process is
+a sender. The value can be any Val, including a block reference.
+Blocks travel freely on ships — within a space, across space
+boundaries, and out through the outermost boundary to the App.
+A block evaluated by any receiver runs under that receiver's
+effective dialect (P-uniformeval). Block references are valid
+within the Daimio instance that compiled them. If the App sends
+a block to a different instance, it must quote it to a string
+first (the block ID is instance-local).
+
+When a ship arrives at a station's in-port, a process is
 created to handle it (see section 10, Processes). When a process completes,
 it sends its result as a ship through the station's out-port. A
 single process may send multiple ships to different ports during its
@@ -2119,8 +2102,7 @@ When a serialized space arrives as a ship at a socket-in port: [socket-load]
 
   1. **Parse** the source text (space syntax) into a space
      definition.
-  2. **Compile** the definition into a spaceseed (content-addressed,
-     memoized in the global table).
+  2. **Compile** the definition into a spaceseed.
   3. **Instantiate** the spaceseed into a live subspace (with its
      own state store, queue, and recursively instantiated sub-subspaces).
      Ports are left unresolved -- they are demand-created on first
@@ -2838,37 +2820,12 @@ point to previously stored outputs. The first segment of a
 pipeline has no incoming flow edges (nothing feeds into it
 implicitly).
 
-### Block identity and normal form
-
-The compiler produces a **structural normal form** before
-hashing. The normalization (`wash_keys`) does:
-
-  1. **Dead code elimination**: segments not linked to the final
-     output are removed, except side-effectful segments
-     (VariableSet, PortSend, `run`) which are retained.
-  2. **Key renormalization**: segment keys are rebuilt as
-     sequential indices (0, 1, 2...) and wiring references are
-     rewritten to match. This strips parse-order keys, which
-     depend on the token counter and compilation context.
-  3. **Metadata stripping**: token metadata (prevkey, names,
-     inputs, original key) is removed. Only segment type and
-     value survive. [compile-normalize]
-
-Two blocks are **identical** iff their normal forms are equal.
-Two DAML strings that compile to the same sequence of segment
-types, values, and wiring produce identical blocks —
-regardless of surrounding context or compilation order.
-[blockid-same] Identical blocks are deduplicated automatically.
-[blockid-dedup]
-
-Implementations SHOULD use content-addressing (a hash of a
-canonical serialization with keys sorted lexicographically) for
-efficient identity checks — same as spaceseeds (see §3).
-
-Note: this is structural equivalence, not full semantic
-equivalence. Different variable names (`_a` vs `_b`) or
-reordered operations produce different normal forms even if they
-compute the same result.
+Block identity, normal forms, deduplication, and
+content-addressing are implementation concerns — see §14
+"Stronger normal forms" for the design direction.
+Implementations may normalize, hash, and deduplicate blocks
+however they choose; none of this is observable from inside
+DAML.
 
 ### Processes
 ```
@@ -3792,9 +3749,21 @@ own further-restricted dialects, giving finer-grained control.
 This would require dialect intersection at each space boundary
 instead of once at dock time.
 
-### Stronger normal forms
+### Normal forms, content-addressing, and deduplication
 
-The current normal forms for blocks and spaceseeds leave room
+Blocks and spaceseeds can be **normalized** — reduced to a
+canonical structural form. Implementations can then use
+**content-addressing** (hashing the canonical form) for
+efficient identity checks and **deduplication** (sharing
+compiled code across identical blocks/spaceseeds). None of this
+is observable from inside DAML — it is purely an optimization.
+
+The current implementation normalizes blocks via `wash_keys`
+(dead code elimination, key renormalization, metadata stripping)
+and hashes the result. Spaceseeds are hashed but not normalized
+beyond their block and subspace references.
+
+Several improvements could make normal forms stronger:
 for improvement. Several reductions could make identity checks
 more powerful:
 
@@ -3846,8 +3815,8 @@ normal forms. The compiler can safely eliminate pvars when:
   1. The block has no free pvars (all pvars are bound and read
      within the same block), AND
   2. The block contains no block-eval expressions (`process run`,
-     `list map`, etc.) — OR it does, but only with static blocks
-     that themselves do not invoke `process unquote`.
+     `list map`, etc.) -- OR it does, but only with literal blocks
+     that do not invoke `process unquote` or eval external values.
 
 When these conditions hold, no external code can reference the
 parent's pvar names, so renaming and elimination are safe. When
