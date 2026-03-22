@@ -781,8 +781,13 @@ can be shared by multiple parent spaces.
 A spaceseed's identity is the hash of its serialized form:
 
 ```
-spaceseed.id = hash(JSON.stringify(spaceseed))
+spaceseed.id = hash(canonical_serialize(spaceseed))
 ```
+
+Serialization must be **canonical**: map keys are sorted
+lexicographically before serialization. This ensures identical
+definitions produce identical hashes regardless of implementation
+language or insertion order.
 
 Station blocks are referenced by their normalized block IDs
 (see section 10 "Block identity and normal form"), and subspaces
@@ -844,6 +849,10 @@ These all refer to the same command.
 A command definition is either:
   Pure(c, params, fun)                             -- a pure command
   Effectful(c, params, portType)                   -- an effectful command
+
+A command execution produces one of two results:
+  Value(Val)         -- the command completed, here is the result
+  Async(port, cont)  -- the command initiated a port request; resume via cont
 ```
 
 Pure commands are total functions from params to Val. `math random`
@@ -1011,18 +1020,11 @@ Soft errors do NOT go through station ports. They route to the
 **space's** error port (`@out:err`), if one is declared in the space
 definition. See §12 for the full error model.
 
-**Named ports and `>@portname`.** A station's DAML can send ships
-to named ports using `>@portname`. But the port must be explicitly
-declared in the space definition's routes. The route
-`station@portname -> destination` creates the named port on the
-station. Without a route declaring it, the port does not exist,
-and `>@portname` sploots at runtime. [station-port-requires-route]
-
-This is a security boundary: the space definition controls which
-ports each station can send to. Code running inside a station
-(including unquoted programs from untrusted senders) cannot send
-to arbitrary ports -- only to ports that the space definition
-explicitly wired. The wiring is the gate.
+**Named ports and `>@portname`.** A station can send ships to
+named ports via `>@portname`, but only if a route declares it
+(`station@portname -> destination`). Without a route, `>@portname`
+sploots. [station-port-requires-route] This is a security
+boundary — untrusted code cannot send to arbitrary ports.
 
 The station itself is simple -- it's a block with `_in`, `_out`,
 plus any named ports declared by routes. All the interesting port
@@ -1166,13 +1168,9 @@ are effectful programs, executed one at a time per space
 > parameterized by an effect oracle (the handler responses).
 
 **From inside, a space cannot tell whether it is an outer space
-or a subspace.** [space-inside-opaque] The port interface is the same in both cases.
-Effectful commands produce port requests that propagate outward.
-Whether those requests reach a real-world handler or another
-space's wiring is invisible from inside. This is the foundation
-of testability: any space can be tested by nesting it inside a
-parent that provides mock handlers, and the space cannot tell the
-difference.
+or a subspace.** [space-inside-opaque] The port interface is
+identical; effectful commands propagate outward to handlers or
+wiring, indistinguishably.
 
 > **Algebraic aside.** Spaces compose because interpretation
 > composes. When space B is inside space A, A provides an algebra
@@ -1188,16 +1186,11 @@ A subspace depends on the parent for:
     the space's down-port requests are handled (section 6)
   - **Dialect**: inherited from the parent (see below)
 
-**Dialect propagation.** Every space has a dialect. Subspaces
-inherit their parent's dialect. [dialect-inherit-parent] The dialect is set explicitly
-only on the outer space; all subspaces get it by inheritance.
-This means there is one dialect for the entire hierarchy.
-Subspace restrictions come from wiring, not from dialect: if you
-don't want a subspace to access `db`, don't wire its `db` port.
-The dialect says "these commands exist." The wiring says "these
-effects are connected." Both must be true for an effectful
-command to work. A command in the dialect but with an unwired
-port sploots.
+**Dialect propagation.** Subspaces inherit their parent's dialect
+[dialect-inherit-parent]; only the outer space sets it explicitly.
+One dialect for the hierarchy. Subspace restrictions come from
+wiring: the dialect gates which commands exist, wiring gates
+which effects are connected. Both must be true.
 
 **PRNG.** The Daimio instance has a single pseudo-random number
 generator, shared by all spaces in the hierarchy. The seed is set
@@ -1208,13 +1201,9 @@ same execution order produces the same sequence across runs
 [random-seeded]. The PRNG state is internal -- not accessible
 via `$` variables [random-internal].
 
-Note: because the PRNG is per-instance, the sequence observed
-by a given space depends on how many `math random` calls other
-spaces in the hierarchy have made. Under the current serial
-model this is deterministic (execution order is fixed by the
-queue discipline). If concurrent sibling execution is introduced
-(§14), per-space PRNG would be needed to preserve
-reproducibility — see §14 "Per-space PRNG."
+Note: the sequence depends on `math random` call order across
+the hierarchy — deterministic under serial execution, but would
+need per-space PRNG under concurrency (see §14).
 
 A space is "self-reliant" -- it brings its own programs and state.
 But it is not self-sufficient: without wiring, its effects go
@@ -1601,10 +1590,9 @@ into S). `out` is the reverse.
 @out:err                          -- soft errors (see §12)
 ```
 
-One-way ports **multiplex** [port-multiplex]: an `in` port can
-receive from multiple sources; an `out` port fans out to all
-wired destinations (every ship is sent to every wire). This
-applies to station ports (`_in`, `_out`, `station@foo`) as well.
+One-way ports **multiplex** [port-multiplex]: `in` ports receive
+from multiple sources; `out` ports fan out to all wired
+destinations.
 
 One-way ports appear in FAF `->` chains only. They cannot
 participate in contracts `<->`.
@@ -1620,13 +1608,10 @@ toward my parent (requests go down to the parent),
 `up` points inward (requests come up from the parent).
 
 Round-trip ports have an in-side and an out-side fused together.
-Unlike one-way ports, round-trip ports are **point-to-point**
-[port-point-to-point]: exactly one wire in, exactly one wire
-out. Multiple wires to either side of an up or down port is an
-error (see "Space definition errors"). This constraint
-is what makes the one-in-one-out guarantee possible — if the
-out-side fanned out to multiple destinations, the contract
-("exactly one back") would be meaningless.
+Unlike one-way ports, they are **point-to-point**
+[port-point-to-point]: exactly one wire in, exactly one wire out
+(multiple wires is a bork). This enforces the one-in-one-out
+contract.
 
 Stations can also fulfill contracts (via `<->`) because each
 process is one-in-one-out with respect to `_in` and `_out`: one
@@ -1709,11 +1694,9 @@ process waits for response) but differ in how they're created
 (demand-created vs declared) and wired (pattern-matched vs
 explicit route).
 
-Demand-creation is necessary because:
-  1. Block evaluation can invoke arbitrary effectful commands at
-     runtime — the effect surface isn't known until the block runs
-  2. Serialized spaces loaded into sockets may have unknown effect
-     surfaces
+Demand-creation is necessary: block evaluation can invoke
+arbitrary commands at runtime, and socketed spaces may have
+unknown effect surfaces.
 
 **`@cmd` forwarding.** When a wiring rule targets `@cmd`
 (e.g., `S@cmd:*:* <-> @cmd`), the parent creates a matching
@@ -1770,8 +1753,6 @@ Specificity (highest to lowest):
   cmd:*:*        -- both wildcard (catch-all)
 ```
 
-Declaration order never matters — reordering wiring rules in
-the Astroglot source does not change behavior.
 
 Duplicate patterns are a bork, even with the same target.
 [wiring-no-duplicate]
@@ -1892,8 +1873,7 @@ the station that handles requests:
      becomes the response.
 
 **First-response semantics.** The up-port enforces one-in-one-out
-— the ghost ship rules apply (see "Ghost ships"
-above). The first response counts; extras are ghosts.
+— extra responses are ghost ships (see "Ghost ships" above).
 [upport-first-response] Even under serial execution, a request
 may trigger multiple stations (via deferred routing) that each
 produce ships reaching the out-side. Only the first counts.
@@ -1995,12 +1975,9 @@ variable from the parent's state store, and returns the value. If the
 parent doesn't wire these ports, the commands sploot -- the
 subspace simply can't access the parent's state.
 
-This is deliberately verbose: crossing a space boundary to access
-state is a significant action that should be visible in the
-topology. Note that `$foo` and `>$foo` in DAML always access the
-LOCAL space's state store -- they are pure segment types, not effectful
-commands. Only `var read-out` and `var write-out` cross
-boundaries, and only through ports [socket-crossboundary-var].
+Only `var read-out` and `var write-out` cross boundaries
+(effectful, via ports); `$foo` and `>$foo` are pure and local.
+[socket-crossboundary-var]
 
 
 ## 7. Async Boundaries
@@ -2169,7 +2146,10 @@ until the old one finishes its work:
   2. **Old subspace keeps running.** It finishes its active
      process, then processes every ship remaining in its queue,
      one at a time, in FIFO order. No new ships enter the old
-     subspace -- only its existing queue drains. [socket-overlap-drain]
+     subspace -- only its existing queue drains. Ships produced
+     by the old subspace's output routing (e.g., `_out` feeding
+     back) route to the **new** subspace, not the old one.
+     [socket-overlap-drain]
   3. **Old subspace is collected** when its queue is empty and
      no process is active. Its state is discarded. [socket-overlap-state-lost]
 
@@ -2426,6 +2406,17 @@ Examples:
 (1)       -> truthy                   (non-empty list)
 (()())    -> truthy                   (non-empty list of empty lists)
 ```
+
+### Collection equality
+
+Two values are equal if they have the same type and content:
+  - Numbers: numeric equality (0.0 == -0.0; NaN never equals anything)
+  - Strings: byte-for-byte equality
+  - Lists: same keyed/unkeyed status, same length, same entries
+    in the same order. For keyed lists, keys must match pairwise.
+    `{a:1, b:2}` ≠ `{b:2, a:1}` (different order).
+    A keyed list is never equal to an unkeyed list.
+  - Empty equals empty.
 
 ### Splooting
 
@@ -2864,10 +2855,11 @@ hashing. The normalization (`wash_keys`) does:
      inputs, original key) is removed. Only segment type and
      value survive. [compile-normalize]
 
-The normalized block is JSON-serialized and hashed:
+The normalized block is canonically serialized and hashed (keys
+sorted lexicographically, same as spaceseeds — see §3):
 
 ```
-block.id = hash(JSON.stringify(normalized_block))
+block.id = hash(canonical_serialize(normalized_block))
 ```
 
 Two DAML strings that compile to the same sequence of segment
@@ -3555,6 +3547,10 @@ to the error:
 @out:err                          -- errors exit the space
 @out:err dom-set-text error-box   -- errors update a DOM element
 ```
+
+**Error ship format.** The error ship's value is a string
+describing the error. The ship carries the process's sender
+(if any), so the receiver can identify who triggered it.
 
 If no `@out:err` port is declared, errors are silently dropped.
 [error-unwired-dropped] `@out:err` is for observability, not
