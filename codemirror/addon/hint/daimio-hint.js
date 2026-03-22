@@ -13,7 +13,9 @@
     if (ctx.completions.length === 1 && ctx.completions[0] === ctx.partial) return false
 
     return {
-      list: ctx.completions,
+      list: ctx.completions.map(function(c) {
+        return { text: c + ' ', displayText: c }
+      }),
       from: editor.posFromIndex(offset - ctx.partial.length),
       to: cur
     }

@@ -14,9 +14,10 @@ node tests/security_test.mjs    # 179 security tests (dialect, pollution, regex,
 node tests/space_test.mjs       # 108 space/topology tests (29 known failures)
 node tests/example_test.mjs     # 104 command example tests
 node tests/perf_test.mjs        # 21 performance regression benchmarks
+node tests/editor_test.mjs     # 84 editor module tests (tokens, context, completions)
 ```
 
-All seven test suites must pass before any change is considered complete.
+All eight test suites must pass before any change is considered complete.
 
 ## Test-driven development
 
@@ -93,6 +94,7 @@ Vars bound inside a block do NOT propagate back to the parent.
 daimio/
   1_daimio.js          — core: D object, helpers, Space, Process, Port, Dialect
   daimio.js            — entry point, imports everything, creates top-level dialect
+  editor.js            — shared editor support: tokenizer + cursor context (opt-in import)
   2_segtypes/          — segment types (lexer priority order: a-n)
     a_terminator.js    — terminators
     b_number.js        — number literals
@@ -123,9 +125,10 @@ daimio/
   aliases/             — built-in alias definitions
   lib/                 — third-party: murmurhash, seedrandom, setimmediate
 tests/
-  d2_spec_test.mjs     — spec alignment tests (332 tests)
+  d2_spec_test.mjs     — spec alignment tests (342 tests)
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
-  node_code.mjs        — internal JS-level tests (68 tests)
+  node_code.mjs        — internal JS-level tests (83 tests)
+  editor_test.mjs      — editor module tests (84 tests: tokens, context, completions)
   example_test.mjs     — command example tests (104 tests, auto-discovered)
   daimio.dm            — test definitions (text format)
   daimio.html          — browser REPL + test runner
@@ -233,6 +236,21 @@ draft at `extra/drafts/draft-round9.md`. All 9 intermediate drafts are in `extra
 **Next step:** Review `extra/drafts/draft-round9.md` against the original D2-spec.md,
 decide which changes to adopt, and replace D2-spec.md with the final version.
 
+## Current work: D2-spec.md deep review — ports/wiring/spaces (2026-03-21)
+
+Academic reviewer doing iterative passes over D2-spec.md (all sections). 10 passes complete.
+
+**Still-open issues (reported but not yet fixed):**
+- Pass 9.4: Port creation "in pairs" vs "outer space only" contradiction (lines ~1291 vs ~1298)
+- Pass 9.5: Example `{>x | ...}` contradicts pipeline-start rules
+- Pass 10.1: Pos selector grammar can't parse negative positions (`integer ::= [0-9]+` vs `#-1`)
+
+**Candidates identified for next pass (not yet formally reported):**
+- Block/string_literal grammar ambiguity: blocks unreachable under ordered-choice parsing
+- Trailing `|` has no transition rule (only trailing `||` does)
+- EffCmd transition rule omits request dispatch step
+- "a Val" claim after `|` false for pass-through segments
+
 ## Current work: Spec-aligned implementation (2026-03-20)
 
 Session focused on tactical spec alignment and test infrastructure:
@@ -259,13 +277,14 @@ Session focused on tactical spec alignment and test infrastructure:
 
 ## Test status
 
-- **d2_spec_test**: 351/351 pass
+- **d2_spec_test**: 342/342 pass
 - **daimio_test**: 843/843 pass (0 known failures)
 - **node_code**: 83/83 pass
 - **security_test**: 179/179 pass
-- **space_test**: 108/137 pass (29 known failures for unimplemented spec behaviors)
+- **space_test**: 107/130 pass (23 known failures for unimplemented spec behaviors)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
+- **editor_test**: 84/84 pass
 - **fuzz_test**: seed-dependent; stack overflows from self-referential blocks are the main finding
 
 ## Test-spec traceability (Phase 20)
@@ -382,7 +401,12 @@ node bin/repl.mjs -f file.dm   # run a .dm file as DAML, print result, exit
 - Type Daimio expressions at the `>` prompt, hit Enter on a blank line to execute
 - Supports multiline paste (buffered until blank line)
 - Soft errors display in red; `-e` and `-f` modes print errors to stderr
-- Tab completion: handlers/aliases after `{`, methods after handler, params after method
+- Syntax highlighting: warm colors for command structure (handler/method/alias/params),
+  cool colors for data (strings, numbers, variables, ports, braces, pipes)
+- Live autocomplete: completions + desc + help shown below prompt as you type
+- Tab cycles through completions with inverse-video highlight, space confirms selection
+- Single tab match inserts directly with trailing space
+- Uses `D.editor_context` from shared `daimio/editor.js` module
 - History persists across sessions in `~/.daimio_history` (up-arrow to recall)
 - Named blocks use pipe on `{begin}`, not `{end}`:
   `{begin foo | >$foo ||}{body}{end foo}`

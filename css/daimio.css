@@ -299,19 +299,19 @@ pre { font-family: Monaco, Menlo, Consolas, "Courier New", monospace; font-size:
   .CodeMirror-cursor { border-color: #ccc; }
   .CodeMirror-selected { background: #3a3a5c; }
   .CodeMirror-focused .CodeMirror-selected { background: #3a3a5c; }
-  .cm-s-default .cm-keyword { color: #c586c0; }
-  .cm-s-default .cm-atom { color: #9cdcfe; }
-  .cm-s-default .cm-number { color: #b5cea8; }
-  .cm-s-default .cm-def { color: #dcdcaa; }
-  .cm-s-default .cm-variable-2 { color: #9cdcfe; }
-  .cm-s-default .cm-variable-3 { color: #c586c0; }
-  .cm-s-default .cm-comment { color: #6a9955; }
-  .cm-s-default .cm-string { color: #ce9178; }
-  .cm-s-default .cm-bracket { color: #ffd700; }
-  .cm-s-default .cm-attribute { color: #9cdcfe; }
-  .cm-s-default .cm-builtin { color: #4ec9b0; }
-  .cm-s-default .cm-hr { color: #569cd6; }
-  .cm-s-default .cm-error { color: #f44747; }
+  .cm-s-default .cm-keyword { color: #e0a0e0; }
+  .cm-s-default .cm-atom { color: #b0e0ff; }
+  .cm-s-default .cm-number { color: #d0e8b0; }
+  .cm-s-default .cm-def { color: #f0d080; }
+  .cm-s-default .cm-variable-2 { color: #b0e0ff; }
+  .cm-s-default .cm-variable-3 { color: #e0a0e0; }
+  .cm-s-default .cm-comment { color: #88c070; }
+  .cm-s-default .cm-string { color: #e8b090; }
+  .cm-s-default .cm-bracket { color: #ffe050; }
+  .cm-s-default .cm-attribute { color: #b0e0ff; }
+  .cm-s-default .cm-builtin { color: #70e8c0; }
+  .cm-s-default .cm-hr { color: #80b8f0; }
+  .cm-s-default .cm-error { color: #ff6060; }
 
   /* CodeMirror hint dropdown */
   .CodeMirror-hints { background: #252525; border-color: #444; box-shadow: 0 4px 12px rgba(0,0,0,.5); }

@@ -1,7 +1,7 @@
 import D from './1_daimio.js'
 
 // Token regex — order matters: longer/more specific patterns first
-var TOKEN_RE = /"(?:[^"\\]|\\.)*"|[{}]|\|\||[|]|>@\w+|>\$\w+(?:\.\w+)*|\$\w+(?:\.\w+)*|>\w+|__in\b|__\b|_\w+|:\w+|\d+(?:\.\d+)?|[a-z]\w*/g
+var TOKEN_RE = /"(?:[^"\\]|\\.)*"|[{}()]|\|\||[|]|>@\w+|>\$\w+(?:\.\w+)*|\$\w+(?:\.\w+)*|>\w+|__in\b|__\b|_\w+|:\w+|\d+(?:\.\d+)?|[a-z]\w*/g
 
 function new_cmd() {
   return {
@@ -15,9 +15,16 @@ function new_cmd() {
   }
 }
 
-// Consume a value token in param_value phase → transition to param_name
-function consume_value(cmd) {
-  if (cmd && cmd.phase === 'param_value') cmd.phase = 'param_name'
+// Consume a value token in param_value phase → transition to param_name.
+// When `end` is provided, only transition if the token doesn't touch the
+// cursor boundary (the user might still be typing the value).
+// Structural delimiters like } and ) omit `end` to always transition.
+var _stopPos  // set by scan(), visible to consume_value
+function consume_value(cmd, end) {
+  if (cmd && cmd.phase === 'param_value') {
+    if (end !== undefined && end >= _stopPos) return
+    cmd.phase = 'param_name'
+  }
 }
 
 function resolve_alias(alias, cmd) {
@@ -46,12 +53,14 @@ function resolve_alias(alias, cmd) {
 
 function scan(text, stopPos) {
   if (stopPos === undefined) stopPos = text.length
+  _stopPos = stopPos
 
   var tokens = []
   var stack = []
   var inBrace = false
   var cmd = null
   var outsideStart = 0  // start of current outside-brace text region
+  var listDepth = 0     // depth of (...) list literals
 
   TOKEN_RE.lastIndex = 0
   var match
@@ -79,7 +88,14 @@ function scan(text, stopPos) {
         cmd = null; inBrace = false; outsideStart = end
       }
     }
+    else if (m === '(') {
+      if (inBrace) listDepth++
+    }
+    else if (m === ')') {
+      if (listDepth > 0) { listDepth--; if (listDepth === 0 && cmd) consume_value(cmd) }
+    }
     else if (!inBrace) { continue }  // skip — included in outside text region
+    else if (listDepth > 0) { continue }  // inside list literal — skip command phase changes
     else if (m === '||') {
       tokens.push({type: 'barrier', start: start, end: end})
       if (inBrace) cmd = new_cmd()
@@ -93,39 +109,39 @@ function scan(text, stopPos) {
     }
     else if (m[0] === '"') {
       tokens.push({type: 'string', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m.startsWith('>@')) {
       tokens.push({type: 'port_send', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m.startsWith('>$')) {
       tokens.push({type: 'svar_write', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m[0] === '$') {
       tokens.push({type: 'svar', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m === '__' || m === '__in') {
       tokens.push({type: 'implicit', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m[0] === '>' && m.length > 1) {
       tokens.push({type: 'pvar_write', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m[0] === '_') {
       tokens.push({type: 'pvar', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m[0] === ':') {
       tokens.push({type: 'name', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m[0] >= '0' && m[0] <= '9') {
       tokens.push({type: 'number', start: start, end: end})
-      consume_value(cmd)
+      consume_value(cmd, end)
     }
     else if (m[0] >= 'a' && m[0] <= 'z' && cmd) {
       // Bare word — classify by command phase
@@ -178,7 +194,7 @@ function scan(text, stopPos) {
       }
       else if (cmd.phase === 'param_value') {
         // Bare word as param value — consume and return to param_name
-        cmd.phase = 'param_name'
+        if (end < _stopPos) cmd.phase = 'param_name'
         tokens.push({type: 'text', start: start, end: end})
       }
     }
