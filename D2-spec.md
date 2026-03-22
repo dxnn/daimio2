@@ -900,15 +900,9 @@ ship = (value, sender?)
         sender   : Sender?          -- who sent this ship (optional)
 ```
 
-A ship is a value being ferried between ports, optionally carrying
-a sender. The value can be any Val, including a block reference.
-Blocks travel freely on ships — within a space, across space
-boundaries, and out through the outermost boundary to the App.
-A block evaluated by any receiver runs under that receiver's
-effective dialect (P-uniformeval). Block references are valid
-within the Daimio instance that compiled them. If the App sends
-a block to a different instance, it must quote it to a string
-first (the block ID is instance-local).
+A ship is a final value being ferried between ports, optionally
+carrying a sender. Ships carry only final values (see §10) —
+blocks are evaluated before leaving a station.
 
 When a ship arrives at a station's in-port, a process is
 created to handle it (see section 10, Processes). When a process completes,
@@ -2225,12 +2219,11 @@ number_literal ::= '-'? digit+ ('.' digit+)?    -- also exponential (3e10), hex 
 name_literal   ::= ':' name             -- e.g. :foo produces the string "foo" [parse-name-lit]
 list_literal   ::= '(' value* ')'       -- e.g. (1 2 3), (:a :b :c) [parse-list-lit]
 
--- Note: there is no separate block production. A block is a
--- string literal that gets compiled at parse time. All string
--- literals in DAML source are "live" — they are compiled into
--- blocks. See §11 "Code as data" for the live/dead lifecycle.
--- "{__ | add 1}" and "hello {$name}" are both string literals
--- syntactically; both are compiled into blocks. [parse-block-quoted]
+-- Note: there is no separate block production in the grammar.
+-- All "..." literals in DAML source are compiled into blocks
+-- at parse time (they are "live"). The same text arriving from
+-- Outside is a dead string. See "Blocks and strings" in §11.
+-- [parse-block-quoted]
 
 pvar_write ::= '>' name                 -- e.g. >result, >x -- NB NO path for pvar writes!
 pvar_read  ::= '_' name path?           -- e.g. _foo, _x.bar.#1
@@ -2303,13 +2296,26 @@ only rule, with no context-dependent escape processing.
 
 ### Values
 ```
-v in Val       -- numbers, strings, lists (the single universal collection)
+v in Val       ::= Number | String | List | Block | Empty
+v in FinalVal  ::= Number | String | List | Empty
 ```
 
-Values are the single data type. A collection is a universal data
-structure that supports ordered access (by position), keyed access
-(by string key), and nesting (values can contain other values to
-arbitrary depth).
+A **final value** is any Val except Block [val-final]:
+  - Ships carry only final values [ship-final-only]
+  - Station outputs (`_out`, `>@portname`) are final [station-output-final]
+  - Empty is a final value — it coerces only at command param
+    boundaries, not at station/ship boundaries [empty-is-final]
+
+**Block** and **String** are distinct types with a security
+boundary between them. Blocks are live (evaluable); strings are
+dead (inert). Blocks can live in pipelines and space variables,
+but cannot travel on ships [block-no-ship]. See "Blocks and
+strings" in §11 for the full lifecycle and privilege boundary.
+
+**Number**, **List**, and **Empty** round out the value types.
+A list is a universal collection supporting ordered access (by
+position), keyed access (by string key), and nesting to
+arbitrary depth.
 
 ### Collections: keyed and unkeyed
 
@@ -3060,48 +3066,56 @@ output. [block-named-no-squelch] To save one for reuse, pipe it explicitly:
 {$user | run block $greeting}
 ```
 
-### Code as data: quote, unquote, run
+### Blocks and strings
 
-DAML strings have a lifecycle between "live" (compiled, executable)
-and "dead" (raw text, inert).
+Blocks and strings are distinct Val types (see §10 Values).
+The distinction is a security boundary.
 
-**Live strings (blocks).** A string literal `"{$foo}"` in DAML
-source is compiled at parse time into a block [block-in-source-live].
-When evaluated (as a block parameter to a command, or via
-`process run`), it creates a sub-process and produces a result
-[run-evaluates].
+**Blocks are live.** A `"..."` literal in DAML source is
+compiled at parse time into a block [block-in-source-live].
+Blocks can be evaluated: passed to a block-typed param
+(`list map`, `process run`, etc.), they create a sub-process
+and produce a value [run-evaluates]. Blocks carry their source
+text for `process quote`.
 
-**Dead strings.** Strings that arrive from the outside world
-(user input, database, network) are raw text. They are NOT
-compiled and will NOT execute -- they're just data
-[dead-string-inert]. String transformation commands (like
-`string transform`) also kill live strings: they coerce the block
-to text, operate on it, and return a dead string
-[string-taints].
+**Strings are dead.** Strings that arrive from Outside (user
+input, network, database), from `process quote`, or from string
+commands are raw text [dead-string-inert]. They cannot be
+evaluated. Passing a string where a block is expected produces
+the string itself as a literal value — no compilation, no
+execution.
 
-**Quote** (`process quote`) takes a live string and returns the
-raw DAML text without evaluating it [quote-kills]. The block is
-coerced to its source text. Useful for inspecting DAML or passing
-it through string operations.
+**The syntax is shared.** `"..."` in source code always produces
+a block (compiled at parse time). The same text arriving as data
+from Outside is a string (dead). The syntax is identical; the
+type depends on origin.
 
-**Unquote** (`process unquote`) takes a dead string and compiles
-it into a live block [unquote-compiles]. This is the **privilege
-boundary**: it's the only runtime mechanism that turns data into
-executable code. If `unquote` is not in the sender's effective
-dialect, strings cannot become code [unquote-privilege].
+**Transitions between block and string:**
 
-**Run** (`process run`) evaluates a block, creating a sub-process
-under the current sender's effective dialect. The block inherits
-the parent's pipeline vars and sender.
+  - **quote** (`process quote`): block → string. Returns the
+    block's source text as a dead string [quote-kills].
+  - **unquote** (`process unquote`): string → block. Compiles
+    the string into a live block [unquote-compiles]. This is the
+    **privilege boundary** — the only runtime mechanism that
+    turns data into code. If `unquote` is not in the dialect,
+    strings are permanently inert [unquote-privilege].
+  - **run** (`process run`): evaluates a block, creating a
+    sub-process under the sender's effective dialect.
+  - **String commands** (e.g., `string transform`): block →
+    string. The block is coerced to its source text, the string
+    command operates on it, and the result is a dead string
+    [string-taints].
+  - **End of pipeline**: block → final value. The station's
+    pipeline always produces a final value
+    [block-end-of-pipe-eval]. Blocks never leave a station.
 
-The typical pattern for dynamic code execution:
+**Dynamic code execution** requires `unquote` — the sole gate:
 ```
 {$user_input | process unquote | process run}
 ```
-
-This compiles the string, then runs it. Both steps are required.
-Without `unquote`, the string stays inert. Without `run`, the
-block is just a value.
+Without `unquote`, the string stays dead. `process run` is a
+convenience for explicit evaluation; blocks also evaluate
+automatically in block-typed contexts and at end of pipeline.
 
 ### Parameter ordering
 
@@ -3229,14 +3243,61 @@ list     -- scalars wrap to single-element list; empty -> [] [coerce-list]
 string   -- numbers stringify; empty -> "" [coerce-string]
 number   -- strings coerce numerically; empty -> 0; NaN -> 0 [coerce-number]
 integer  -- like number, then rounded [coerce-integer]
-block    -- compiled block refs become evaluable; strings pass through [coerce-block]
-             (strings must be explicitly compiled via `process unquote`)
+block    -- see below [coerce-block]
 anything -- passed through (with empty normalization) [coerce-anything]
 
 either:A,B -- if the value matches type A, coerce as A; [coerce-either]
              otherwise coerce as B. Used for params that
              accept e.g. a block or a string key.
 ```
+
+**Block-typed contexts** are command params declared as type
+`block` (e.g., `list map`'s `block` param, `list reduce`'s
+`block`, `list filter`'s `block`, `logic if`'s `then`/`else`,
+`process run`'s `block`). The behavior depends on what arrives:
+
+  - **Block arrives**: the block is evaluated per invocation
+    (creating a sub-process each time). This is the normal case.
+  - **Non-block arrives** (string, number, list, empty): the
+    value is returned as-is for each invocation, without
+    evaluation.
+    `{(1 2 3) | map block 4}` → `[4,4,4]`.
+    `{(1 2 3) | map block "hello"}` → `["hello","hello","hello"]`.
+
+**String-typed contexts** are command params declared as type
+`string`. When a block arrives at a string-typed param, it is
+coerced to its source text. The block itself is not modified
+within the pipeline — the string context just reads the source
+text. [block-to-string]
+
+**Other-typed contexts** (number, list, etc.): a block arriving
+at a number-typed param is coerced to its source text, then to
+a number (typically 0). A block at a list-typed param is wrapped
+in a single-element list. These follow the standard coercion
+chain: block → string (source text) → target type.
+
+**Implicit contexts** where block evaluation or coercion occurs:
+
+  - **End of pipeline**: if a station's pipeline produces a
+    block, it is **evaluated** to produce a final value.
+    [block-end-of-pipe-eval] `{"{:hey}"}` → `"hey"`.
+  - **Template concatenation**: block segments in a template
+    are evaluated. [template-stringify]
+  - **Block-typed param receives non-block**: the value is
+    returned as-is, not evaluated. [block-param-nonblock]
+    `{(1 2 3) | map block 4}` → `[4,4,4]`.
+  - **String-typed param receives block**: coerced to source
+    text. The block itself is unchanged. [block-to-string]
+  - **Blocks inside lists**: blocks remain live within a
+    pipeline. A list is not a block, so passing it to a
+    block-typed param returns it as-is. Extract to evaluate:
+    [block-in-list-inert]
+    `{(1 "{__ | add 1}") | >x || map data (1 2 3) block _x}`
+    → `[[1,"{__ | add 1}"],...]`
+    `{... block _x.#2}` → `[2,3,4]`
+    At end of pipeline, blocks inside lists are coerced to
+    their source text as dead strings — the list must contain
+    only final values. [list-blocks-finalize]
 
 Passing `"hi"` to a param of type `list` produces `("hi")`, not
 an error. Passing `"hello"` to type `number` produces `0`. The
@@ -3538,9 +3599,18 @@ depends on configuration.
 
 ### Privilege escalation via block evaluation
 
-**Attack:** Alice stores a malicious block in a space variable.
-Bob's ship triggers `{$alice_block | process unquote | run}`.
-Bob has admin dialect. Alice's code runs under Bob's authority.
+**Attack:** Alice stores malicious code in a space variable.
+Two variants:
+  - **Block**: Alice has `unquote` in her dialect, creates a
+    live block, stores it via `>$x`. Bob's pipeline reads `$x`
+    — the block evaluates automatically (end of pipe, block-typed
+    context, etc.). No special commands needed on Bob's side.
+  - **String**: Alice stores a dead DAML string (no `unquote`
+    needed). Bob must use `unquote` to revive it:
+    `{$x | process unquote | process run}`.
+The gate is `unquote`: either Alice has it and uses it to create the
+block, or Bob has it and uses it to revive Alice's string. Without
+`unquote` on either side, the code is permanently inert.
 
 **Defense:** The sender's effective dialect is the intersection
 of sender.dialect and space.dialect (I4). Bob's process runs
@@ -3554,6 +3624,7 @@ more power than she designed for.
 converts strings to executable code. If `unquote` is not in the
 sender's dialect, arbitrary code blocks are inert strings. The
 restricted dialect blocks `unquote` by default.
+Bob shouldn't give `unquote` to Alice on his instance. And he should be very careful about applying `unquote`.
 
 ### Privilege escalation via socketed spaces
 
@@ -3803,9 +3874,8 @@ below).
 changes what `process quote` returns: if `{3 | add 2}` is
 reduced to `{5}`, quoting it yields `"5"`. This is acceptable
 — `quote` returns the canonical form, not the original source.
-Block IDs remain the sole reference mechanism everywhere. If
-original source text is needed, it should be stored explicitly
-rather than carried implicitly on every block reference.
+If original source text is needed, store it explicitly (e.g.,
+as a dead string in a space variable).
 
 **Pipeline variable optimization.** Pipeline vars could be
 renamed to canonical indices (`_0`, `_1`) or eliminated
@@ -3816,7 +3886,7 @@ normal forms. The compiler can safely eliminate pvars when:
      within the same block), AND
   2. The block contains no block-eval expressions (`process run`,
      `list map`, etc.) -- OR it does, but only with literal blocks
-     that do not invoke `process unquote` or eval external values.
+     that do not invoke `process unquote` or eval space vars.
 
 When these conditions hold, no external code can reference the
 parent's pvar names, so renaming and elimination are safe. When
