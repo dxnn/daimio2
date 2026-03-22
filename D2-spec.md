@@ -521,7 +521,6 @@ property     ::= port_decl
                | station_decl
                | wire_decl
                | state_decl
-               | timeout_decl
 
 -- Ports -------------------------------------------------------
 
@@ -547,11 +546,11 @@ faf          ::= endpoint ('->' endpoint)+
                                         -- FAF: fire-and-forget [spacesyn-route]
 contract     ::= endpoint '<->' endpoint
                                         -- contract: one out, one back
-cmd_wire     ::= name '@cmd:' glob '<->' endpoint (WS duration)?
-               | name '@cmd:' glob '<->' '@cmd' (WS duration)?
+cmd_wire     ::= name '@cmd:' glob '<->' endpoint (WS integer)?
+               | name '@cmd:' glob '<->' '@cmd' (WS integer)?
                | name '@cmd:' glob
                                         -- wiring, forwarding, or explicit sploot
-                                        -- optional trailing duration is per-wire timeout
+                                        -- optional trailing integer is timeout in ms
 glob         ::= (name | '*') (':' (name | '*'))*
                                         -- e.g. time:*, *:*, var:read-out
 
@@ -561,11 +560,6 @@ state_decl   ::= '$' name (WS json_value)?
                                         -- $count 0, $items [1,2,3] [spacesyn-state]
                                         -- value is JSON; if omitted, var is not set
                                         -- invalid JSON is a bork
-
--- Timeout -----------------------------------------------------
-
-timeout_decl ::= 'timeout' WS duration  -- timeout 10s (space default timeout)
-duration     ::= integer ('s' | 'ms')   -- e.g. 10s, 500ms
 
 -- Endpoints ---------------------------------------------------
 
@@ -589,6 +583,11 @@ indent       ::= ' '+                   -- deeper than parent level
 comment      ::= '/' .*                 -- rest of line ignored
 blank        ::= WS? NL                 -- ignored
 ```
+
+Implementations SHOULD enforce reasonable size limits on names,
+strings, state values, and other tokens to prevent resource
+exhaustion. The grammar defines syntax; the implementation
+defines capacity.
 
 **Subspaces** are referenced in wire endpoints by name. A
 subspace must be defined earlier in the file than the space that
@@ -737,7 +736,6 @@ spaceseed = {
   wiringRules    : [WiringRule]    -- cmd port pattern-matching rules
   subspaces      : name -> SpaceseedId  -- nested spaceseeds (by name)
   state          : key -> Val      -- initial space variable values
-  defaultTimeout : Duration?       -- space-level default timeout
 }
 
 PortDescriptor = {
@@ -750,7 +748,7 @@ PortDescriptor = {
 WiringRule = {
   pattern    : glob            -- e.g. "cmd:time:*", "cmd:*:*"
   target     : int | '@cmd'    -- port index of target, or @cmd forwarding
-  timeout    : Duration?       -- per-wire timeout override
+  timeout    : int?            -- per-wire timeout in ms (overrides instance default)
 }
 ```
 
@@ -1196,6 +1194,8 @@ The outer application creates an outer space by:
      subspaces, initializing state stores and queues)
   3. Assigning a base dialect (what commands are available)
   4. Providing a PRNG seed (or accepting the default)
+  5. Providing a default timeout in ms (or accepting the system
+     default of 10000ms)
 
 The outermost ports get their behavior from their **port
 flavours** (see "Port flavours" above). An in-port with
@@ -1732,9 +1732,9 @@ Duplicate patterns are a bork, even with the same target.
 rule [wiring-other-fallback]. If no rule matches at all, the
 command sploots.
 
-The space's `defaultTimeout` (from the space definition) applies
-to all wiring rules unless individually overridden.
-[wiring-default-timeout]
+The instance default timeout (set by the App at creation) applies
+to all wiring rules unless individually overridden with a trailing
+integer in ms. [wiring-default-timeout]
 
 The target of a wiring rule is one of:
   - A **station** in the same space (the station handles the
@@ -1855,19 +1855,20 @@ routes elsewhere), the requester's timeout handles it (section
 
 ### Example wiring
 
-**Command port wiring** (pattern matching):
+**Command port wiring** (assuming subspaces `s` and `t` defined
+earlier, and a default timeout of 15000ms set by the App):
 ```
-Parent space A contains subspaces S and T.
-A.defaultTimeout = 15s
-
-A's wiring rules for S:
-  S@cmd:time:*  <-> T@up:time              -- sibling serves time
-  S@cmd:var:*                              -- not wired (sploots)
-  S@cmd:*:*     <-> @down:fwd              -- forward everything else
+outer
+  s@cmd:time:*  <-> t@up:time              -- sibling serves time
+  s@cmd:var:*                              -- not wired (sploots)
+  s@cmd:*:*     <-> @down:fwd 30000        -- forward, 30s per-wire timeout
 ```
 
-Time commands from S are served by sibling T. Var commands are
-blocked. Everything else is forwarded outward through A's own
+The instance default timeout (set by the App at creation) applies
+to all wires unless overridden. The `30000` on the last rule
+overrides it for that wire. Time commands from `s` are served by
+`t` (inherits the instance default). Var commands sploot. Everything else
+is forwarded outward through the space's own
 `@down:fwd` port.
 
 **Declared up-port** (station coordination via `->` chain):
