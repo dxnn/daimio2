@@ -365,6 +365,56 @@ var r_orphan = render(laid_orphan)
 test('orphan: renders', typeof r_orphan, 'string')
 test('orphan: has station source', r_orphan.indexOf('{orphan}') >= 0, true)
 
+// === Cycle: topo_sort detects back-edges ===
+var def_cycle = [
+  'cyc',
+  '  @in',
+  '  @out',
+  '  counter {count}',
+  '  sleeper {sleep}',
+  '  @in -> counter',
+  '  counter -> sleeper',
+  '  sleeper -> counter',
+  '  counter -> @out'
+].join('\n')
+var sl_cyc = D.seedlikes_from_string(def_cycle)
+var topo_cyc = extract('cyc', sl_cyc.cyc)
+var sorted_cyc = topo_sort(topo_cyc)
+test('cycle: topo_sort succeeds', sorted_cyc.layers.length >= 1, true)
+test('cycle: has back_edges', sorted_cyc.back_edges.length >= 1, true)
+test('cycle: all components have layers',
+  topo_cyc.stations.every(function(s) { return sorted_cyc.layer_of[s.id] !== undefined }), true)
+
+// === Cycle: layout renders without crashing ===
+var laid_cyc = layout(topo_cyc)
+test('cycle layout: has elements', laid_cyc.elements.length > 0, true)
+test('cycle layout: has both stations',
+  laid_cyc.elements.filter(function(e) { return e.type === 'station' }).length, 2)
+var r_cyc = render(laid_cyc)
+test('cycle render: is string', typeof r_cyc, 'string')
+test('cycle render: has both sources', r_cyc.indexOf('{count}') >= 0 && r_cyc.indexOf('{sleep}') >= 0, true)
+test('cycle render: has back-edge routing',
+  r_cyc.split('\n').some(function(line) { return line.indexOf('---') >= 0 }), true)
+
+// === Cycle: self-loop ===
+var def_self = [
+  'self',
+  '  @in',
+  '  @out',
+  '  proc {x}',
+  '  @in -> proc',
+  '  proc -> proc',
+  '  proc -> @out'
+].join('\n')
+var sl_self = D.seedlikes_from_string(def_self)
+var topo_self = extract('self', sl_self.self)
+var sorted_self = topo_sort(topo_self)
+test('self-loop: topo_sort succeeds', sorted_self.layers.length >= 1, true)
+test('self-loop: has back_edge', sorted_self.back_edges.length >= 1, true)
+var r_self = render_space('self', sl_self.self)
+test('self-loop: renders', typeof r_self, 'string')
+test('self-loop: has station', r_self.indexOf('{x}') >= 0, true)
+
 // Report
 console.log('space_ascii_test: ' + pass + '/' + (pass + fail) + ' passed')
 if (failures.length) {

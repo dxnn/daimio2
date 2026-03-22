@@ -142,7 +142,7 @@ export function topo_sort(topology) {
   }
 
   if (comp_ids.length === 0)
-    return { layers: [], layer_of: {} }
+    return { layers: [], layer_of: {}, back_edges: [] }
 
   // Build predecessor lists (component → component edges only)
   var in_edges = {}
@@ -155,19 +155,26 @@ export function topo_sort(topology) {
       in_edges[c.to.id].push(c.from.id)
   }
 
-  // Longest-path layering via recursive DFS
+  // Longest-path layering via recursive DFS (three-state for cycle detection)
   var layer_of = {}
-  var visited = {}
+  var state = {}        // 0=unvisited, 1=in-progress, 2=done
+  var back_edges = []
   function longest_path(id) {
-    if (visited[id]) return layer_of[id]
-    visited[id] = true
+    if (state[id] === 2) return layer_of[id]
+    if (state[id] === 1) return -1  // cycle: back-edge
+    state[id] = 1
     var max_pred = -1
     var preds = in_edges[id]
     for (var i = 0; i < preds.length; i++) {
       var pred_layer = longest_path(preds[i])
+      if (pred_layer === -1) {
+        back_edges.push([preds[i], id])
+        continue
+      }
       if (pred_layer > max_pred) max_pred = pred_layer
     }
     layer_of[id] = max_pred + 1
+    state[id] = 2
     return layer_of[id]
   }
 
@@ -184,7 +191,7 @@ export function topo_sort(topology) {
   for (var i = 0; i < comp_ids.length; i++)
     layers[layer_of[comp_ids[i]]].push(comp_ids[i])
 
-  return { layers: layers, layer_of: layer_of }
+  return { layers: layers, layer_of: layer_of, back_edges: back_edges }
 }
 
 export function layout(topology) {
@@ -227,6 +234,12 @@ export function layout(topology) {
   var sorted = topo_sort(topology)
   var layers = sorted.layers
   var layer_of = sorted.layer_of
+  var back_edges = sorted.back_edges || []
+
+  // Build back-edge lookup set for skipping in main routing
+  var back_edge_set = {}
+  for (var i = 0; i < back_edges.length; i++)
+    back_edge_set[back_edges[i][0] + '|' + back_edges[i][1]] = true
 
   // ── Adjacency lookups ────────────────────────────────────────────────
   // forward_comp: comp_id → [conn] outgoing to other comps
@@ -374,6 +387,8 @@ export function layout(topology) {
       elements.push({ type: 'port', x: rx + HLINE_GAP, y: wy, dir: 'right', key: port_by_id[tid].key })
 
     } else if (is_comp(fid) && is_comp(tid)) {
+      // Skip back-edges — routed separately below
+      if (back_edge_set[fid + '|' + tid]) continue
       // Component → component
       var src_row = row_of[fid]
       var dst_row = row_of[tid]
@@ -403,6 +418,35 @@ export function layout(topology) {
     }
   }
 
+  // ── Route back-edges (cycle connections) ────────────────────────────
+  // Back-edges go from a later (or same) layer back to an earlier layer.
+  // Route as U-shape below all component rows:
+  //   from right edge → down → horizontal at back_y → up → to left edge
+
+  for (var i = 0; i < back_edges.length; i++) {
+    var be_from = back_edges[i][0]
+    var be_to = back_edges[i][1]
+    var back_y = HEADER_HEIGHT + total_rows * ROW_HEIGHT + i
+    var from_x = comp_right(be_from)
+    var to_x = layer_x[layer_of[be_to]]
+    var from_wy = wire_y(row_of[be_from])
+    var to_wy = wire_y(row_of[be_to])
+
+    // Vertical down from source wire row to back-edge row
+    if (back_y > from_wy)
+      elements.push({ type: 'vline', x: from_x, y: from_wy, length: back_y - from_wy + 1 })
+    // Horizontal across at back-edge row
+    var left_x = Math.min(from_x, to_x)
+    var right_x = Math.max(from_x, to_x)
+    if (right_x > left_x)
+      elements.push({ type: 'hline', x: left_x, y: back_y, length: right_x - left_x })
+    // Vertical up from back-edge row to target wire row
+    if (back_y > to_wy)
+      elements.push({ type: 'vline', x: to_x, y: to_wy, length: back_y - to_wy + 1 })
+  }
+
+  var back_edge_rows = back_edges.length
+
   // ── Standalone ports (not in any connection) ─────────────────────────
 
   var left_ports = []
@@ -430,7 +474,7 @@ export function layout(topology) {
   // ── Standalone port rows ─────────────────────────────────────────────
 
   var port_rows = Math.max(left_ports.length, right_ports.length)
-  var sy = HEADER_HEIGHT + total_rows * ROW_HEIGHT
+  var sy = HEADER_HEIGHT + total_rows * ROW_HEIGHT + back_edge_rows
   var li = 0, ri = 0
   while (li < left_ports.length || ri < right_ports.length) {
     if (li < left_ports.length) {
@@ -458,8 +502,8 @@ export function layout(topology) {
 
   // ── Height and box ───────────────────────────────────────────────────
 
-  var height = HEADER_HEIGHT + total_rows * ROW_HEIGHT + port_rows + state_rows + 1
-  if (total_rows === 0 && port_rows === 0 && state_rows === 0) height = 3
+  var height = HEADER_HEIGHT + total_rows * ROW_HEIGHT + back_edge_rows + port_rows + state_rows + 1
+  if (total_rows === 0 && port_rows === 0 && state_rows === 0 && back_edge_rows === 0) height = 3
 
   elements.unshift({ type: 'box', x: 0, y: 0, width: width, height: height })
   elements.splice(1, 0, { type: 'label', x: 2, y: 1, text: name })
@@ -470,7 +514,12 @@ export function layout(topology) {
 export function render(laid_out) {
   var w = laid_out.width
   var h = laid_out.height
-  var elements = laid_out.elements
+  var elements = laid_out.elements.slice()
+
+  // Sort elements so stations/subspace_boxes draw after hlines/vlines
+  // (later elements overwrite earlier ones on the grid)
+  var render_order = { box: 0, label: 1, text: 1, port: 1, hline: 2, vline: 2, station: 3, subspace_box: 3 }
+  elements.sort(function(a, b) { return (render_order[a.type] || 0) - (render_order[b.type] || 0) })
 
   // Create 2D grid filled with spaces
   var grid = []
