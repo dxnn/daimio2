@@ -761,7 +761,7 @@ PortDescriptor = {
 }
 
 WiringRule = {
-  pattern    : glob            -- e.g. "time:*", "*:*"
+  pattern    : glob            -- e.g. "cmd:time:*", "cmd:*:*"
   target     : int | '@cmd'    -- port index of target, or @cmd forwarding
   timeout    : Duration?       -- per-wire timeout override
 }
@@ -774,9 +774,9 @@ port on the station, for instance. Routes are pairs of
 port indices connecting the topology.
 
 Subspaces are **referenced by ID**, not inline. A spaceseed's
-`subspaces` field is an array of IDs pointing into a flat global
-table (`D.SPACESEEDS`). The same seed can be shared by
-multiple parent spaces.
+`subspaces` field is a map from names to seed IDs. The seed IDs
+point into a flat global table (`D.SPACESEEDS`). The same seed
+can be shared by multiple parent spaces.
 
 A spaceseed's identity is the hash of its serialized form:
 
@@ -831,6 +831,15 @@ Aliases are purely syntactic -- they expand before any execution
 happens, and the expanded form must be valid under the same dialect. [dialect-alias-expand]
 
 ### Commands
+
+A command is identified by a handler and a method. Three notations
+appear in the spec depending on context:
+  - **Dot notation** (`math.add`) — in formal domains and identifiers
+  - **DAML syntax** (`math add`) — in pipeline source text
+  - **Port name** (`cmd:math:add`) — in wiring rules for effectful commands
+
+These all refer to the same command.
+
 ```
 A command definition is either:
   Pure(c, params, fun)                             -- a pure command
@@ -1194,9 +1203,18 @@ port sploots.
 generator, shared by all spaces in the hierarchy. The seed is set
 at instance creation time: the App provides a seed, or Daimio
 injects a default. `math random` is a pure command -- it reads
-and advances the PRNG state deterministically. Same seed produces
-the same sequence across runs [random-seeded]. The PRNG state is
-internal -- not accessible via `$` variables [random-internal].
+and advances the PRNG state deterministically. Same seed and
+same execution order produces the same sequence across runs
+[random-seeded]. The PRNG state is internal -- not accessible
+via `$` variables [random-internal].
+
+Note: because the PRNG is per-instance, the sequence observed
+by a given space depends on how many `math random` calls other
+spaces in the hierarchy have made. Under the current serial
+model this is deterministic (execution order is fixed by the
+queue discipline). If concurrent sibling execution is introduced
+(§14), per-space PRNG would be needed to preserve
+reproducibility — see §14 "Per-space PRNG."
 
 A space is "self-reliant" -- it brings its own programs and state.
 But it is not self-sufficient: without wiring, its effects go
@@ -1269,20 +1287,23 @@ flavour provides:
 #### Port lifecycle
 
 Every port has an **inside** (facing the space) and an
-**outside** (facing the parent or real world). The runtime
-creates ports in pairs: an inside port (with a `space`) and
-an outside port (without). The pair is linked via `pairup`.
+**outside** (facing the parent or real world), linked via
+`pairup`. All ports are paired — the difference is who creates
+the outside port:
 
 **Creation** — when a space is instantiated from a spaceseed
 [flavour-create]:
 
   1. For each port in the spaceseed, the inside port is created.
-  2. On the outer space (no parent), an outside port is also
-     created for each space-level port. The flavour's
-     `outside_add()` method is called — this is where the
-     flavour connects to the real world (bind a DOM listener,
-     open a socket connection, etc.).
-  3. The inside and outside ports are paired.
+  2. **Outer space ports** (no parent): the runtime creates the
+     outside port and pairs it immediately. The flavour's
+     `outside_add()` is called on the outside port — this is
+     where the flavour connects to the real world (bind a DOM
+     listener, open a socket connection, etc.).
+  3. **Subspace ports**: the parent creates a matching outside
+     port and pairs it when the subspace is wired. No
+     `outside_add()` — the parent's wiring handles the
+     connection.
 
 **Ship flow** — when a ship reaches a port [flavour-ship-flow]:
 
@@ -1428,8 +1449,10 @@ station's block with the effective dialect (see §4 Senders). The
 process goes through these phases:
 
   1. **Dock**: ship arrives at station's in-port, process is created
-     with the ship's sender (if any), effective dialect, and
-     `__in` initialized to the ship's value [dunderin-dock]
+     with the ship's sender (if any), effective dialect,
+     `__in` initialized to the ship's value [dunderin-dock],
+     and `v` initialized to `absent` (no implicit fill on first
+     segment — see §11)
   2. **Execute**: process runs the block's segments sequentially
   3. **Wait** (if effectful command): process waits for a response
      via a down-port -- the space remains busy
@@ -1719,14 +1742,9 @@ Wiring rules govern command ports. They are declared in the
 parent space and pattern-match against the command port name
 (`cmd:handler:method`). [wiring-pattern-match]
 
-```
-WiringRule = (pattern, target, timeout?)
-
-pattern  ::= glob               -- e.g. cmd:time:*, cmd:*:*, cmd:var:read-out
-timeout? : Duration             -- explicit timeout for this wire
-                                   (if absent, inherited from nearest outer
-                                   wire with a value, or system default 10s)
-```
+Wiring rules match glob patterns against `cmd:handler:method`
+port names (see WiringRule in §3 Spaceseeds for the formal
+definition). Each rule has an optional per-wire timeout.
 
 Patterns use `*` as a wildcard. Matching is simple string
 matching on the port name:
@@ -1999,7 +2017,9 @@ mechanics" for the full round-trip lifecycle.
   c is Effectful(c, params, portType)
   args' = fillImplicit(args, process.v)       -- same filling as PureCmd
   p = resolveOrCreatePort(space, portType)    -- see section 6
+  request = ship(c, args', process.sender)    -- pack command + params + sender
   ---
+  send request through p                      -- dispatch to handler/sibling/parent
   (process, state) --[EffCmd(c, args')]--> WAIT(p, process, continuation)
 ```
 
@@ -2026,15 +2046,8 @@ will wait for a response before splooting.
 
 #### Timeout values
 
-```
-Wire = {
-  pattern   : WiringPattern,
-  target    : WiringTarget,
-  timeout?  : Duration          -- explicit timeout, or inherited
-}
-```
-
-A wire's **nominal timeout** is determined by:
+A wiring rule's **nominal timeout** (see WiringRule in §3) is
+determined by:
   1. Its own explicit timeout value, if set.
   2. Otherwise, inherited from the nearest enclosing wire in the
      chain that has an explicit value. [timeout-inherit]
@@ -2212,20 +2225,27 @@ Classify: when a balanced span '{...}' is found:
      includes '{begin NAME...}' when no matching '{end NAME}' is
      found [parse-begin-no-end].)
 
-pipeline   ::= segment (pipe segment)*
+pipeline   ::= segment (pipe segment)* pipe?
+                                        -- trailing || returns empty [pipe-trailing-empty]
+                                        -- trailing | is a no-op (returns process.v unchanged)
 
 pipe       ::= '|'                      -- normal:  implicit value (chi) flows
              | '||'                     -- barrier: implicit value is blocked
 
 segment    ::= command_call
-             | literal
+             | string_literal
+             | number_literal
+             | name_literal
              | list_literal
-             | block
+             | implicit_ref
              | pvar_read
              | pvar_write
              | svar_read
              | svar_write
              | port_send
+
+implicit_ref ::= '__in' path?          -- pipeline input (fixed for whole block)
+               | '__' path?            -- previous segment's output (compiled to flow edge)
 
 command_call ::= handler method (param_name value)*
 
@@ -2236,10 +2256,10 @@ param_name ::= name                     -- e.g. value, to, block
 
 value      ::= string_literal
              | number_literal
+             | list_literal
              | pvar_read
              | svar_read
              | command
-             | block
              | name_literal
 
 string_literal ::= '"' (char | command | namedblock)* '"'   [parse-string-interpolation]
@@ -2248,8 +2268,12 @@ number_literal ::= '-'? digit+ ('.' digit+)?    -- also exponential (3e10), hex 
 name_literal   ::= ':' name             -- e.g. :foo produces the string "foo" [parse-name-lit]
 list_literal   ::= '(' value* ')'       -- e.g. (1 2 3), (:a :b :c) [parse-list-lit]
 
-block      ::= '"{' pipeline '}"'       -- a quoted pipeline as a value [parse-block-quoted]
-             | '"' daml '"'             -- a quoted DAML template as a value (those quotes are hard to parse)
+-- Note: there is no separate block production. A block is a
+-- string literal that gets compiled at parse time. All string
+-- literals in DAML source are "live" — they are compiled into
+-- blocks. See §11 "Code as data" for the live/dead lifecycle.
+-- "{__ | add 1}" and "hello {$name}" are both string literals
+-- syntactically; both are compiled into blocks. [parse-block-quoted]
 
 pvar_write ::= '>' name                 -- e.g. >result, >x -- NB NO path for pvar writes!
 pvar_read  ::= '_' name path?           -- e.g. _foo, _x.bar.#1
@@ -2260,7 +2284,7 @@ port_send  ::= '>@' name                -- send to a named station port
 
 path       ::= ('.' selector)*          -- paths can also be expressed as lists
 selector   ::= name                     -- Key: a literal key: .foo, .12
-             | '#' integer              -- Pos: a positional (1-based) index: .#1, .#-1
+             | '#' '-'? integer         -- Pos: 1-based index (.#1), negative from end (.#-1)
              | '*'                      -- Star: all children
              | command                  -- evaluated: .{math add value 1 to 2}
 ```
@@ -2311,7 +2335,7 @@ only rule, with no context-dependent escape processing.
 {3 | math add value 2}                           -- pure command: 5
 {(1 2 3) | list map block "{__ | math add value 1}"}  -- [2, 3, 4]
 {$user.name | string uppercase}                  -- path + command
-{>x | user fetch id :bob | _x}                   -- save, effect, restore
+{__ | >x | user fetch id :bob | _x}               -- save, effect, restore
 {:hello | >@spaceout}                            -- send to space port
 {begin roe}{$name}: {$score}{end roe}            -- named template block
 {$count | >@notify ||}                           -- send ship, no output
@@ -2859,12 +2883,13 @@ the same result.
 
 ### Processes
 ```
-process = (space, block, state, pipeline_vars, current, asynced,
+process = (space, block, v, state, pipeline_vars, current, asynced,
            sender?, effective_dialect)
   where space             : Space          -- the enclosing space
         block             : Block          -- the block being executed
+        v                 : Val | absent   -- current pipe value (for implicit filling)
         state             : key -> Val     -- segment outputs and scope vars
-        pipeline_vars     : PVar -> Val    -- pipeline variable bindings
+        pipeline_vars     : PVar -> Val    -- pipeline variable bindings (write-once)
         current           : int            -- current segment index
         asynced           : bool           -- waiting for async response?
         sender            : Sender?        -- who sent the originating ship
@@ -2985,10 +3010,13 @@ does not implicitly fill a parameter in the first segment of the
 pipeline, but is accessible via `__`. It is also accessible as
 `__in` within any segment in that pipeline -- a fixed value, unlike
 `__`, which updates after each segment. [pipe-dunderin] Note that
-`__` is not a pipeline variable — it is the implicit pipe value
-(`process.v`), which updates every segment. All actual `_` vars
-are write-once and resolved at compile time into direct flow
-edges. This example takes the input
+`__` is not a pipeline variable. It is compiled into a direct
+flow edge to the previous segment's output (see §10 "Block
+compilation"). After `|`, `__` coincides with `process.v`. After
+`||` or at pipeline start, they diverge: `process.v` is `absent`
+but `__` still holds the previous segment's output (or `__in`).
+All actual `_` vars are write-once and also resolved at compile
+time into direct flow edges. This example takes the input
 value, adds 1, adds the
 input value again, and then adds that value to itself, yielding
 `(6 10 14)`.
@@ -3165,11 +3193,12 @@ We write:
 to mean: executing segment seg with process state `process` and
 space variable store `state` produces new process state `process'` and
 new store `state'`. Here `process.v` is the current pipeline value and
-`process.env` is the pipeline variable bindings.
+`process.env` is shorthand for `process.pipeline_vars`.
 
 **The pipe value `process.v` is either a Val or `absent`.** [pipe-absent]
 At the start of a pipeline, `process.v = absent`. After `|`, it holds
-the previous segment's output (a Val). After `||`, it is reset to
+the previous segment's output (a Val, or still `absent` if the
+segment was a pass-through like `>x`). After `||`, it is reset to
 `absent`. The `absent` state has two roles:
 
   1. **Implicit parameter filling:** when `process.v` is absent, no
@@ -3263,16 +3292,17 @@ match any declared param are compiled but never consumed -- the
 command executes as if they weren't there.
 
 
-**Dialect check:** if c is not in effective_dialect.commands, the command
-sploots instead of executing. [dialect-cmd-sploot] This is a
-value-producing sploot, not a pass-through: the blocked command produces
-nothing, so the pipeline gets the empty value (just like an unwired
-effectful command or a missing required param).
+**Dialect check:** if c is not in effective_dialect.commands, the
+command sploots instead of executing — regardless of whether it
+is pure or effectful. [dialect-cmd-sploot] The dialect check
+happens before the pure/effectful distinction. This is a
+value-producing sploot: the blocked command produces nothing, so
+the pipeline gets the empty value.
 
 ```
   c not in effective_dialect.commands
   ---
-  (process, state) --[PureCmd(c, args)]--> (process{v := empty}, state)
+  (process, state) --[PureCmd(c, args) or EffCmd(c, args)]--> (process{v := empty}, state)
   emit soft error: {type: "dialect_blocked", command: c}
 ```
 
