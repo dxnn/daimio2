@@ -1,0 +1,262 @@
+import D from '../daimio/daimio.js'
+import { extract, layout, render, render_space, render_all } from '../daimio/space_ascii.js'
+
+var pass = 0, fail = 0, failures = []
+
+function test(label, actual, expected) {
+  var a = typeof actual === 'string' ? actual : JSON.stringify(actual)
+  var e = typeof expected === 'string' ? expected : JSON.stringify(expected)
+  if (a === e) { pass++ }
+  else { fail++; failures.push({ label, expected: e, actual: a }) }
+}
+
+// === Extract: empty space ===
+var empty = { ports: {}, state: {}, routes: [], dialect: {}, stations: {}, subspaces: {} }
+var topo = extract('myspace', empty)
+test('extract empty: name', topo.name, 'myspace')
+test('extract empty: ports', topo.ports, [])
+test('extract empty: stations', topo.stations, [])
+test('extract empty: subspaces', topo.subspaces, [])
+test('extract empty: connections', topo.connections, [])
+test('extract empty: state', topo.state, {})
+
+// === Extract: ports ===
+var with_ports = { ports: { 'in': ['in'], 'out:display': ['dom-set-text'], 'out:err': ['err'] },
+                   state: {}, routes: [], dialect: {}, stations: {}, subspaces: {} }
+var topo_p = extract('s', with_ports)
+test('port count', topo_p.ports.length, 3)
+test('port 0 key', topo_p.ports[0].key, 'in')
+test('port 0 dir', topo_p.ports[0].dir, 'left')
+test('port 0 flavour', topo_p.ports[0].flavour, 'in')
+test('port 1 key', topo_p.ports[1].key, 'out:display')
+test('port 1 dir', topo_p.ports[1].dir, 'right')
+test('port 1 flavour', topo_p.ports[1].flavour, 'dom-set-text')
+test('port 2 key', topo_p.ports[2].key, 'out:err')
+test('port 2 dir', topo_p.ports[2].dir, 'right')
+test('port 2 flavour', topo_p.ports[2].flavour, 'err')
+
+// === Extract: stations ===
+var with_stations = { ports: {}, state: {}, routes: [], dialect: {},
+                      stations: { proc: { value: '{__ | add 1}' },
+                                  sender: { value: '{__ | >@foo | >@bar}', extraports: ['foo'] } },
+                      subspaces: {} }
+var topo_s = extract('s', with_stations)
+test('station count', topo_s.stations.length, 2)
+test('station 0 name', topo_s.stations[0].name, 'proc')
+test('station 0 source', topo_s.stations[0].source, '{__ | add 1}')
+test('station 0 ports empty', topo_s.stations[0].ports, [])
+test('station 1 name', topo_s.stations[1].name, 'sender')
+test('station 1 source', topo_s.stations[1].source, '{__ | >@foo | >@bar}')
+test('station 1 has foo', topo_s.stations[1].ports.indexOf('foo') >= 0, true)
+test('station 1 has bar', topo_s.stations[1].ports.indexOf('bar') >= 0, true)
+test('station 1 port count', topo_s.stations[1].ports.length, 2)
+
+// === Extract: connections (FAF) ===
+var def_conn = 'counter\n  @in\n  @out\n  @in -> {1 | add 1} -> @out'
+var seedlikes_conn = D.seedlikes_from_string(def_conn)
+var topo_c = extract('counter', seedlikes_conn.counter)
+test('conn count', topo_c.connections.length, 2)
+test('conn 0 type', topo_c.connections[0].type, 'faf')
+test('conn 0 from is port', topo_c.connections[0].from.port, 'in')
+test('conn 0 to port', topo_c.connections[0].to.port, '_in')
+test('conn 1 from port', topo_c.connections[1].from.port, '_out')
+test('conn 1 to port', topo_c.connections[1].to.port, 'out')
+// Verify from/to ids reference actual components
+test('conn 0 from id matches port', topo_c.ports.some(function(p) { return p.id === topo_c.connections[0].from.id }), true)
+test('conn 0 to id matches station', topo_c.stations.some(function(s) { return s.id === topo_c.connections[0].to.id }), true)
+
+// === Extract: subspaces ===
+var def_sub = 'inner\n  @in\n  @out\n  @in -> {__ | add 1} -> @out\nouter\n  @in\n  @out\n  @in -> inner.in\n  inner.out -> @out'
+var seedlikes_sub = D.seedlikes_from_string(def_sub)
+var topo_sub = extract('outer', seedlikes_sub.outer)
+test('subspace count', topo_sub.subspaces.length, 1)
+test('subspace ref', topo_sub.subspaces[0], 'inner')
+test('sub conn count', topo_sub.connections.length, 2)
+test('sub conn 0 to id is subspace', topo_sub.connections[0].to.id, 'inner')
+test('sub conn 0 to port', topo_sub.connections[0].to.port, 'in')
+test('sub conn 1 from id is subspace', topo_sub.connections[1].from.id, 'inner')
+test('sub conn 1 from port', topo_sub.connections[1].from.port, 'out')
+
+// === Layout: empty space ===
+var topo_empty = extract('myspace', { ports: {}, state: {}, routes: [], dialect: {}, stations: {}, subspaces: {} })
+var laid_empty = layout(topo_empty)
+test('layout empty: has elements', Array.isArray(laid_empty.elements), true)
+test('layout empty: has box', laid_empty.elements.some(function(e) { return e.type === 'box' }), true)
+test('layout empty: has label', laid_empty.elements.some(function(e) { return e.type === 'label' && e.text === 'myspace' }), true)
+test('layout empty: width >= 12', laid_empty.width >= 12, true)
+test('layout empty: height', laid_empty.height, 3)
+
+// === Layout: standalone ports ===
+var topo_ports = extract('s', { ports: { 'in': ['in'], 'out': ['out'], 'in:click': ['in'] }, state: {}, routes: [], dialect: {}, stations: {}, subspaces: {} })
+var laid_ports = layout(topo_ports)
+test('layout ports: has left port', laid_ports.elements.some(function(e) { return e.type === 'port' && e.dir === 'left' }), true)
+test('layout ports: has right port', laid_ports.elements.some(function(e) { return e.type === 'port' && e.dir === 'right' }), true)
+test('layout ports: left port at x=0', laid_ports.elements.filter(function(e) { return e.type === 'port' && e.dir === 'left' }).every(function(e) { return e.x === 0 }), true)
+test('layout ports: right port at x=width-1', laid_ports.elements.filter(function(e) { return e.type === 'port' && e.dir === 'right' }).every(function(e) { return e.x === laid_ports.width - 1 }), true)
+test('layout ports: port count', laid_ports.elements.filter(function(e) { return e.type === 'port' }).length, 3)
+test('layout ports: height accommodates ports', laid_ports.height >= 5, true)
+
+// === Layout: single chain ===
+var def_chain = 'counter\n  @in\n  @out\n  @in -> {1 | add $count | >$count} -> @out'
+var sl_chain = D.seedlikes_from_string(def_chain)
+var topo_chain = extract('counter', sl_chain.counter)
+var laid_chain = layout(topo_chain)
+test('chain layout: has station', laid_chain.elements.some(function(e) { return e.type === 'station' }), true)
+test('chain layout: has hlines', laid_chain.elements.filter(function(e) { return e.type === 'hline' }).length >= 2, true)
+test('chain layout: has left port', laid_chain.elements.some(function(e) { return e.type === 'port' && e.dir === 'left' }), true)
+test('chain layout: has right port', laid_chain.elements.some(function(e) { return e.type === 'port' && e.dir === 'right' }), true)
+test('chain layout: station has source', laid_chain.elements.some(function(e) { return e.type === 'station' && e.source }), true)
+test('chain layout: width accommodates chain', laid_chain.width >= 40, true)
+test('chain layout: height accommodates chain', laid_chain.height >= 8, true)
+
+// === Layout: two chains stacked ===
+var def_two = 's\n  @in:a\n  @out:a\n  @in:b\n  @out:b\n  @in:a -> {1} -> @out:a\n  @in:b -> {2} -> @out:b'
+var sl_two = D.seedlikes_from_string(def_two)
+var topo_two = extract('s', sl_two.s)
+var laid_two = layout(topo_two)
+test('two chains: two stations', laid_two.elements.filter(function(e) { return e.type === 'station' }).length, 2)
+test('two chains: four ports', laid_two.elements.filter(function(e) { return e.type === 'port' }).length, 4)
+test('two chains: height > single chain', laid_two.height > laid_chain.height, true)
+
+// === Render: empty space ===
+var r_empty = render_space('myspace', { ports: {}, state: {}, routes: [], dialect: {}, stations: {}, subspaces: {} })
+test('render empty: is string', typeof r_empty, 'string')
+test('render empty: has top border', r_empty.indexOf('___') >= 0, true)
+test('render empty: has name', r_empty.indexOf('myspace') >= 0, true)
+test('render empty: has bottom border', r_empty.split('\n').pop().indexOf('___') >= 0, true)
+test('render empty: correct structure',
+  r_empty,
+  [
+    ' __________',
+    '| myspace  |',
+    '|__________|',
+  ].join('\n')
+)
+
+// === Render: single chain end-to-end ===
+var def_r = 'counter\n  @in\n  @out\n  @in -> {1 | add $count | >$count} -> @out'
+var r_chain = render_space('counter', D.seedlikes_from_string(def_r).counter)
+test('render chain: is string', typeof r_chain, 'string')
+test('render chain: has port markers', (r_chain.match(/o/g) || []).length >= 2, true)
+test('render chain: has station source', r_chain.indexOf('{1 | add $count | >$count}') >= 0, true)
+test('render chain: has connection lines', r_chain.indexOf('---') >= 0, true)
+test('render chain: has station top curve', r_chain.indexOf('/') >= 0, true)
+test('render chain: has station bottom curve', r_chain.indexOf('\\') >= 0, true)
+test('render chain: left port is o', r_chain.split('\n').some(function(line) { return line[0] === 'o' }), true)
+test('render chain: correct structure',
+  r_chain,
+  [
+    ' ______________________________________',
+    '| counter                              |',
+    '|                                      |',
+    '|    ______________________________    |',
+    '|   /                              \\   |',
+    'o---(  {1 | add $count | >$count}  )---o',
+    '|   \\______________________________/   |',
+    '|                                      |',
+    '|______________________________________|',
+  ].join('\n')
+)
+
+// === Render: ports only ===
+var def_ports = 'portonly\n  @in\n  @out'
+var r_ports = render_space('portonly', D.seedlikes_from_string(def_ports).portonly)
+test('render ports: has o', r_ports.indexOf('o') >= 0, true)
+test('render ports: correct structure',
+  r_ports,
+  [
+    ' __________',
+    '| portonly |',
+    'o          |',
+    '|__________|',
+  ].join('\n')
+)
+
+// === Subspace in chain ===
+var def_sub_chain = 'inner\n  @in\n  @out\n  @in -> {__ | add 1} -> @out\nouter\n  @in\n  @out\n  @in -> inner.in\n  inner.out -> @out'
+var sl_sub_chain = D.seedlikes_from_string(def_sub_chain)
+var r_sub = render_space('outer', sl_sub_chain.outer)
+test('subspace: shows name', r_sub.indexOf('inner') >= 0, true)
+test('subspace: has port markers', (r_sub.match(/o/g) || []).length >= 4, true)
+test('subspace: has connection lines', r_sub.indexOf('---') >= 0, true)
+
+// === Subspace in multi-station chain ===
+var def_sub_multi = 'inner\n  @in\n  @out\n  @in -> {__ | add 1} -> @out\nouter\n  @in\n  @out\n  @in -> {__ | add 1} -> inner.in\n  inner.out -> {__ | add 2} -> @out'
+var sl_sub_multi = D.seedlikes_from_string(def_sub_multi)
+var r_sub_multi = render_space('outer', sl_sub_multi.outer)
+test('subspace multi: shows name', r_sub_multi.indexOf('inner') >= 0, true)
+test('subspace multi: has connection lines', r_sub_multi.indexOf('---') >= 0, true)
+
+// === State variables ===
+// Note: parser requires a following property to flush the last action,
+// so we add a dummy station after the state vars to ensure both are parsed.
+var def_state = 'counter\n  $count 0\n  $items []\n  noop {}'
+var sl_state = D.seedlikes_from_string(def_state)
+var r_state = render_space('counter', sl_state.counter)
+test('state: shows $count', r_state.indexOf('$count: 0') >= 0, true)
+test('state: shows $items', r_state.indexOf('$items: []') >= 0, true)
+
+// === Chain with state ===
+var def_both = 'counter\n  @in\n  @out\n  $count 0\n  @in -> {1 | add $count | >$count} -> @out'
+var sl_both = D.seedlikes_from_string(def_both)
+var r_both = render_space('counter', sl_both.counter)
+test('chain+state: has chain', r_both.indexOf('---') >= 0, true)
+test('chain+state: has state', r_both.indexOf('$count: 0') >= 0, true)
+test('chain+state: state below chain', r_both.lastIndexOf('$count') > r_both.lastIndexOf(')---'), true)
+
+// === render_all: multiple spaces ===
+var def_multi = 'alpha\n  @in\n  @out\n  @in -> {1} -> @out\nbeta\n  @in\n  @out\n  @in -> {2} -> @out'
+var r_multi = render_all(D.seedlikes_from_string(def_multi))
+test('render_all: has alpha', r_multi.indexOf('alpha') >= 0, true)
+test('render_all: has beta', r_multi.indexOf('beta') >= 0, true)
+test('render_all: separated by blank line', r_multi.indexOf('\n\n') >= 0, true)
+
+// === JSON serializability ===
+var def_json = 'counter\n  @in\n  @out\n  $count 0\n  @in -> {1 | add 1} -> @out'
+var sl_json = D.seedlikes_from_string(def_json)
+var topo_json = extract('counter', sl_json.counter)
+test('extract JSON round-trips',
+  JSON.stringify(JSON.parse(JSON.stringify(topo_json))),
+  JSON.stringify(topo_json))
+var laid_json = layout(topo_json)
+test('layout JSON round-trips',
+  JSON.stringify(JSON.parse(JSON.stringify(laid_json))),
+  JSON.stringify(laid_json))
+
+// === Integration: multi-chain with state ===
+var def_int = [
+  'timer',
+  '  @in:step',
+  '  @in:speed',
+  '  @out:display',
+  '  $count 0',
+  '  $step 1',
+  '  $time 500',
+  '  @in:step -> {__ | add $count | >$count} -> @out:display',
+  '  @in:speed -> {__ | >$time} -> @out:display',
+].join('\n')
+var sl_int = D.seedlikes_from_string(def_int)
+var r_int = render_space('timer', sl_int.timer)
+test('integration: has two chains', (r_int.match(/o---/g) || []).length >= 2, true)
+test('integration: has state vars', r_int.indexOf('$count: 0') >= 0, true)
+test('integration: has step state', r_int.indexOf('$step: 1') >= 0, true)
+test('integration: has time state', r_int.indexOf('$time: 500') >= 0, true)
+test('integration: two left ports', (r_int.split('\n').filter(function(l) { return l[0] === 'o' })).length >= 2, true)
+
+// === Pipeline independence ===
+var topo_a = extract('a', D.seedlikes_from_string('a\n  @in\n  @out\n  @in -> {1} -> @out').a)
+var laid_a = layout(topo_a)
+var ascii_a = render(laid_a)
+test('pipeline: render accepts layout output', typeof ascii_a, 'string')
+test('pipeline: render produces content', ascii_a.length > 0, true)
+
+// Report
+console.log('space_ascii_test: ' + pass + '/' + (pass + fail) + ' passed')
+if (failures.length) {
+  failures.forEach(function(f) {
+    console.log('FAIL: ' + f.label)
+    console.log('  expected: ' + f.expected)
+    console.log('  actual:   ' + f.actual)
+  })
+  process.exit(1)
+}
