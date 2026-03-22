@@ -283,12 +283,9 @@ commands look the same as pure commands from inside the pipeline).
 A DAML program -- a block or pipeline serialized as source text --
 can be run in any space that provides the required dialect and port
 wiring, producing the same behavior given the same handler
-responses, the same initial space state, and the same PRNG state.
-The program text is a faithful serialization of the computation:
-no closures, no ambient references, no hidden state within a
-pipeline. Two independently constructed spaces running the same
-DAML with identical handlers, initial state, and PRNG seed produce
-identical results.
+responses and the same initial space state (including PRNG seed).
+Two independently constructed spaces running the same DAML with
+identical handlers, state, and seed produce identical results.
 
 One subtlety: space variables read but not set within the program
 are part of the space's initial state, not the program. Portability
@@ -825,8 +822,8 @@ A command execution produces one of two results:
 ```
 
 Pure commands are total functions from params to Val. `math random`
-is pure [random-pure] -- it reads from the instance's PRNG, which
-is deterministic given the seed (see Spaces, PRNG).
+is pure [random-pure] — it reads from the space's own PRNG,
+which is deterministic given the seed (see Spaces, PRNG).
 
 Effectful commands have no fun -- they have a port type. When
 an effectful command is registered, it also registers a port
@@ -1164,18 +1161,20 @@ One dialect for the hierarchy. Subspace restrictions come from
 wiring: the dialect gates which commands exist, wiring gates
 which effects are connected. Both must be true.
 
-**PRNG.** The Daimio instance has a single pseudo-random number
-generator, shared by all spaces in the hierarchy. The seed is set
-at instance creation time: the App provides a seed, or Daimio
-injects a default. `math random` is a pure command -- it reads
-and advances the PRNG state deterministically. Same seed and
-same execution order produces the same sequence across runs
-[random-seeded]. The PRNG state is internal -- not accessible
-via `$` variables [random-internal].
+**PRNG.** Each space has its own pseudo-random number generator.
+The App provides a seed when creating the Daimio instance (or
+Daimio injects a default). Each subspace's seed is derived from
+the parent's seed and the subspace's name:
+`child_seed = hash(parent_seed, subspace_name)`. This is
+order-independent — adding or reordering subspaces does not
+change other subspaces' seeds. [random-seeded]
 
-Note: the sequence depends on `math random` call order across
-the hierarchy — deterministic under serial execution, but would
-need per-space PRNG under concurrency (see §14).
+`math random` reads and advances the current space's PRNG. Same
+seed produces the same sequence across runs. A space's random
+sequence depends only on its own `math random` calls, not on
+sibling activity [random-per-space]. The PRNG state is internal
+— not readable, writable, or seedable from DAML or Astroglot
+[random-internal].
 
 A space is "self-reliant" -- it brings its own programs and state.
 But it is not self-sufficient: without wiring, its effects go
@@ -3915,19 +3914,6 @@ could allow composing an ad-hoc round-trip from two FAF ports:
 any space with an in and out port serve round-trips without
 declaring an up-port. Deferred because the up-port abstraction
 handles most cases and the `+` syntax adds complexity.
-
-### Per-space PRNG
-
-Currently, the PRNG is per-instance — all spaces in the hierarchy
-share one sequence. This means a subspace's random values depend
-on how many `math random` calls other spaces have made. A
-per-space PRNG would give each space its own sequence, seeded from
-the parent's PRNG at instantiation time. Advantages: a subspace's
-random sequence depends only on its own execution, not on sibling
-activity. The same spaceseed loaded into different contexts
-produces the same random sequence (supporting P-portable). This
-matters most for socketed spaces, where the same space definition
-should behave identically regardless of surrounding context.
 
 ### Sender authentication
 
