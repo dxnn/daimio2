@@ -118,21 +118,90 @@ export function extract(name, seedlike) {
   }
 }
 
+export function topo_sort(topology) {
+  var stations = topology.stations || []
+  var subspaces = topology.subspaces || []
+  var connections = topology.connections || []
+  var ports = topology.ports || []
+
+  // Build set of port ids (to exclude from graph)
+  var port_ids = {}
+  for (var i = 0; i < ports.length; i++)
+    port_ids[ports[i].id] = true
+
+  // Collect all component ids
+  var comp_ids = []
+  var comp_set = {}
+  for (var i = 0; i < stations.length; i++) {
+    comp_ids.push(stations[i].id)
+    comp_set[stations[i].id] = true
+  }
+  for (var i = 0; i < subspaces.length; i++) {
+    comp_ids.push(subspaces[i])
+    comp_set[subspaces[i]] = true
+  }
+
+  if (comp_ids.length === 0)
+    return { layers: [], layer_of: {} }
+
+  // Build predecessor lists (component → component edges only)
+  var in_edges = {}
+  for (var i = 0; i < comp_ids.length; i++)
+    in_edges[comp_ids[i]] = []
+
+  for (var i = 0; i < connections.length; i++) {
+    var c = connections[i]
+    if (comp_set[c.from.id] && comp_set[c.to.id])
+      in_edges[c.to.id].push(c.from.id)
+  }
+
+  // Longest-path layering via recursive DFS
+  var layer_of = {}
+  var visited = {}
+  function longest_path(id) {
+    if (visited[id]) return layer_of[id]
+    visited[id] = true
+    var max_pred = -1
+    var preds = in_edges[id]
+    for (var i = 0; i < preds.length; i++) {
+      var pred_layer = longest_path(preds[i])
+      if (pred_layer > max_pred) max_pred = pred_layer
+    }
+    layer_of[id] = max_pred + 1
+    return layer_of[id]
+  }
+
+  for (var i = 0; i < comp_ids.length; i++)
+    longest_path(comp_ids[i])
+
+  // Group into layers
+  var max_layer = 0
+  for (var i = 0; i < comp_ids.length; i++)
+    if (layer_of[comp_ids[i]] > max_layer) max_layer = layer_of[comp_ids[i]]
+
+  var layers = []
+  for (var i = 0; i <= max_layer; i++) layers.push([])
+  for (var i = 0; i < comp_ids.length; i++)
+    layers[layer_of[comp_ids[i]]].push(comp_ids[i])
+
+  return { layers: layers, layer_of: layer_of }
+}
+
 export function layout(topology) {
+  var HLINE_GAP = 3
+  var ROW_HEIGHT = 6
+  var HEADER_HEIGHT = 2
+  var PORT_COL = 4   // 1 (port 'o') + 3 (hline '---')
+
   var name = topology.name
   var ports = topology.ports || []
   var stations = topology.stations || []
   var connections = topology.connections || []
+  var subspaces = topology.subspaces || []
   var elements = []
 
-  // Build adjacency: forward map from "id:port" to connection
-  var forward = {}
-  for (var i = 0; i < connections.length; i++) {
-    var c = connections[i]
-    forward[c.from.id + ':' + c.from.port] = c
-  }
+  // ── Lookups ──────────────────────────────────────────────────────────
 
-  // Build port/station lookup by id
   var port_by_id = {}
   for (var i = 0; i < ports.length; i++)
     port_by_id[ports[i].id] = ports[i]
@@ -141,114 +210,201 @@ export function layout(topology) {
   for (var i = 0; i < stations.length; i++)
     station_by_id[stations[i].id] = stations[i]
 
-  // Build subspace lookup set
-  var subspaces = topology.subspaces || []
   var subspace_set = {}
   for (var i = 0; i < subspaces.length; i++)
     subspace_set[subspaces[i]] = true
 
-  // Detect chains starting from left-dir ports
-  var chains = []
-  var used_ports = {}
-  var used_stations = {}
-  var used_subspaces = {}
+  function is_comp(id) { return !!station_by_id[id] || !!subspace_set[id] }
 
-  for (var i = 0; i < ports.length; i++) {
-    var start_port = ports[i]
-    if (start_port.dir !== 'left') continue
-    if (used_ports[start_port.id]) continue
+  function comp_w(id) {
+    if (station_by_id[id]) return station_by_id[id].source.length + 6
+    if (subspace_set[id]) return id.length + 8
+    return 0
+  }
 
-    // Try to walk a chain from this port
-    var conn = forward[start_port.id + ':' + start_port.key]
-    if (!conn) continue
+  // ── Topo sort ────────────────────────────────────────────────────────
 
-    // First target must be a station _in or subspace in
-    var target_id = conn.to.id
-    var is_station = station_by_id[target_id] && conn.to.port === '_in'
-    var is_subspace = subspace_set[target_id] && conn.to.port === 'in'
-    if (!is_station && !is_subspace) continue
+  var sorted = topo_sort(topology)
+  var layers = sorted.layers
+  var layer_of = sorted.layer_of
 
-    var chain_elements = []
-    var current_id = target_id
+  // ── Adjacency lookups ────────────────────────────────────────────────
+  // forward_comp: comp_id → [conn] outgoing to other comps
+  // reverse_comp: comp_id → [conn] incoming from other comps
+  // port_to_comp: port_id → conn (boundary port → component)
+  // comp_to_port: comp_id → [conn] (component → boundary port)
 
-    // Walk through stations and subspaces
-    while (current_id) {
-      if (station_by_id[current_id]) {
-        chain_elements.push({ type: 'station', station: station_by_id[current_id] })
-        // Cross from _in to _out implicitly, then find outgoing connection
-        var out_conn = forward[current_id + ':_out']
-        if (!out_conn) break
-        var next_id = out_conn.to.id
-        if (port_by_id[next_id]) {
-          // Reached an end port — chain complete
-          var end_port = port_by_id[next_id]
-          chains.push({ left: start_port, right: end_port, elements: chain_elements })
-          used_ports[start_port.id] = true
-          used_ports[end_port.id] = true
-          for (var j = 0; j < chain_elements.length; j++) {
-            if (chain_elements[j].type === 'station')
-              used_stations[chain_elements[j].station.id] = true
-            else
-              used_subspaces[chain_elements[j].name] = true
-          }
-          break
-        } else if (station_by_id[next_id] && out_conn.to.port === '_in') {
-          current_id = next_id
-        } else if (subspace_set[next_id] && out_conn.to.port === 'in') {
-          current_id = next_id
-        } else {
-          break
-        }
-      } else if (subspace_set[current_id]) {
-        chain_elements.push({ type: 'subspace', name: current_id })
-        // Cross from in to out, then find outgoing connection
-        var out_conn = forward[current_id + ':out']
-        if (!out_conn) break
-        var next_id = out_conn.to.id
-        if (port_by_id[next_id]) {
-          // Reached an end port — chain complete
-          var end_port = port_by_id[next_id]
-          chains.push({ left: start_port, right: end_port, elements: chain_elements })
-          used_ports[start_port.id] = true
-          used_ports[end_port.id] = true
-          for (var j = 0; j < chain_elements.length; j++) {
-            if (chain_elements[j].type === 'station')
-              used_stations[chain_elements[j].station.id] = true
-            else
-              used_subspaces[chain_elements[j].name] = true
-          }
-          break
-        } else if (station_by_id[next_id] && out_conn.to.port === '_in') {
-          current_id = next_id
-        } else if (subspace_set[next_id] && out_conn.to.port === 'in') {
-          current_id = next_id
-        } else {
-          break
-        }
+  var forward_comp = {}
+  var reverse_comp = {}
+  var port_to_comp = {}
+  var comp_to_port = {}
+
+  for (var i = 0; i < connections.length; i++) {
+    var c = connections[i]
+    var fid = c.from.id, tid = c.to.id
+    if (is_comp(fid) && is_comp(tid)) {
+      if (!forward_comp[fid]) forward_comp[fid] = []
+      forward_comp[fid].push(c)
+      if (!reverse_comp[tid]) reverse_comp[tid] = []
+      reverse_comp[tid].push(c)
+    } else if (port_by_id[fid] && is_comp(tid)) {
+      port_to_comp[fid] = c
+    } else if (is_comp(fid) && port_by_id[tid]) {
+      if (!comp_to_port[fid]) comp_to_port[fid] = []
+      comp_to_port[fid].push(c)
+    }
+  }
+
+  // ── Layer x positions ────────────────────────────────────────────────
+
+  var layer_width = []
+  for (var i = 0; i < layers.length; i++) {
+    var max_w = 0
+    for (var j = 0; j < layers[i].length; j++) {
+      var w = comp_w(layers[i][j])
+      if (w > max_w) max_w = w
+    }
+    layer_width.push(max_w)
+  }
+
+  var layer_x = []
+  for (var i = 0; i < layers.length; i++) {
+    if (i === 0) {
+      layer_x.push(PORT_COL)
+    } else {
+      layer_x.push(layer_x[i - 1] + layer_width[i - 1] + HLINE_GAP)
+    }
+  }
+
+  // ── Row assignment ───────────────────────────────────────────────────
+  // Walk layers left-to-right. Layer 0 components get rows in definition
+  // order. Components in later layers inherit the row of their first
+  // predecessor; if that row is already used in THIS layer, pick next free.
+
+  var row_of = {}
+  var next_row = 0
+
+  for (var i = 0; i < layers.length; i++) {
+    var layer_rows_used = {} // rows occupied by components in THIS layer
+    for (var j = 0; j < layers[i].length; j++) {
+      var cid = layers[i][j]
+      if (i === 0) {
+        row_of[cid] = next_row
+        layer_rows_used[next_row] = true
+        next_row++
       } else {
-        break
+        // Find first predecessor's row
+        var preds = reverse_comp[cid] || []
+        var target_row = -1
+        for (var k = 0; k < preds.length; k++) {
+          var pred_row = row_of[preds[k].from.id]
+          if (pred_row !== undefined) { target_row = pred_row; break }
+        }
+        if (target_row >= 0 && !layer_rows_used[target_row]) {
+          row_of[cid] = target_row
+          layer_rows_used[target_row] = true
+          if (target_row >= next_row) next_row = target_row + 1
+        } else {
+          row_of[cid] = next_row
+          layer_rows_used[next_row] = true
+          next_row++
+        }
       }
     }
   }
 
-  // Compute chain row dimensions
-  var chain_rows = []
-  var max_chain_width = 0
-  for (var i = 0; i < chains.length; i++) {
-    var chain = chains[i]
-    var total_w = 1 + 3 // left port + first hline
-    for (var j = 0; j < chain.elements.length; j++) {
-      var el = chain.elements[j]
-      var el_w = el.type === 'station' ? el.station.source.length + 6 : el.name.length + 8
-      if (j > 0) total_w += 3 // hline between elements
-      total_w += el_w
-    }
-    total_w += 3 + 1 // last hline + right port
-    chain_rows.push({ chain: chain, width: total_w })
-    if (total_w > max_chain_width) max_chain_width = total_w
+  var total_rows = next_row
+
+  function comp_y(row) { return HEADER_HEIGHT + row * ROW_HEIGHT }
+  function wire_y(row) { return comp_y(row) + 3 }
+
+  // ── Track used ports (ports that participate in connections) ──────────
+
+  var used_ports = {}
+  for (var i = 0; i < connections.length; i++) {
+    if (port_by_id[connections[i].from.id]) used_ports[connections[i].from.id] = true
+    if (port_by_id[connections[i].to.id]) used_ports[connections[i].to.id] = true
   }
 
-  // Separate remaining (standalone) left and right ports
+  // ── Place components ─────────────────────────────────────────────────
+
+  for (var i = 0; i < layers.length; i++) {
+    for (var j = 0; j < layers[i].length; j++) {
+      var cid = layers[i][j]
+      var row = row_of[cid]
+      var cx = layer_x[i]
+      var cy = comp_y(row) + 1
+      var cw = comp_w(cid)
+      if (station_by_id[cid]) {
+        elements.push({ type: 'station', x: cx, y: cy, width: cw, height: 4, source: station_by_id[cid].source })
+      } else {
+        elements.push({ type: 'subspace_box', x: cx, y: cy, width: cw, height: 4, name: cid })
+      }
+    }
+  }
+
+  // ── Route connections ────────────────────────────────────────────────
+  // Connections come in three flavours:
+  //   boundary port → component  (left port feed)
+  //   component → boundary port  (right port output)
+  //   component → component      (inter-layer edge)
+
+  // Helper: rightmost x of a placed component (one past its box)
+  function comp_right(cid) {
+    return layer_x[layer_of[cid]] + comp_w(cid)
+  }
+
+  for (var i = 0; i < connections.length; i++) {
+    var c = connections[i]
+    var fid = c.from.id, tid = c.to.id
+
+    if (port_by_id[fid] && is_comp(tid)) {
+      // Left boundary port → component
+      var row = row_of[tid]
+      var wy = wire_y(row)
+      elements.push({ type: 'port', x: 0, y: wy, dir: 'left', key: port_by_id[fid].key })
+      elements.push({ type: 'hline', x: 1, y: wy, length: layer_x[layer_of[tid]] - 1 })
+
+    } else if (is_comp(fid) && port_by_id[tid]) {
+      // Component → right boundary port
+      var row = row_of[fid]
+      var wy = wire_y(row)
+      var rx = comp_right(fid)
+      elements.push({ type: 'hline', x: rx, y: wy, length: HLINE_GAP })
+      elements.push({ type: 'port', x: rx + HLINE_GAP, y: wy, dir: 'right', key: port_by_id[tid].key })
+
+    } else if (is_comp(fid) && is_comp(tid)) {
+      // Component → component
+      var src_row = row_of[fid]
+      var dst_row = row_of[tid]
+      var rx = comp_right(fid)
+      var lx = layer_x[layer_of[tid]]
+
+      if (src_row === dst_row) {
+        // Same row — straight hline
+        elements.push({ type: 'hline', x: rx, y: wire_y(src_row), length: lx - rx })
+      } else {
+        // Different rows — hline out, vline, hline in
+        var mid_x = rx + 1
+        var src_wy = wire_y(src_row)
+        var dst_wy = wire_y(dst_row)
+        var min_wy = Math.min(src_wy, dst_wy)
+        var max_wy = Math.max(src_wy, dst_wy)
+
+        // Hline from source right edge to mid_x
+        if (mid_x > rx)
+          elements.push({ type: 'hline', x: rx, y: src_wy, length: mid_x - rx })
+        // Vline connecting the two rows
+        elements.push({ type: 'vline', x: mid_x, y: min_wy, length: max_wy - min_wy + 1 })
+        // Hline from mid_x to target left edge
+        if (lx > mid_x + 1)
+          elements.push({ type: 'hline', x: mid_x + 1, y: dst_wy, length: lx - mid_x - 1 })
+      }
+    }
+  }
+
+  // ── Standalone ports (not in any connection) ─────────────────────────
+
   var left_ports = []
   var right_ports = []
   for (var i = 0; i < ports.length; i++) {
@@ -257,60 +413,25 @@ export function layout(topology) {
     else right_ports.push(ports[i])
   }
 
-  // Box sizing
+  // ── Compute width before standalone placement ────────────────────────
+
   var min_width = Math.max(name.length + 4, 12)
-  var content_width = Math.max(min_width, max_chain_width)
-  var width = content_width
 
-  // Lay out chain rows, each 6 lines tall, starting after top edge + name row
-  var row_y = 2
-  for (var i = 0; i < chain_rows.length; i++) {
-    var cr = chain_rows[i]
-    var chain = cr.chain
-    var cx = 0
-
-    // Left port on the content line (line 3 of 6, so row_y + 3)
-    elements.push({ type: 'port', x: cx, y: row_y + 3, dir: 'left', key: chain.left.key })
-    cx += 1
-
-    // hline before first station
-    elements.push({ type: 'hline', x: cx, y: row_y + 3, length: 3 })
-    cx += 3
-
-    for (var j = 0; j < chain.elements.length; j++) {
-      if (j > 0) {
-        // hline between elements
-        elements.push({ type: 'hline', x: cx, y: row_y + 3, length: 3 })
-        cx += 3
-      }
-      var cel = chain.elements[j]
-      if (cel.type === 'station') {
-        var src = cel.station.source
-        var station_w = src.length + 6
-        elements.push({ type: 'station', x: cx, y: row_y + 1, width: station_w, height: 4, source: src })
-        cx += station_w
-      } else {
-        var sub_w = cel.name.length + 8
-        elements.push({ type: 'subspace_box', x: cx, y: row_y + 1, width: sub_w, height: 4, name: cel.name })
-        cx += sub_w
-      }
+  // Width from component placement: rightmost right-port x + 1
+  var max_right_x = 0
+  for (var i = 0; i < elements.length; i++) {
+    var el = elements[i]
+    if (el.type === 'port' && el.dir === 'right') {
+      if (el.x + 1 > max_right_x) max_right_x = el.x + 1
     }
-
-    // hline after last station
-    elements.push({ type: 'hline', x: cx, y: row_y + 3, length: 3 })
-    cx += 3
-
-    // Right port
-    elements.push({ type: 'port', x: cx, y: row_y + 3, dir: 'right', key: chain.right.key })
-
-    row_y += 6
   }
+  var width = Math.max(min_width, max_right_x)
 
-  // Standalone port rows
+  // ── Standalone port rows ─────────────────────────────────────────────
+
   var port_rows = Math.max(left_ports.length, right_ports.length)
-  var standalone_start_y = row_y
+  var sy = HEADER_HEIGHT + total_rows * ROW_HEIGHT
   var li = 0, ri = 0
-  var sy = standalone_start_y
   while (li < left_ports.length || ri < right_ports.length) {
     if (li < left_ports.length) {
       elements.push({ type: 'port', x: 0, y: sy, dir: 'left', key: left_ports[li].key })
@@ -323,26 +444,24 @@ export function layout(topology) {
     sy++
   }
 
-  // State variable rows
+  // ── State variable rows ──────────────────────────────────────────────
+
   var state = topology.state || {}
   var state_keys = Object.keys(state)
   var state_rows = state_keys.length
   for (var i = 0; i < state_keys.length; i++) {
     var stext = '$' + state_keys[i] + ': ' + JSON.stringify(state[state_keys[i]])
     elements.push({ type: 'text', x: 2, y: sy + i, text: stext })
-    // Ensure box is wide enough for state text
     var needed = stext.length + 4
     if (needed > width) width = needed
   }
 
-  // Total height: top(1) + name(1) + chain rows + standalone port rows + state rows + bottom(1)
-  var height = 2 + chains.length * 6 + port_rows + state_rows + 1
-  if (chains.length === 0 && port_rows === 0 && state_rows === 0) height = 3
+  // ── Height and box ───────────────────────────────────────────────────
 
-  // Box
+  var height = HEADER_HEIGHT + total_rows * ROW_HEIGHT + port_rows + state_rows + 1
+  if (total_rows === 0 && port_rows === 0 && state_rows === 0) height = 3
+
   elements.unshift({ type: 'box', x: 0, y: 0, width: width, height: height })
-
-  // Label
   elements.splice(1, 0, { type: 'label', x: 2, y: 1, text: name })
 
   return { id: topology.id, name: name, width: width, height: height, elements: elements }
@@ -392,6 +511,11 @@ export function render(laid_out) {
     else if (el.type === 'hline') {
       for (var x = el.x; x < el.x + el.length; x++)
         grid[el.y][x] = '-'
+    }
+
+    else if (el.type === 'vline') {
+      for (var y = el.y; y < el.y + el.length; y++)
+        grid[y][el.x] = '|'
     }
 
     else if (el.type === 'station') {

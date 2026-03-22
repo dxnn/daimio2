@@ -1,5 +1,5 @@
 import D from '../daimio/daimio.js'
-import { extract, layout, render, render_space, render_all } from '../daimio/space_ascii.js'
+import { extract, layout, render, render_space, render_all, topo_sort } from '../daimio/space_ascii.js'
 
 var pass = 0, fail = 0, failures = []
 
@@ -249,6 +249,121 @@ var laid_a = layout(topo_a)
 var ascii_a = render(laid_a)
 test('pipeline: render accepts layout output', typeof ascii_a, 'string')
 test('pipeline: render produces content', ascii_a.length > 0, true)
+
+// === Render: vline element ===
+var vline_layout = {
+  id: 'v', name: 'v', width: 5, height: 5,
+  elements: [
+    { type: 'box', x: 0, y: 0, width: 5, height: 5 },
+    { type: 'vline', x: 2, y: 1, length: 3 }
+  ]
+}
+var r_vline = render(vline_layout)
+test('vline: renders vertical bars', r_vline.split('\n').filter(function(l) { return l[2] === '|' }).length, 3)
+
+// === topo_sort: linear chain ===
+var def_topo = 'ts\n  @in\n  @out\n  @in -> {a} -> {b} -> @out'
+var sl_topo = D.seedlikes_from_string(def_topo)
+var topo_ts = extract('ts', sl_topo.ts)
+var sorted = topo_sort(topo_ts)
+test('topo linear: two layers', sorted.layers.length, 2)
+test('topo linear: layer 0 has one item', sorted.layers[0].length, 1)
+test('topo linear: layer 1 has one item', sorted.layers[1].length, 1)
+
+// === topo_sort: fan-in (two stations feed one) ===
+var def_fan = 'fi\n  @in:a\n  @in:b\n  @out\n  @in:a -> {a} -> merge\n  @in:b -> {b} -> merge\n  merge {c}\n  merge -> @out'
+var sl_fan = D.seedlikes_from_string(def_fan)
+var topo_fan = extract('fi', sl_fan.fi)
+var sorted_fan = topo_sort(topo_fan)
+// stations a and b should be layer 0, merge should be layer 1
+test('topo fan-in: a in layer 0', sorted_fan.layer_of[topo_fan.stations[0].id], 0)
+test('topo fan-in: b in layer 0', sorted_fan.layer_of[topo_fan.stations[1].id], 0)
+test('topo fan-in: merge in layer 1', sorted_fan.layer_of[topo_fan.stations[2].id], 1)
+
+// === topo_sort: no connections ===
+var topo_nc = extract('nc', { ports: {}, state: {}, routes: [], dialect: {},
+  stations: { a: { value: '{a}' }, b: { value: '{b}' } }, subspaces: {} })
+var sorted_nc = topo_sort(topo_nc)
+test('topo no-conn: all in layer 0', sorted_nc.layers.length, 1)
+test('topo no-conn: two items in layer 0', sorted_nc.layers[0].length, 2)
+
+// === topo_sort: empty ===
+var topo_emp = extract('e', { ports: {}, state: {}, routes: [], dialect: {}, stations: {}, subspaces: {} })
+var sorted_emp = topo_sort(topo_emp)
+test('topo empty: no layers', sorted_emp.layers.length, 0)
+
+// === Layout v2: fan-in ===
+var def_fi = [
+  'fi',
+  '  @in:a',
+  '  @in:b',
+  '  @out',
+  '  merge {__ | add 1}',
+  '  @in:a -> merge',
+  '  @in:b -> merge',
+  '  merge -> @out'
+].join('\n')
+var sl_fi = D.seedlikes_from_string(def_fi)
+var r_fi = render_space('fi', sl_fi.fi)
+test('fan-in: renders', typeof r_fi, 'string')
+test('fan-in: has station', r_fi.indexOf('{__ | add 1}') >= 0, true)
+test('fan-in: has port markers', (r_fi.match(/o/g) || []).length >= 2, true)
+test('fan-in: has connections', r_fi.indexOf('---') >= 0, true)
+
+// === Layout v2: fan-out ===
+var def_fo = [
+  'fo',
+  '  @in',
+  '  @out:a',
+  '  @out:b',
+  '  split {__ | add 1}',
+  '  @in -> split',
+  '  split -> @out:a',
+  '  split -> @out:b'
+].join('\n')
+var sl_fo = D.seedlikes_from_string(def_fo)
+var r_fo = render_space('fo', sl_fo.fo)
+test('fan-out: renders', typeof r_fo, 'string')
+test('fan-out: has station', r_fo.indexOf('{__ | add 1}') >= 0, true)
+test('fan-out: has port markers', (r_fo.match(/o/g) || []).length >= 2, true)
+
+// === Layout v2: diamond ===
+var def_dia = [
+  'dia',
+  '  @in',
+  '  @out',
+  '  top {a}',
+  '  bot {b}',
+  '  merge {c}',
+  '  @in -> top',
+  '  @in -> bot',
+  '  top -> merge',
+  '  bot -> merge',
+  '  merge -> @out'
+].join('\n')
+var sl_dia = D.seedlikes_from_string(def_dia)
+var r_dia = render_space('dia', sl_dia.dia)
+test('diamond: renders', typeof r_dia, 'string')
+test('diamond: has all stations', r_dia.indexOf('{a}') >= 0 && r_dia.indexOf('{b}') >= 0 && r_dia.indexOf('{c}') >= 0, true)
+test('diamond: has connections', r_dia.indexOf('---') >= 0, true)
+
+// === Layout v2: three layers ===
+var def_3layer = 'tl\n  @in\n  @out\n  @in -> {a} -> {b} -> {c} -> @out'
+var sl_3l = D.seedlikes_from_string(def_3layer)
+var r_3l = render_space('tl', sl_3l.tl)
+test('3-layer: renders', typeof r_3l, 'string')
+test('3-layer: has all three sources', r_3l.indexOf('{a}') >= 0 && r_3l.indexOf('{b}') >= 0 && r_3l.indexOf('{c}') >= 0, true)
+test('3-layer: has connections', (r_3l.match(/---/g) || []).length >= 2, true)
+
+// === Layout v2: orphan station ===
+var topo_orphan = extract('orp', { ports: { 'in': ['in'], 'out': ['out'] }, state: {}, routes: [],
+  dialect: {}, stations: { lonely: { value: '{orphan}' } }, subspaces: {} })
+var laid_orphan = layout(topo_orphan)
+test('orphan: has station element', laid_orphan.elements.some(function(e) { return e.type === 'station' }), true)
+test('orphan: has port elements', laid_orphan.elements.filter(function(e) { return e.type === 'port' }).length, 2)
+var r_orphan = render(laid_orphan)
+test('orphan: renders', typeof r_orphan, 'string')
+test('orphan: has station source', r_orphan.indexOf('{orphan}') >= 0, true)
 
 // Report
 console.log('space_ascii_test: ' + pass + '/' + (pass + fail) + ' passed')
