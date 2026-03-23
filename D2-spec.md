@@ -132,12 +132,14 @@ convenience, not protection from concurrent modification.
 ### Block scope isolation [P-blockscope]
 Pipeline variables flow into sub-processes (lexical inheritance
 from the parent process) but never flow out. Pipeline vars are
-**write-once** — once `>x` binds a value, `x` cannot be rebound
-anywhere in that pipeline or in any sub-process. A sub-process
-inherits the parent's bindings as an immutable base it can read
-but not modify. New bindings in the sub-process (via `>y`) are
-local to that sub-process. The one-way information flow makes
-blocks safe to pass around as values — evaluating a block cannot
+**write-once per pipeline** — once `>x` binds a value, `x`
+cannot be rebound in that pipeline. A sub-process inherits the
+parent's bindings as an immutable base it can read but not
+modify. A sub-process may **shadow** an inherited binding by
+writing `>x` before reading `_x` (see §10, "Bound and free
+variables"); this creates a local binding that does not propagate
+back to the parent. The one-way information flow makes blocks
+safe to pass around as values — evaluating a block cannot
 corrupt the caller's state.
 
 ### Space isolation [P-spaceisolate]
@@ -891,7 +893,7 @@ demand-creatable) for any effects used.
 ### Ships
 ```
 ship = (value, sender?)
-  where value    : Val              -- the payload
+  where value    : FinalVal         -- the payload (no blocks — see §10)
         sender   : Sender?          -- who sent this ship (optional)
 ```
 
@@ -1434,6 +1436,16 @@ A waiting process **holds the space**. [serial-wait-holds] While a process waits
 an async response, no other ships can dock. The process has
 exclusive access to the space's state for its entire lifetime,
 from dock through completion.
+
+**Port routing is not a process.** [routing-no-process] Ships
+flowing through the port graph — entering, exiting, forwarding
+across space boundaries — do not create processes and do not
+hold any space. A parent space that routes a child's cmd
+request out through its own port is not blocked; it remains
+free to dock other ships. This is true whether the parent
+forwards to the App (via an outside port), to a sibling
+subspace, or out its own cmd port. Only docking at a station
+creates a process and holds the space.
 
 ### Sub-processes
 
@@ -1993,11 +2005,17 @@ mechanics" for the full round-trip lifecycle.
   c is Effectful(c, params, portType)
   args' = fillImplicit(args, process.v)       -- same filling as PureCmd
   p = resolveOrCreatePort(space, portType)    -- see section 6
-  request = ship(c, args', process.sender)    -- pack command + params + sender
+  payload = {handler: c.handler, method: c.method} | args'   -- keyed list [effcmd-request-val]
+  request = ship(payload, process.sender)     -- a proper ship(FinalVal, sender)
   ---
   send request through p                      -- dispatch to handler/sibling/parent
-  (process, state) --[EffCmd(c, args')]--> WAIT(p, process, continuation)
+  (process, state) --[EffCmd(c, args)]--> WAIT(p, process, continuation)
 ```
+
+The request payload is a keyed list — a FinalVal, satisfying
+`[ship-final-only]`. When routed to a station (e.g., via an
+up-port), the station receives it as `__in` and can inspect it
+with path expressions (`__in.handler`, `__in.method`, etc.).
 
 Pipeline variables [async-preserve-vars] and sender [async-preserve-sender]
 are preserved across the wait.
@@ -2180,8 +2198,9 @@ text       ::= any characters not consumed by a command or namedblock
 command    ::= '{' pipeline '}'
 
 namedblock ::= '{begin' name (pipe pipeline)? '}' daml '{end' name '}'
+```
 
--- Parsing algorithm --
+### Parsing algorithm
 
 Parsing is left-to-right.
 
@@ -2203,9 +2222,12 @@ Classify: when a balanced span '{...}' is found:
      includes '{begin NAME...}' when no matching '{end NAME}' is
      found [parse-begin-no-end].)
 
+### Pipeline and segment grammar
+
+```
 pipeline   ::= segment (pipe segment)* pipe?
                                         -- trailing || returns empty [pipe-trailing-empty]
-                                        -- trailing | is a no-op (returns process.v unchanged)
+                                        -- trailing | is a no-op (returns process.v unchanged) [pipe-trailing-noop]
 
 pipe       ::= '|'                      -- normal:  implicit value (chi) flows
              | '||'                     -- barrier: implicit value is blocked
@@ -2235,6 +2257,7 @@ param_name ::= name                     -- e.g. value, to, block
 value      ::= string_literal
              | number_literal
              | list_literal
+             | implicit_ref
              | pvar_read
              | svar_read
              | command
@@ -2571,12 +2594,12 @@ never adds or removes entries from the parent collection.
 ```
 peek(v, []) = v                                                     [peek-empty-path]
 
-peek(Collection, Key(s) :: rest)  =  peek(v[s], rest)               [peek-key-hit]
-                                     -- or Empty                     [peek-key-miss]
-peek(Collection, Pos(n)  :: rest) =  peek(v at n, rest)             [peek-pos-hit]
-                                     -- or Empty                     [peek-pos-miss]
-peek(Collection, Star :: rest)    = [peek(child, rest) ...]         [peek-star]
-peek(Collection, Par(ps) :: rest) = [peek(v, p ++ rest) ...]        [peek-par]
+peek(v, Key(s) :: rest)  =  peek(v[s], rest)                        [peek-key-hit]
+                             -- or Empty if s not in v               [peek-key-miss]
+peek(v, Pos(n)  :: rest) =  peek(v at n, rest)                      [peek-pos-hit]
+                             -- or Empty if n out of bounds          [peek-pos-miss]
+peek(v, Star :: rest)    = [peek(child, rest) for child in v]       [peek-star]
+peek(v, Par(ps) :: rest) = [peek(v, p ++ rest) for p in ps]        [peek-par]
 
 peek(scalar, _ :: _) = Empty                                        [peek-scalar]
 peek(Empty, _ :: _)  = Empty
@@ -2610,31 +2633,31 @@ Append semantics are available separately via `list union`.
 **Key** -- creates on keyed collections, Empty, and scalars:
 
 ```
-poke(KeyedCollection, Key(s) :: rest, new) =
-  if key s exists: update val                                   [poke-key-update]
-  else:            add entry                                    [poke-key-create]
+poke(v, Key(s) :: rest, new)  [v is KeyedCollection] =
+  if key s exists: v with v[s] = poke(v[s], rest, new)          [poke-key-update]
+  else:            v with entry s = poke(Empty, rest, new)       [poke-key-create]
 
-poke(UnkeyedCollection, Key(s) :: rest, new) =
-  coerce to nat: update that element                            [poke-key-unkeyed-coerce]
-  otherwise: soft error, return unchanged                       [poke-key-unkeyed-fail]
+poke(v, Key(s) :: rest, new)  [v is UnkeyedCollection] =
+  if s coerces to nat: v with v[s] = poke(v[s], rest, new)      [poke-key-unkeyed-coerce]
+  otherwise: soft error, return v unchanged                      [poke-key-unkeyed-fail]
 
 poke(Empty, Key(s) :: rest, new) =
-  create KeyedCollection                                        [poke-key-empty]
+  {s: poke(Empty, rest, new)}                                    [poke-key-empty]
 
 poke(scalar, Key(s) :: rest, new) =
-  if affine (no Star): replace scalar                           [poke-key-scalar-affine]
-  if traversal (via Star): unchanged                            [poke-key-scalar-traversal]
+  if affine (no Star): {s: poke(Empty, rest, new)}               [poke-key-scalar-affine]
+  if traversal (via Star): scalar unchanged                      [poke-key-scalar-traversal]
 ```
 
 **Pos** -- modifies existing positions only:
 
 ```
-poke(Collection, Pos(n) :: rest, new) =
-  if position n exists: update val                              [poke-pos-update]
-  else:                 unchanged -- out of bounds               [poke-pos-oob]
+poke(v, Pos(n) :: rest, new) =
+  if position n exists: v with v[n] = poke(v[n], rest, new)     [poke-pos-update]
+  else:                 v unchanged -- out of bounds             [poke-pos-oob]
 
 poke(Empty, Pos(n) :: rest, new) = Empty                        [poke-pos-empty]
-poke(scalar, Pos(n) :: rest, new) = unchanged                   [poke-pos-scalar]
+poke(scalar, Pos(n) :: rest, new) = scalar unchanged             [poke-pos-scalar]
 ```
 
 **Star** -- modifies all existing children, never creates:
@@ -2855,6 +2878,10 @@ resolves data flow into a static segment flow graph:
      - `__` is **compiled away**: references to `__` are replaced
        with direct edges to the upstream segment
        [compile-dunder-elim].
+     - `__in` is compiled to a pipeline variable read
+       (`ReadPVar("__in", path)`) — it is a reserved pipeline
+       variable initialized at process creation (see §11,
+       "`__in` initialization") [compile-dunderin-pvar].
      - `>x` / `_x` (pipeline variables) are **partially compiled
        away**: `_x` references are resolved into direct edges;
        `>x` remains for scope inheritance [compile-pvar-partial].
@@ -2883,7 +2910,8 @@ process = (space, block, v, state, pipeline_vars, current, asynced,
            sender?, effective_dialect)
   where space             : Space          -- the enclosing space
         block             : Block          -- the block being executed
-        v                 : Val | absent   -- current pipe value (for implicit filling)
+        v                 : Val | absent   -- current pipe value (absent = no value
+                                         --   provided; see "The pipe value" in §11)
         state             : key -> Val     -- segment outputs and scope vars
         pipeline_vars     : PVar -> Val    -- pipeline variable bindings (write-once)
         current           : int            -- current segment index
@@ -2957,10 +2985,13 @@ empty becomes `""` [template-stringify].
 If a template contains a single command and no other characters
 at all (not even whitespace), there is no terminator — the
 command's value passes through with its original type
-[template-single-passthru]. This is why `{math add value 1 to 2}`
-returns the number `3`, but `{math add value 1 to 2} ` (with
-trailing space) returns the string `"3 "` — the space counts as
-surrounding text, triggering string concatenation.
+[template-single-passthru]. This preserves types *within the
+pipeline* — the result may still be finalized at the station
+boundary (see "Station finalization" in §11). This is why
+`{math add value 1 to 2}` returns the number `3`, but
+`{math add value 1 to 2} ` (with trailing space) returns the
+string `"3 "` — the space counts as surrounding text, triggering
+string concatenation.
 
 ### The implicit pipe value
 
@@ -3208,9 +3239,11 @@ uses of the same alias (e.g. `{({1 | then :yay} {0 | then :boo})}`)
 don't corrupt each other's wiring [alias-multi-invoke].
 
 **Parsing.** Aliases are resolved during the munging phase, after
-tokenization. The parser first identifies `handler method` pairs;
-if the handler token matches a registered alias, it is expanded
-before method resolution. This means alias names occupy the
+tokenization. The parser first classifies tokens as `handler method`
+pairs using the grammar — so `{add 5}` is initially parsed as
+handler=`add` method=`5`. During munging, if the handler token
+matches a registered alias, the token is expanded before method
+resolution [alias-expand-munge]. This means alias names occupy the
 handler slot — an alias `map` would shadow the `list map` handler
 for tokens where `map` appears as the first word. The trailing
 token in an alias expansion (e.g., `value` in `math add value`)
@@ -3407,6 +3440,11 @@ the pipeline continues normally with the empty value.
   (process, state) --[WriteSVar(s, path)]--> (process, state')
 ```
 
+If s is unbound in state, `state(s)` is treated as Empty.
+[svar-write-unbound-empty] When path is empty, this creates the
+variable. When path is non-empty, poke's rules for Empty apply
+(Key creates structure, Pos and Star are no-ops).
+
 If path is empty, this sets s directly. [svar-write-path] See section 10, Path expressions, for
 full poke semantics: Key creates on keyed/Empty/scalar (affine only),
 Pos only modifies existing, Star only modifies existing children,
@@ -3431,10 +3469,11 @@ If x is unbound or path doesn't match, the result is empty (totality). [pvar-unb
 Pipeline variable bindings are **write-once per pipeline**.
 [scope-pvar-writeonce] Once `>x` binds a value, the same
 variable cannot be rebound — not in a later segment, not across
-a `||` barrier, not in a sub-process. A second `>x` in the same
-pipeline sploots. (At compile time, `_x` references are resolved
-to direct edges in the block's flow graph — see §10 "Block
-compilation.")
+a `||` barrier. A second `>x` in the same pipeline sploots.
+A sub-process may shadow an inherited binding (see §10 "Bound
+and free variables"). (At compile time, `_x` references are
+resolved to direct edges in the block's flow graph — see §10
+"Block compilation.")
 
 **Port send:**
 ```
@@ -3501,6 +3540,16 @@ A trailing `||` with no following segment returns empty:
 (Trailing `||` returns `empty`, not `absent` — no subsequent
 segment needs the distinction.) [pipe-trailing-empty]
 
+A trailing `|` with no following segment is a no-op:
+```
+  (process, state) --[seg1]--> (process1, state1)
+  ---
+  (process, state) --[seg1 |]--> (process1, state1)
+```
+
+(Trailing `|` leaves `process.v` unchanged — there is no
+subsequent segment to receive the implicit value.) [pipe-trailing-noop]
+
 **Literal:**
 ```
   (process, state) --[Literal(v)]--> (process{v := v}, state)   -- [literal-produces-value]
@@ -3565,13 +3614,35 @@ seg ::= PureCmd(c, args)           -- invoke a pure command
       | ReadPVar(x, path)          -- read a pipeline variable (with optional path)
       | WritePVar(x)               -- bind pipeline value to pipeline variable
       | PortSend(portname)         -- send pipeline value to a named station port
-      | Literal(v)                 -- a literal value
-      | Block(daml)                -- a quoted DAML string as a value
+      | Literal(v)                 -- a literal value (includes compiled blocks —
+                                   --   Block(daml) compiles to Literal(b) at
+                                   --   parse time) [block-compiles-to-literal]
 
 pipeline ::= seg1 pipe seg2 pipe ...  -- sequential composition
 pipe     ::= '|' or '||'             -- normal pipe or barrier pipe
 ```
 
+### Station finalization
+
+When a station's pipeline completes, the final `process.v` is
+finalized before exiting through `_out`. Blocks are evaluated;
+all other values pass through unchanged. This enforces
+`[ship-final-only]`: ships carry only final values, never blocks.
+
+```
+  process.v is Block(b)
+  ---
+  evaluate b as a sub-process; process.v := result   [station-finalize-block]
+
+  process.v is not Block
+  ---
+  (no change)                                         [station-finalize-passthru]
+```
+
+This is why `{"{:hey}"}` produces `"hey"` [block-end-of-pipe-eval]:
+the pipeline produces a Block, and finalization evaluates it. The
+`[template-single-passthru]` rule preserves the Block type *within*
+the pipeline; finalization converts it at the station boundary.
 
 ## 12. Errors
 
@@ -3793,7 +3864,7 @@ sploots.
 executing under D_eff can invoke a command outside D_eff.
 
 **Why this holds structurally:** The transition relations for
-PureCmd and EffCmd (§11) both check `c ∈ effective_dialect.commands`
+PureCmd (§11) and EffCmd (§7) both check `c ∈ effective_dialect.commands`
 before execution. These are the ONLY rules that invoke commands.
 Every other segment type (ReadSVar, WriteSVar, ReadPVar, WritePVar,
 PortSend, Literal) does not invoke commands. Sub-processes inherit
@@ -3812,7 +3883,7 @@ the model):
 | Implicit block eval (pipe) | same as above | Same `datatypes/block.js` path |
 | Station docking | `port_standard_enter` then `Space.dock` | Sender extracted from process, forwarded through port pair |
 | Subspace crossing | `Space` constructor | `this.dialect = parent.dialect` (I2 monotonicity); sender intersected at Process creation |
-| Alias expansion | `n_alias.js` (parse) + `m_command.js` (runtime) | Aliases expand unconditionally at parse time; resulting Command checked at dispatch |
+| Alias expansion | `n_alias.js` (parse) + `m_command.js` (runtime) | **Implementation gap:** aliases expand unconditionally at parse time (spec requires dialect gating [alias-dialect-gate]); resulting Command checked at dispatch |
 | `D.run` boundary | `execute_then_stringify` | Sender forwarded to block re-execution context |
 
 **Key invariants this depends on:**
@@ -3876,6 +3947,46 @@ own further-restricted dialects, giving finer-grained control.
 This would require dialect intersection at each space boundary
 instead of once at dock time.
 
+### Alias-level capability attenuation
+
+Command restrictions fall into three levels of increasing
+complexity:
+
+  1. **Alias** (syntactic): lock parameters to fixed values.
+     `edit-text` → `post create type "text"`. No logic, no
+     state — the cheapest restriction. Currently aliases are
+     dead syntactic expansions; this level works today for
+     constant params.
+  2. **Topology** (station-level): route commands through a
+     gatekeeper station that inspects requests and enforces
+     policy. Requires a subspace and wiring, but can branch
+     on runtime state and space variables.
+  3. **App** (external): the App provides a purpose-built
+     command that encapsulates policy using knowledge
+     unavailable inside Daimio (e.g., other users' data,
+     cross-space state). The only option when there's a
+     see-do mismatch — the actor can't have the information
+     needed to restrict their own actions.
+
+The gap between levels 1 and 2 is wide. A possible extension:
+allow aliases to contain DAML expressions evaluated at
+execution time — e.g., `edit-self` → `user edit target
+__sender.id`. This would enable identity-scoped and
+attribute-scoped restrictions without topology overhead.
+
+Open questions:
+  - Aliases with DAML expressions are no longer "purely
+    syntactic" (`[dialect-alias-expand]`). They become live
+    code with a different compilation story.
+  - Trust boundary: `__sender` is App-level and unforgeable
+    from DAML, so sender-derived restrictions should be safe.
+    But the full implications of live expressions in alias
+    expansion need analysis.
+  - Alias dialect-gating (`[alias-dialect-gate]`) becomes
+    security-critical if aliases carry restrictions. The
+    current implementation gap (global expansion) must be
+    fixed first.
+
 ### Normal forms, content-addressing, and deduplication
 
 Blocks and spaceseeds can be **normalized** — reduced to a
@@ -3890,9 +4001,8 @@ The current implementation normalizes blocks via `wash_keys`
 and hashes the result. Spaceseeds are hashed but not normalized
 beyond their block and subspace references.
 
-Several improvements could make normal forms stronger:
-for improvement. Several reductions could make identity checks
-more powerful:
+Several improvements could make normal forms stronger, and
+several reductions could make identity checks more powerful:
 
 **Block normal form improvements:**
   - **Variable renaming (alpha-equivalence).** `{3 | >x | _x}`
