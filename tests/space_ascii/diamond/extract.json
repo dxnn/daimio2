@@ -1,0 +1,102 @@
+{
+  "id": "dia",
+  "name": "dia",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "in",
+      "dir": "left",
+      "flavour": "in"
+    },
+    {
+      "id": "p1",
+      "key": "out",
+      "dir": "right",
+      "flavour": "out"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "top",
+      "source": "{a}",
+      "ports": []
+    },
+    {
+      "id": "s1",
+      "name": "bot",
+      "source": "{b}",
+      "ports": []
+    },
+    {
+      "id": "s2",
+      "name": "merge",
+      "source": "{c}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "in"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "p0",
+        "port": "in"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c2",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s2",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c3",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s2",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c4",
+      "from": {
+        "id": "s2",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p1",
+        "port": "out"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

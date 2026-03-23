@@ -1,0 +1,16 @@
+{
+  "id": "portonly",
+  "name": "portonly",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "in",
+      "dir": "left",
+      "flavour": "in"
+    }
+  ],
+  "stations": [],
+  "subspaces": [],
+  "connections": [],
+  "state": {}
+}

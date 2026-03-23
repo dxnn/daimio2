@@ -1,0 +1,72 @@
+{
+  "id": "fi",
+  "name": "fi",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "in:a",
+      "dir": "left",
+      "flavour": "in:a"
+    },
+    {
+      "id": "p1",
+      "key": "in:b",
+      "dir": "left",
+      "flavour": "in:b"
+    },
+    {
+      "id": "p2",
+      "key": "out",
+      "dir": "right",
+      "flavour": "out"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "merge",
+      "source": "{__ | add 1}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "in:a"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "p1",
+        "port": "in:b"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c2",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p2",
+        "port": "out"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

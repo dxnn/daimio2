@@ -1,0 +1,12 @@
+{
+  "id": "counter",
+  "name": "counter",
+  "ports": [],
+  "stations": [],
+  "subspaces": [],
+  "connections": [],
+  "state": {
+    "count": 0,
+    "items": []
+  }
+}

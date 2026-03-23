@@ -1,0 +1,110 @@
+{
+  "alpha": {
+    "id": "alpha",
+    "name": "alpha",
+    "ports": [
+      {
+        "id": "p0",
+        "key": "in",
+        "dir": "left",
+        "flavour": "in"
+      },
+      {
+        "id": "p1",
+        "key": "out",
+        "dir": "right",
+        "flavour": "out"
+      }
+    ],
+    "stations": [
+      {
+        "id": "s0",
+        "name": "station-7746299028067288",
+        "source": "{1}",
+        "ports": []
+      }
+    ],
+    "subspaces": [],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "p0",
+          "port": "in"
+        },
+        "to": {
+          "id": "s0",
+          "port": "_in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c1",
+        "from": {
+          "id": "s0",
+          "port": "_out"
+        },
+        "to": {
+          "id": "p1",
+          "port": "out"
+        },
+        "type": "faf"
+      }
+    ],
+    "state": {}
+  },
+  "beta": {
+    "id": "beta",
+    "name": "beta",
+    "ports": [
+      {
+        "id": "p0",
+        "key": "in",
+        "dir": "left",
+        "flavour": "in"
+      },
+      {
+        "id": "p1",
+        "key": "out",
+        "dir": "right",
+        "flavour": "out"
+      }
+    ],
+    "stations": [
+      {
+        "id": "s0",
+        "name": "station-3610227345673731",
+        "source": "{2}",
+        "ports": []
+      }
+    ],
+    "subspaces": [],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "p0",
+          "port": "in"
+        },
+        "to": {
+          "id": "s0",
+          "port": "_in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c1",
+        "from": {
+          "id": "s0",
+          "port": "_out"
+        },
+        "to": {
+          "id": "p1",
+          "port": "out"
+        },
+        "type": "faf"
+      }
+    ],
+    "state": {}
+  }
+}

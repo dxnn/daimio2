@@ -1,0 +1,50 @@
+{
+  "id": "cs",
+  "name": "cs",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "up:req",
+      "dir": "left",
+      "flavour": "up:req"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "proc",
+      "source": "{handle}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "up:req"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "contract",
+      "pair": "c1"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p0",
+        "port": "up:req"
+      },
+      "type": "contract",
+      "pair": "c0"
+    }
+  ],
+  "state": {}
+}

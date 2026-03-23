@@ -1,0 +1,142 @@
+{
+  "inner": {
+    "id": "inner",
+    "name": "inner",
+    "ports": [
+      {
+        "id": "p0",
+        "key": "in",
+        "dir": "left",
+        "flavour": "in"
+      },
+      {
+        "id": "p1",
+        "key": "out",
+        "dir": "right",
+        "flavour": "out"
+      }
+    ],
+    "stations": [
+      {
+        "id": "s0",
+        "name": "station-7234285409762033",
+        "source": "{__ | add 1}",
+        "ports": []
+      }
+    ],
+    "subspaces": [],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "p0",
+          "port": "in"
+        },
+        "to": {
+          "id": "s0",
+          "port": "_in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c1",
+        "from": {
+          "id": "s0",
+          "port": "_out"
+        },
+        "to": {
+          "id": "p1",
+          "port": "out"
+        },
+        "type": "faf"
+      }
+    ],
+    "state": {}
+  },
+  "outer": {
+    "id": "outer",
+    "name": "outer",
+    "ports": [
+      {
+        "id": "p0",
+        "key": "in",
+        "dir": "left",
+        "flavour": "in"
+      },
+      {
+        "id": "p1",
+        "key": "out",
+        "dir": "right",
+        "flavour": "out"
+      }
+    ],
+    "stations": [
+      {
+        "id": "s0",
+        "name": "station-096284759860357",
+        "source": "{__ | add 1}",
+        "ports": []
+      },
+      {
+        "id": "s1",
+        "name": "station-9644576718317288",
+        "source": "{__ | add 2}",
+        "ports": []
+      }
+    ],
+    "subspaces": [
+      "inner"
+    ],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "p0",
+          "port": "in"
+        },
+        "to": {
+          "id": "s0",
+          "port": "_in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c1",
+        "from": {
+          "id": "s0",
+          "port": "_out"
+        },
+        "to": {
+          "id": "inner",
+          "port": "in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c2",
+        "from": {
+          "id": "inner",
+          "port": "out"
+        },
+        "to": {
+          "id": "s1",
+          "port": "_in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c3",
+        "from": {
+          "id": "s1",
+          "port": "_out"
+        },
+        "to": {
+          "id": "p1",
+          "port": "out"
+        },
+        "type": "faf"
+      }
+    ],
+    "state": {}
+  }
+}

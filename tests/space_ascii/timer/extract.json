@@ -1,0 +1,94 @@
+{
+  "id": "timer",
+  "name": "timer",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "in:step",
+      "dir": "left",
+      "flavour": "in:step"
+    },
+    {
+      "id": "p1",
+      "key": "in:speed",
+      "dir": "left",
+      "flavour": "in:speed"
+    },
+    {
+      "id": "p2",
+      "key": "out:display",
+      "dir": "right",
+      "flavour": "out:display"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "station-18300112569111504",
+      "source": "{__ | add $count | >$count}",
+      "ports": []
+    },
+    {
+      "id": "s1",
+      "name": "station-870438298399499",
+      "source": "{__ | >$time}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "in:step"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p2",
+        "port": "out:display"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c2",
+      "from": {
+        "id": "p1",
+        "port": "in:speed"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c3",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p2",
+        "port": "out:display"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {
+    "count": 0,
+    "step": 1,
+    "time": 500
+  }
+}
