@@ -19,14 +19,20 @@ if (eIdx !== -1 && process.argv[eIdx + 1]) {
   var createInterface = (await import('readline')).createInterface
   var rl = createInterface({ input: process.stdin, output: process.stdout })
   var buf = ''
+  var blank = 0
 
   function prompt() {
     rl.question(buf ? '  ' : '> ', function(line) {
-      if (line === '' && buf.trim()) {
-        var seedlikes = D.seedlikes_from_string(buf)
-        console.log(render_all(seedlikes))
-        buf = ''
+      if (line === '') {
+        blank++
+        if (blank >= 2 && buf.trim()) {
+          var seedlikes = D.seedlikes_from_string(buf)
+          console.log(render_all(seedlikes))
+          buf = ''
+          blank = 0
+        }
       } else {
+        blank = 0
         buf += (buf ? '\n' : '') + line
       }
       prompt()

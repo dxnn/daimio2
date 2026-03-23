@@ -4,18 +4,60 @@
   <meta charset="utf-8">
   <title>Space Editor</title>
   <script type="module" src="../daimio/daimio.js"></script>
+  <script type="module" src="../daimio/editor.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
+  <script src="editor/daimio-mode.js"></script>
+  <script src="editor/daimio-hint.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: monospace; height: 100vh; display: flex; flex-direction: column; }
     #output { flex: 1; padding: 12px; border-bottom: 2px solid #999; overflow: auto; }
     #bottom { flex: 1; display: flex; min-height: 0; }
-    #editor-panel { flex: 1; display: flex; flex-direction: column; border-right: 2px solid #999; }
-    #code { flex: 1; font-family: monospace; font-size: 13px; padding: 8px; border: none; resize: none; outline: none; tab-size: 2; }
+    #editor-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border-right: 2px solid #999; }
+    #editor-panel .CodeMirror { flex: 1; font-size: 13px; }
     #controls { padding: 4px 8px; border-top: 1px solid #ccc; }
     #controls button { font-family: monospace; }
     #status { display: inline; margin-left: 8px; font-size: 12px; }
-    #ascii-panel { flex: 1; overflow: auto; padding: 12px; }
+    #ascii-panel { flex: 1 1 0; min-width: 0; overflow: auto; padding: 12px; }
     pre { font-size: 13px; margin: 0; }
+
+    /* Dark mode — follows user's system setting */
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #ccc; }
+      #output { border-color: #555; }
+      #bottom { }
+      #editor-panel { border-color: #555; }
+      #controls { border-color: #444; background: #222; }
+      #controls button { background: #333; color: #ccc; border: 1px solid #555; }
+      #ascii-panel { background: #1a1a1a; }
+
+      .CodeMirror { background: #1e1e1e !important; color: #ccc !important; }
+      .CodeMirror-gutters { background: #252525; border-color: #444; }
+      .CodeMirror-cursor { border-color: #ccc; }
+      .CodeMirror-selected { background: #3a3a5c; }
+      .CodeMirror-focused .CodeMirror-selected { background: #3a3a5c; }
+      .cm-s-default .cm-keyword { color: #e0a0e0; }
+      .cm-s-default .cm-atom { color: #b0e0ff; }
+      .cm-s-default .cm-number { color: #d0e8b0; }
+      .cm-s-default .cm-def { color: #f0d080; }
+      .cm-s-default .cm-variable-2 { color: #b0e0ff; }
+      .cm-s-default .cm-variable-3 { color: #e0a0e0; }
+      .cm-s-default .cm-comment { color: #88c070; }
+      .cm-s-default .cm-string { color: #e8b090; }
+      .cm-s-default .cm-bracket { color: #ffe050; }
+      .cm-s-default .cm-attribute { color: #b0e0ff; }
+      .cm-s-default .cm-builtin { color: #70e8c0; }
+      .cm-s-default .cm-hr { color: #80b8f0; }
+      .cm-s-default .cm-error { color: #ff6060; }
+
+      .CodeMirror-hints { background: #252525; border-color: #444; box-shadow: 0 4px 12px rgba(0,0,0,.5); }
+      .CodeMirror-hint { color: #ccc; }
+      li.CodeMirror-hint-active { background: #3a3a5c; color: #fff; }
+    }
   </style>
 </head>
 <body>
@@ -47,24 +89,51 @@
   </div>
 
   <script type="module">
+    import { render_all } from '../daimio/space_ascii.js'
+
     var outputEl = document.getElementById('output')
     var initialHTML = outputEl.innerHTML
 
-    window.run = function() {
-      var code = document.getElementById('code').value
-      var asciiEl = document.getElementById('ascii')
-      var statusEl = document.getElementById('status')
+    // CodeMirror setup
+    var cm = CodeMirror.fromTextArea(document.getElementById('code'), {
+      matchBrackets: true
+    })
 
-      // reset the output DOM so old state doesn't linger
-      outputEl.innerHTML = initialHTML
+    CodeMirror.commands.autocomplete = function(instance) {
+      CodeMirror.showHint(instance, CodeMirror.hint.daimio, {
+        extraKeys: {'Space': function(instance, hint) {hint.pick()}}
+      , completeSingle: false
+      , closeCharacters: /[\n|"]/
+      })
+    }
 
+    var asciiEl = document.getElementById('ascii')
+    var statusEl = document.getElementById('status')
+    var debounceTimer = null
+
+    function updateAscii() {
       try {
-        var seedlikes = D.seedlikes_from_string(code)
-        asciiEl.textContent = renderSeedlikes(seedlikes)
+        var seedlikes = D.seedlikes_from_string(cm.getValue())
+        asciiEl.textContent = render_all(seedlikes)
+      } catch(e) {
+        asciiEl.textContent = e.message
+      }
+    }
 
+    cm.on("change", function(instance, change) {
+      if(cm.getValue() && change.origin != 'setValue')
+        CodeMirror.commands.autocomplete(instance)
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(updateAscii, 150)
+    })
+
+    window.run = function() {
+      outputEl.innerHTML = initialHTML
+      try {
+        var seedlikes = D.seedlikes_from_string(cm.getValue())
+        asciiEl.textContent = render_all(seedlikes)
         var outerseed = D.make_spaceseeds(seedlikes)
         window.OuterSpace = new D.Space(outerseed)
-
         statusEl.textContent = 'OK'
         statusEl.style.color = '#090'
       } catch(e) {
@@ -72,102 +141,6 @@
         statusEl.style.color = '#c00'
       }
     }
-
-    // --- ASCII renderer ---
-
-    function renderSeedlikes(seedlikes) {
-      var out = ''
-      for (var name in seedlikes)
-        out += renderSpace(name, seedlikes[name])
-      return out
-    }
-
-    function renderSpace(name, seed) {
-      var content = []
-
-      // ports
-      for (var p in seed.ports)
-        content.push('@' + p + '  [' + seed.ports[p][0] + ']')
-
-      // named stations
-      for (var s in seed.stations)
-        if (s.indexOf('station-') !== 0)
-          content.push(s + ':  ' + trunc(seed.stations[s].value, 50))
-
-      // state
-      for (var k in seed.state)
-        content.push('$' + k + ' = ' + JSON.stringify(seed.state[k]))
-
-      // subspaces
-      for (var sub in seed.subspaces)
-        content.push('[' + sub + ']')
-
-      if (content.length) content.push('')
-
-      // routes as chains
-      var chains = buildChains(seed.routes, seed.stations)
-      for (var i = 0; i < chains.length; i++)
-        content.push(chains[i].map(function(ep) { return resolveEP(ep, seed) }).join(' -> '))
-
-      // compute box width
-      var w = name.length + 6
-      for (var i = 0; i < content.length; i++)
-        w = Math.max(w, content[i].length + 4)
-
-      // draw box
-      var lines = []
-      lines.push('+-- ' + name + ' ' + rep('-', w - name.length - 5) + '+')
-      lines.push('|' + rep(' ', w) + '|')
-      for (var i = 0; i < content.length; i++)
-        lines.push('|  ' + content[i] + rep(' ', w - content[i].length - 2) + '|')
-      lines.push('|' + rep(' ', w) + '|')
-      lines.push('+' + rep('-', w) + '+')
-
-      return lines.join('\n') + '\n\n'
-    }
-
-    function buildChains(routes) {
-      var used = [], chains = []
-      for (var i = 0; i < routes.length; i++) {
-        if (used[i]) continue
-        var chain = [routes[i][0], routes[i][1]]
-        used[i] = true
-        // extend forward
-        var changed = true
-        while (changed) {
-          changed = false
-          var last = chain[chain.length - 1].replace(/\.(in|out)$/, '')
-          for (var j = 0; j < routes.length; j++) {
-            if (used[j]) continue
-            if (routes[j][0].replace(/\.(in|out)$/, '') === last) {
-              chain.push(routes[j][1])
-              used[j] = true
-              changed = true
-              break
-            }
-          }
-        }
-        chains.push(chain)
-      }
-      return chains
-    }
-
-    function resolveEP(ep, seed) {
-      if (seed.ports[ep]) return '@' + ep
-      var dot = ep.indexOf('.')
-      if (dot >= 0) {
-        var name = ep.slice(0, dot)
-        if (seed.stations[name]) {
-          if (name.indexOf('station-') === 0) return trunc(seed.stations[name].value, 30)
-          return name
-        }
-        return ep
-      }
-      return ep
-    }
-
-    function trunc(s, n) { return s.length > n ? s.slice(0, n - 3) + '...' : s }
-    function rep(ch, n) { return n > 0 ? Array(n + 1).join(ch) : '' }
 
     // auto-run on load
     document.addEventListener('DOMContentLoaded', function() { run() })

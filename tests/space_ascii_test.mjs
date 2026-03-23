@@ -82,7 +82,7 @@ var topo_empty = extract('myspace', { ports: {}, state: {}, routes: [], dialect:
 var laid_empty = layout(topo_empty)
 test('layout empty: has elements', Array.isArray(laid_empty.elements), true)
 test('layout empty: has box', laid_empty.elements.some(function(e) { return e.type === 'box' }), true)
-test('layout empty: has label', laid_empty.elements.some(function(e) { return e.type === 'label' && e.text === 'myspace' }), true)
+test('layout empty: box has name', laid_empty.elements.some(function(e) { return e.type === 'box' && e.name === 'myspace' }), true)
 test('layout empty: width >= 12', laid_empty.width >= 12, true)
 test('layout empty: height', laid_empty.height, 3)
 
@@ -100,7 +100,7 @@ test('layout ports: height accommodates ports', laid_ports.height >= 5, true)
 var def_chain = 'counter\n  @in\n  @out\n  @in -> {1 | add $count | >$count} -> @out'
 var sl_chain = D.seedlikes_from_string(def_chain)
 var topo_chain = extract('counter', sl_chain.counter)
-var laid_chain = layout(topo_chain)
+var laid_chain = layout(topo_chain, { max_source: 0 })
 test('chain layout: has station', laid_chain.elements.some(function(e) { return e.type === 'station' }), true)
 test('chain layout: has hlines', laid_chain.elements.filter(function(e) { return e.type === 'hline' }).length >= 2, true)
 test('chain layout: has left port', laid_chain.elements.some(function(e) { return e.type === 'port' && e.dir === 'left' }), true)
@@ -127,15 +127,15 @@ test('render empty: has bottom border', r_empty.split('\n').pop().indexOf('___')
 test('render empty: correct structure',
   r_empty,
   [
-    ' __________',
-    '| myspace  |',
-    '|__________|',
+    ' _ myspace __',
+    '|            |',
+    '|____________|',
   ].join('\n')
 )
 
 // === Render: single chain end-to-end ===
 var def_r = 'counter\n  @in\n  @out\n  @in -> {1 | add $count | >$count} -> @out'
-var r_chain = render_space('counter', D.seedlikes_from_string(def_r).counter)
+var r_chain = render_space('counter', D.seedlikes_from_string(def_r).counter, { max_source: 0 })
 test('render chain: is string', typeof r_chain, 'string')
 test('render chain: has port markers', (r_chain.match(/o/g) || []).length >= 2, true)
 test('render chain: has station source', r_chain.indexOf('{1 | add $count | >$count}') >= 0, true)
@@ -146,8 +146,8 @@ test('render chain: left port is o', r_chain.split('\n').some(function(line) { r
 test('render chain: correct structure',
   r_chain,
   [
-    ' ______________________________________',
-    '| counter                              |',
+    ' _ counter ____________________________',
+    '|                                      |',
     '|                                      |',
     '|    ______________________________    |',
     '|   /                              \\   |',
@@ -165,10 +165,10 @@ test('render ports: has o', r_ports.indexOf('o') >= 0, true)
 test('render ports: correct structure',
   r_ports,
   [
-    ' __________',
-    '| portonly |',
-    'o          |',
-    '|__________|',
+    ' _ portonly __',
+    '|             |',
+    'o             |',
+    '|_____________|',
   ].join('\n')
 )
 
@@ -414,6 +414,32 @@ test('self-loop: has back_edge', sorted_self.back_edges.length >= 1, true)
 var r_self = render_space('self', sl_self.self)
 test('self-loop: renders', typeof r_self, 'string')
 test('self-loop: has station', r_self.indexOf('{x}') >= 0, true)
+
+// === Connection ids ===
+test('conn has id', topo_c.connections[0].id, 'c0')
+test('conn 1 has id', topo_c.connections[1].id, 'c1')
+
+// === Contract pair linking ===
+var def_contract = 'cs\n  @up:req\n  proc {handle}\n  @up:req <-> proc'
+var sl_contract = D.seedlikes_from_string(def_contract)
+var topo_ct = extract('cs', sl_contract.cs)
+var contracts = topo_ct.connections.filter(function(c) { return c.type === 'contract' })
+test('contract: two contract connections', contracts.length, 2)
+test('contract: both have ids', contracts[0].id !== undefined && contracts[1].id !== undefined, true)
+test('contract: pair links match', contracts[0].pair === contracts[1].id && contracts[1].pair === contracts[0].id, true)
+
+// === FAF has no pair ===
+test('faf: no pair field', topo_c.connections[0].pair, undefined)
+
+// === Truncation ===
+var def_trunc = 'tr\n  @in\n  @out\n  @in -> {this is a very long station source} -> @out'
+var r_trunc = render_space('tr', D.seedlikes_from_string(def_trunc).tr)
+test('truncate: default truncates long source', r_trunc.indexOf('\u2026') >= 0, true)
+test('truncate: full source not present', r_trunc.indexOf('very long station source}') < 0, true)
+var r_notrunc = render_space('tr', D.seedlikes_from_string(def_trunc).tr, { max_source: 0 })
+test('truncate: max_source 0 shows full', r_notrunc.indexOf('{this is a very long station source}') >= 0, true)
+var r_short = render_space('tr', D.seedlikes_from_string(def_trunc).tr, { max_source: 10 })
+test('truncate: max_source 10 shorter', r_short.indexOf('\u2026') >= 0, true)
 
 // Report
 console.log('space_ascii_test: ' + pass + '/' + (pass + fail) + ' passed')

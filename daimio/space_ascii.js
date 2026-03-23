@@ -104,7 +104,37 @@ export function extract(name, seedlike) {
         type = 'contract'
     }
 
-    connections.push({ from: from, to: to, type: type })
+    connections.push({ id: 'c' + connections.length, from: from, to: to, type: type })
+  }
+
+  // Fix port directions for custom-named ports by checking connection usage.
+  // If a port key doesn't start with a known direction (in/out/up/down),
+  // infer from connections: port as source (from) → left, port as dest (to) → right.
+  var known_dirs = { 'in': 1, 'out': 1, 'up': 1, 'down': 1 }
+  for (var i = 0; i < ports.length; i++) {
+    var prefix = ports[i].key.split(':')[0]
+    if (known_dirs[prefix]) continue
+    for (var j = 0; j < connections.length; j++) {
+      if (connections[j].from.id === ports[i].id) { ports[i].dir = 'left'; break }
+      if (connections[j].to.id === ports[i].id) { ports[i].dir = 'right'; break }
+    }
+  }
+
+  // Link contract pairs: for each contract connection, find its reverse
+  for (var i = 0; i < connections.length; i++) {
+    if (connections[i].type !== 'contract') continue
+    if (connections[i].pair) continue
+    var ci = connections[i]
+    for (var j = i + 1; j < connections.length; j++) {
+      var cj = connections[j]
+      if (cj.type !== 'contract') continue
+      if (cj.pair) continue
+      if (ci.from.id === cj.to.id && ci.to.id === cj.from.id) {
+        ci.pair = cj.id
+        cj.pair = ci.id
+        break
+      }
+    }
   }
 
   return {
@@ -194,11 +224,12 @@ export function topo_sort(topology) {
   return { layers: layers, layer_of: layer_of, back_edges: back_edges }
 }
 
-export function layout(topology) {
+export function layout(topology, options) {
   var HLINE_GAP = 3
   var ROW_HEIGHT = 6
   var HEADER_HEIGHT = 2
   var PORT_COL = 4   // 1 (port 'o') + 3 (hline '---')
+  var max_source = (options && options.max_source !== undefined) ? options.max_source : 20
 
   var name = topology.name
   var ports = topology.ports || []
@@ -223,8 +254,18 @@ export function layout(topology) {
 
   function is_comp(id) { return !!station_by_id[id] || !!subspace_set[id] }
 
+  function trunc(s) {
+    if (max_source > 0 && s.length > max_source) return s.slice(0, max_source - 1) + '\u2026'
+    return s
+  }
+
   function comp_w(id) {
-    if (station_by_id[id]) return station_by_id[id].source.length + 6
+    if (station_by_id[id]) {
+      var sw = trunc(station_by_id[id].source).length + 6
+      var sn = station_by_id[id].name
+      if (sn && sn.indexOf('station-') !== 0) sw = Math.max(sw, sn.length + 7)
+      return sw
+    }
     if (subspace_set[id]) return id.length + 8
     return 0
   }
@@ -349,7 +390,10 @@ export function layout(topology) {
       var cy = comp_y(row) + 1
       var cw = comp_w(cid)
       if (station_by_id[cid]) {
-        elements.push({ type: 'station', x: cx, y: cy, width: cw, height: 4, source: station_by_id[cid].source })
+        var sname = station_by_id[cid].name
+        var el = { type: 'station', x: cx, y: cy, width: cw, height: 4, source: trunc(station_by_id[cid].source) }
+        if (sname && sname.indexOf('station-') !== 0) el.name = sname
+        elements.push(el)
       } else {
         elements.push({ type: 'subspace_box', x: cx, y: cy, width: cw, height: 4, name: cid })
       }
@@ -367,6 +411,8 @@ export function layout(topology) {
     return layer_x[layer_of[cid]] + comp_w(cid)
   }
 
+  var deferred_right = []  // right ports placed after width is known
+
   for (var i = 0; i < connections.length; i++) {
     var c = connections[i]
     var fid = c.from.id, tid = c.to.id
@@ -379,12 +425,8 @@ export function layout(topology) {
       elements.push({ type: 'hline', x: 1, y: wy, length: layer_x[layer_of[tid]] - 1 })
 
     } else if (is_comp(fid) && port_by_id[tid]) {
-      // Component → right boundary port
-      var row = row_of[fid]
-      var wy = wire_y(row)
-      var rx = comp_right(fid)
-      elements.push({ type: 'hline', x: rx, y: wy, length: HLINE_GAP })
-      elements.push({ type: 'port', x: rx + HLINE_GAP, y: wy, dir: 'right', key: port_by_id[tid].key })
+      // Component → right boundary port (deferred — placed after width is known)
+      deferred_right.push({ comp_id: fid, port: port_by_id[tid] })
 
     } else if (is_comp(fid) && is_comp(tid)) {
       // Skip back-edges — routed separately below
@@ -418,10 +460,46 @@ export function layout(topology) {
     }
   }
 
+  // Back-edges deferred until after width is known
+  var back_edge_rows = back_edges.length
+
+  // ── Standalone ports (not in any connection) ─────────────────────────
+
+  var left_ports = []
+  var right_ports = []
+  for (var i = 0; i < ports.length; i++) {
+    if (used_ports[ports[i].id]) continue
+    if (ports[i].dir === 'left') left_ports.push(ports[i])
+    else right_ports.push(ports[i])
+  }
+
+  // ── Compute width before placing right ports ────────────────────────
+
+  var min_width = Math.max(name.length + 7, 12)
+
+  // Width from component placement: rightmost comp edge + HLINE_GAP + 1 (port)
+  var max_right_x = 0
+  for (var i = 0; i < deferred_right.length; i++) {
+    var rx = comp_right(deferred_right[i].comp_id) + HLINE_GAP + 1
+    if (rx > max_right_x) max_right_x = rx
+  }
+  var width = Math.max(min_width, max_right_x)
+
+  // ── Place deferred right ports at box edge ─────────────────────────
+
+  for (var i = 0; i < deferred_right.length; i++) {
+    var dr = deferred_right[i]
+    var row = row_of[dr.comp_id]
+    var wy = wire_y(row)
+    var rx = comp_right(dr.comp_id)
+    elements.push({ type: 'hline', x: rx, y: wy, length: width - 1 - rx })
+    elements.push({ type: 'port', x: width - 1, y: wy, dir: 'right', key: dr.port.key })
+  }
+
   // ── Route back-edges (cycle connections) ────────────────────────────
   // Back-edges go from a later (or same) layer back to an earlier layer.
   // Route as U-shape below all component rows:
-  //   from right edge → down → horizontal at back_y → up → to left edge
+  //   source right edge → down → horizontal at back_y → up → target left edge
 
   for (var i = 0; i < back_edges.length; i++) {
     var be_from = back_edges[i][0]
@@ -444,32 +522,6 @@ export function layout(topology) {
     if (back_y > to_wy)
       elements.push({ type: 'vline', x: to_x, y: to_wy, length: back_y - to_wy + 1 })
   }
-
-  var back_edge_rows = back_edges.length
-
-  // ── Standalone ports (not in any connection) ─────────────────────────
-
-  var left_ports = []
-  var right_ports = []
-  for (var i = 0; i < ports.length; i++) {
-    if (used_ports[ports[i].id]) continue
-    if (ports[i].dir === 'left') left_ports.push(ports[i])
-    else right_ports.push(ports[i])
-  }
-
-  // ── Compute width before standalone placement ────────────────────────
-
-  var min_width = Math.max(name.length + 4, 12)
-
-  // Width from component placement: rightmost right-port x + 1
-  var max_right_x = 0
-  for (var i = 0; i < elements.length; i++) {
-    var el = elements[i]
-    if (el.type === 'port' && el.dir === 'right') {
-      if (el.x + 1 > max_right_x) max_right_x = el.x + 1
-    }
-  }
-  var width = Math.max(min_width, max_right_x)
 
   // ── Standalone port rows ─────────────────────────────────────────────
 
@@ -505,8 +557,7 @@ export function layout(topology) {
   var height = HEADER_HEIGHT + total_rows * ROW_HEIGHT + back_edge_rows + port_rows + state_rows + 1
   if (total_rows === 0 && port_rows === 0 && state_rows === 0 && back_edge_rows === 0) height = 3
 
-  elements.unshift({ type: 'box', x: 0, y: 0, width: width, height: height })
-  elements.splice(1, 0, { type: 'label', x: 2, y: 1, text: name })
+  elements.unshift({ type: 'box', x: 0, y: 0, width: width, height: height, name: name })
 
   return { id: topology.id, name: name, width: width, height: height, elements: elements }
 }
@@ -533,9 +584,14 @@ export function render(laid_out) {
     var el = elements[i]
 
     if (el.type === 'box') {
-      // Top row: space at x, then underscores
+      // Top row: space at x, then underscores with optional name
       for (var x = el.x + 1; x <= el.x + el.width - 2; x++)
         grid[el.y][x] = '_'
+      if (el.name) {
+        var bname = ' ' + el.name + ' '
+        for (var j = 0; j < bname.length && el.x + 2 + j < el.x + el.width - 3; j++)
+          grid[el.y][el.x + 2 + j] = bname[j]
+      }
       // Bottom row: | _ _ _ |
       grid[el.y + el.height - 1][el.x] = '|'
       for (var x = el.x + 1; x <= el.x + el.width - 2; x++)
@@ -569,9 +625,14 @@ export function render(laid_out) {
 
     else if (el.type === 'station') {
       var sx = el.x, sy = el.y, sw = el.width
-      // Line 0: underscores from x+1 to x+width-2
+      // Line 0: underscores from x+1 to x+width-2, with optional name
       for (var x = sx + 1; x <= sx + sw - 2; x++)
         grid[sy][x] = '_'
+      if (el.name) {
+        var sname = ' ' + el.name + ' '
+        for (var j = 0; j < sname.length && sx + 2 + j < sx + sw - 3; j++)
+          grid[sy][sx + 2 + j] = sname[j]
+      }
       // Line 1: / at x, \ at x+width-1
       grid[sy + 1][sx] = '/'
       grid[sy + 1][sx + sw - 1] = '\\'
@@ -627,10 +688,10 @@ export function render(laid_out) {
   return lines.join('\n')
 }
 
-export function render_space(name, seedlike) {
-  return render(layout(extract(name, seedlike)))
+export function render_space(name, seedlike, options) {
+  return render(layout(extract(name, seedlike), options))
 }
 
-export function render_all(seedlikes) {
-  return Object.keys(seedlikes).map(function(n) { return render_space(n, seedlikes[n]) }).join('\n\n')
+export function render_all(seedlikes, options) {
+  return Object.keys(seedlikes).map(function(n) { return render_space(n, seedlikes[n], options) }).join('\n\n')
 }
