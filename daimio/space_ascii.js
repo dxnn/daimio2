@@ -509,14 +509,14 @@ export function layout(topology, options) {
       var wy = base_wy + j * 2
       if (wy > max_fan_y) max_fan_y = wy
       elements.push({ type: 'port', x: 0, y: wy, dir: 'left', key: group[j].key })
-      var pcid = 'lp' + cid + '_' + j
+      var pcids = [group[j].id, cid]
       if (j > 0) {
         // Offset port: hline from port to midpoint, vline from base row
-        elements.push({ type: 'hline', x: 1, y: wy, length: left_mid_x, cid: pcid })
-        elements.push({ type: 'vline', x: left_mid_x, y: base_wy, length: wy - base_wy + 1, cid: pcid })
+        elements.push({ type: 'hline', x: 1, y: wy, length: left_mid_x, cids: pcids })
+        elements.push({ type: 'vline', x: left_mid_x, y: base_wy, length: wy - base_wy + 1, cids: pcids, dir: 'up' })
       } else {
         // First port: hline from port to component
-        elements.push({ type: 'hline', x: 1, y: wy, length: lx - 1, cid: pcid })
+        elements.push({ type: 'hline', x: 1, y: wy, length: lx - 1, cids: pcids })
       }
     }
   }
@@ -559,7 +559,7 @@ export function layout(topology, options) {
     if (src_row === dst_row) {
       var rx = comp_right(c.from.id)
       var lx = layer_x[layer_of[c.to.id]]
-      elements.push({ type: 'hline', x: rx, y: wire_y(src_row), length: lx - rx, cid: c.id })
+      elements.push({ type: 'hline', x: rx, y: wire_y(src_row), length: lx - rx, cids: [c.from.id, c.to.id] })
     }
   }
 
@@ -612,13 +612,15 @@ export function layout(topology, options) {
       var min_wy = Math.min(src_wy, dst_wy)
       var max_wy = Math.max(src_wy, dst_wy)
 
+      var cids = [c.from.id, c.to.id]
+      var vdir = src_row < dst_row ? 'down' : 'up'
       // Hline from source to track
-      elements.push({ type: 'hline', x: rx, y: src_wy, length: track_x - rx + 1, cid: c.id })
+      elements.push({ type: 'hline', x: rx, y: src_wy, length: track_x - rx + 1, cids: cids })
       // Vline at track
-      elements.push({ type: 'vline', x: track_x, y: min_wy, length: max_wy - min_wy + 1, cid: c.id })
+      elements.push({ type: 'vline', x: track_x, y: min_wy, length: max_wy - min_wy + 1, cids: cids, dir: vdir })
       // Hline from track to target
       if (lx > track_x)
-        elements.push({ type: 'hline', x: track_x, y: dst_wy, length: lx - track_x, cid: c.id })
+        elements.push({ type: 'hline', x: track_x, y: dst_wy, length: lx - track_x, cids: cids })
     }
   }
 
@@ -670,14 +672,14 @@ export function layout(topology, options) {
     if (wy > max_fan_y) max_fan_y = wy
     var rx = comp_right(dr.comp_id)
     var mid_x = rx + Math.floor((width - 1 - rx) / 2)
-    var rpcid = 'rp' + dr.comp_id + '_' + (dr.offset || 0)
+    var rpcids = [dr.comp_id, dr.port.id]
     if (dr.offset > 0) {
       // Offset port: hline from midpoint to port, vline from base row
-      elements.push({ type: 'hline', x: mid_x, y: wy, length: width - 1 - mid_x, cid: rpcid })
-      elements.push({ type: 'vline', x: mid_x, y: base_wy, length: wy - base_wy + 1, cid: rpcid })
+      elements.push({ type: 'hline', x: mid_x, y: wy, length: width - 1 - mid_x, cids: rpcids })
+      elements.push({ type: 'vline', x: mid_x, y: base_wy, length: wy - base_wy + 1, cids: rpcids, dir: 'down' })
     } else {
       // First port: hline from component to port
-      elements.push({ type: 'hline', x: rx, y: wy, length: width - 1 - rx, cid: rpcid })
+      elements.push({ type: 'hline', x: rx, y: wy, length: width - 1 - rx, cids: rpcids })
     }
     elements.push({ type: 'port', x: width - 1, y: wy, dir: 'right', key: dr.port.key })
   }
@@ -708,24 +710,24 @@ export function layout(topology, options) {
     var from_rx = comp_right(be_from)
     var to_lx = layer_x[layer_of[be_to]]
 
-    var becid = 'be' + i
+    var becids = [be_from, be_to]
     // Horizontal from source ')' to source vline
     if (from_x > from_rx)
-      elements.push({ type: 'hline', x: from_rx, y: from_wy, length: from_x - from_rx + 1, cid: becid })
+      elements.push({ type: 'hline', x: from_rx, y: from_wy, length: from_x - from_rx + 1, cids: becids })
     // Vertical down from source wire row to back-edge row
     if (back_y > from_wy)
-      elements.push({ type: 'vline', x: from_x, y: from_wy, length: back_y - from_wy + 1, cid: becid })
+      elements.push({ type: 'vline', x: from_x, y: from_wy, length: back_y - from_wy + 1, cids: becids, dir: 'down' })
     // Horizontal across at back-edge row
     var left_x = Math.min(from_x, to_x)
     var right_x = Math.max(from_x, to_x)
     if (right_x > left_x)
-      elements.push({ type: 'hline', x: left_x, y: back_y, length: right_x - left_x + 1, cid: becid })
+      elements.push({ type: 'hline', x: left_x, y: back_y, length: right_x - left_x + 1, cids: becids })
     // Vertical up from back-edge row to target wire row
     if (back_y > to_wy)
-      elements.push({ type: 'vline', x: to_x, y: to_wy, length: back_y - to_wy + 1, cid: becid })
+      elements.push({ type: 'vline', x: to_x, y: to_wy, length: back_y - to_wy + 1, cids: becids, dir: 'up' })
     // Horizontal from target vline to target '('
     if (to_lx - 1 > to_x)
-      elements.push({ type: 'hline', x: to_x, y: to_wy, length: to_lx - 1 - to_x, cid: becid })
+      elements.push({ type: 'hline', x: to_x, y: to_wy, length: to_lx - 1 - to_x, cids: becids })
   }
 
   // ── Standalone port rows ─────────────────────────────────────────────
@@ -777,13 +779,15 @@ export function render(laid_out) {
   var render_order = { box: 0, label: 1, text: 1, port: 1, hline: 2, vline: 2, station: 3, subspace_box: 3 }
   elements.sort(function(a, b) { return (render_order[a.type] || 0) - (render_order[b.type] || 0) })
 
-  // Create 2D grid filled with spaces, plus cid grid for crossing detection
+  // Create 2D grid filled with spaces, plus cid grid and dir grid
   var grid = []
   var cid_grid = []
+  var dir_grid = []
   for (var y = 0; y < h; y++) {
     grid[y] = []
     cid_grid[y] = []
-    for (var x = 0; x < w; x++) { grid[y][x] = ' '; cid_grid[y][x] = null }
+    dir_grid[y] = []
+    for (var x = 0; x < w; x++) { grid[y][x] = ' '; cid_grid[y][x] = null; dir_grid[y][x] = null }
   }
 
   // Stamp each element onto the grid
@@ -823,27 +827,43 @@ export function render(laid_out) {
     else if (el.type === 'hline') {
       for (var x = el.x; x < el.x + el.length; x++) {
         var cur = grid[el.y][x]
-        var cur_cid = cid_grid[el.y][x]
-        if (cur === '|' || cur === '+' || cur === 'O') {
-          // Wire overlap: same cid = junction, different cid = crossing
-          grid[el.y][x] = (cur_cid !== null && el.cid && cur_cid !== el.cid) ? 'O' : '+'
+        var cur_cids = cid_grid[el.y][x]
+        if (cur === '|' || cur === '+' || cur === 'O' || cur === 'v' || cur === '^' || cur === '<' || cur === '>') {
+          // Wire overlap: shared endpoint = junction, disjoint = crossing
+          var shared = false
+          if (cur_cids && el.cids) {
+            for (var k = 0; k < el.cids.length && !shared; k++)
+              for (var m = 0; m < cur_cids.length && !shared; m++)
+                if (el.cids[k] === cur_cids[m]) shared = true
+          } else { shared = true }  // no cids = assume junction
+          grid[el.y][x] = shared ? '+' : 'O'
+          // Preserve existing dir, or record hline dir if provided
+          if (!dir_grid[el.y][x] && el.dir) dir_grid[el.y][x] = el.dir
         } else {
           grid[el.y][x] = '-'
         }
-        if (el.cid) cid_grid[el.y][x] = el.cid
+        if (el.cids) cid_grid[el.y][x] = el.cids
       }
     }
 
     else if (el.type === 'vline') {
       for (var y = el.y; y < el.y + el.length; y++) {
         var cur = grid[y][el.x]
-        var cur_cid = cid_grid[y][el.x]
-        if (cur === '-' || cur === '+' || cur === 'O') {
-          grid[y][el.x] = (cur_cid !== null && el.cid && cur_cid !== el.cid) ? 'O' : '+'
+        var cur_cids = cid_grid[y][el.x]
+        if (cur === '-' || cur === '+' || cur === 'O' || cur === 'v' || cur === '^' || cur === '<' || cur === '>') {
+          var shared = false
+          if (cur_cids && el.cids) {
+            for (var k = 0; k < el.cids.length && !shared; k++)
+              for (var m = 0; m < cur_cids.length && !shared; m++)
+                if (el.cids[k] === cur_cids[m]) shared = true
+          } else { shared = true }
+          grid[y][el.x] = shared ? '+' : 'O'
+          if (shared && el.dir) dir_grid[y][el.x] = el.dir
         } else {
           grid[y][el.x] = '|'
         }
-        if (el.cid) cid_grid[y][el.x] = el.cid
+        if (el.dir) dir_grid[y][el.x] = el.dir
+        if (el.cids) cid_grid[y][el.x] = el.cids
       }
     }
 
@@ -901,6 +921,27 @@ export function render(laid_out) {
     else if (el.type === 'text') {
       for (var j = 0; j < el.text.length; j++)
         grid[el.y][el.x + j] = el.text[j]
+    }
+  }
+
+  // Post-process: replace '+' junctions with directional chars
+  // Use dir_grid (flow direction from layout) when available,
+  // fall back to neighbor-based detection for corners
+  var h_chars = { '-': 1, '+': 1, 'O': 1, '<': 1, '>': 1, 'v': 1, '^': 1 }
+  var v_chars = { '|': 1, '+': 1, 'O': 1, 'v': 1, '^': 1, '<': 1, '>': 1 }
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      if (grid[y][x] !== '+') continue
+      // If we have a recorded flow direction, use it
+      if (dir_grid[y][x]) {
+        var d = dir_grid[y][x]
+        if (d === 'down') grid[y][x] = 'v'
+        else if (d === 'up') grid[y][x] = '^'
+        else if (d === 'right') grid[y][x] = '>'
+        else if (d === 'left') grid[y][x] = '<'
+        continue
+      }
+      // No flow direction: keep as '+' (corners, 4-way)
     }
   }
 
