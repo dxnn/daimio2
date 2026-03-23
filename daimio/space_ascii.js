@@ -552,22 +552,24 @@ export function layout(topology, options) {
   // ── Route comp→comp connections ──────────────────────────────────────
   // Group cross-row connections by layer gap, assign separate x tracks.
 
-  // First, route same-row connections
+  // First, route same-row, adjacent-layer connections (no intermediate stations to cross)
   for (var i = 0; i < comp_conns.length; i++) {
     var c = comp_conns[i]
     var src_row = row_of[c.from.id], dst_row = row_of[c.to.id]
-    if (src_row === dst_row) {
+    var src_layer = layer_of[c.from.id], dst_layer = layer_of[c.to.id]
+    if (src_row === dst_row && dst_layer - src_layer === 1) {
       var rx = comp_right(c.from.id)
       var lx = layer_x[layer_of[c.to.id]]
       elements.push({ type: 'hline', x: rx, y: wire_y(src_row), length: lx - rx, cids: [c.from.id, c.to.id] })
     }
   }
 
-  // Collect cross-row connections grouped by layer gap (src_layer → dst_layer)
+  // Collect connections that need tracks: cross-row OR same-row spanning multiple layers
   var gap_conns = {}  // 'srcLayer|dstLayer' → [conn, ...]
   for (var i = 0; i < comp_conns.length; i++) {
     var c = comp_conns[i]
-    if (row_of[c.from.id] === row_of[c.to.id]) continue
+    var src_layer = layer_of[c.from.id], dst_layer = layer_of[c.to.id]
+    if (row_of[c.from.id] === row_of[c.to.id] && dst_layer - src_layer === 1) continue  // already routed
     var gap_key = layer_of[c.from.id] + '|' + layer_of[c.to.id]
     if (!gap_conns[gap_key]) gap_conns[gap_key] = []
     gap_conns[gap_key].push(c)
@@ -578,7 +580,9 @@ export function layout(topology, options) {
     var conns = gap_conns[gk]
     var src_layer = layer_of[conns[0].from.id]
     var dst_layer = layer_of[conns[0].to.id]
-    var rx_base = layer_x[src_layer] + layer_width[src_layer]  // right edge of source layer
+    // Place tracks in the gap just before the destination layer
+    var gap_layer = dst_layer - 1  // layer just before destination
+    var rx_base = layer_x[gap_layer] + layer_width[gap_layer]  // right edge of pre-dest layer
     var lx_base = layer_x[dst_layer]                           // left edge of dest layer
     var gap = lx_base - rx_base
 
@@ -609,18 +613,36 @@ export function layout(topology, options) {
       var lx = layer_x[layer_of[c.to.id]]
       var src_wy = wire_y(src_row)
       var dst_wy = wire_y(dst_row)
-      var min_wy = Math.min(src_wy, dst_wy)
-      var max_wy = Math.max(src_wy, dst_wy)
-
       var cids = [c.from.id, c.to.id]
-      var vdir = src_row < dst_row ? 'down' : 'up'
-      // Hline from source to track
-      elements.push({ type: 'hline', x: rx, y: src_wy, length: track_x - rx + 1, cids: cids })
-      // Vline at track
-      elements.push({ type: 'vline', x: track_x, y: min_wy, length: max_wy - min_wy + 1, cids: cids, dir: vdir })
-      // Hline from track to target
-      if (lx > track_x)
-        elements.push({ type: 'hline', x: track_x, y: dst_wy, length: lx - track_x, cids: cids })
+
+      if (src_row === dst_row) {
+        // Same-row but multi-layer: jog below intermediate stations
+        var jog_wy = src_wy + 3  // below station bottom curve
+        if (jog_wy > max_fan_y) max_fan_y = jog_wy
+        // Hline from source to first gap track
+        var first_gap_x = layer_x[layer_of[c.from.id]] + layer_width[layer_of[c.from.id]] + 2
+        elements.push({ type: 'hline', x: rx, y: src_wy, length: first_gap_x - rx + 1, cids: cids })
+        // Vline down to jog row
+        elements.push({ type: 'vline', x: first_gap_x, y: src_wy, length: jog_wy - src_wy + 1, cids: cids, dir: 'down' })
+        // Hline across jog row to track
+        elements.push({ type: 'hline', x: first_gap_x, y: jog_wy, length: track_x - first_gap_x + 1, cids: cids, dir: 'right' })
+        // Vline up to dest row
+        elements.push({ type: 'vline', x: track_x, y: src_wy, length: jog_wy - src_wy + 1, cids: cids, dir: 'up' })
+        // Hline from track to target
+        if (lx > track_x)
+          elements.push({ type: 'hline', x: track_x, y: src_wy, length: lx - track_x, cids: cids })
+      } else {
+        var min_wy = Math.min(src_wy, dst_wy)
+        var max_wy = Math.max(src_wy, dst_wy)
+        var vdir = src_row < dst_row ? 'down' : 'up'
+        // Hline from source to track
+        elements.push({ type: 'hline', x: rx, y: src_wy, length: track_x - rx + 1, cids: cids })
+        // Vline at track
+        elements.push({ type: 'vline', x: track_x, y: min_wy, length: max_wy - min_wy + 1, cids: cids, dir: vdir })
+        // Hline from track to target
+        if (lx > track_x)
+          elements.push({ type: 'hline', x: track_x, y: dst_wy, length: lx - track_x, cids: cids })
+      }
     }
   }
 
@@ -721,7 +743,7 @@ export function layout(topology, options) {
     var left_x = Math.min(from_x, to_x)
     var right_x = Math.max(from_x, to_x)
     if (right_x > left_x)
-      elements.push({ type: 'hline', x: left_x, y: back_y, length: right_x - left_x + 1, cids: becids })
+      elements.push({ type: 'hline', x: left_x, y: back_y, length: right_x - left_x + 1, cids: becids, dir: 'left' })
     // Vertical up from back-edge row to target wire row
     if (back_y > to_wy)
       elements.push({ type: 'vline', x: to_x, y: to_wy, length: back_y - to_wy + 1, cids: becids, dir: 'up' })
@@ -830,19 +852,29 @@ export function render(laid_out) {
         var cur_cids = cid_grid[el.y][x]
         if (cur === '|' || cur === '+' || cur === 'O' || cur === 'v' || cur === '^' || cur === '<' || cur === '>') {
           // Wire overlap: shared endpoint = junction, disjoint = crossing
-          var shared = false
-          if (cur_cids && el.cids) {
+          var shared = cur === '+' || cur === 'v' || cur === '^' || cur === '<' || cur === '>'  // already a junction
+          if (!shared && cur_cids && el.cids) {
             for (var k = 0; k < el.cids.length && !shared; k++)
               for (var m = 0; m < cur_cids.length && !shared; m++)
                 if (el.cids[k] === cur_cids[m]) shared = true
-          } else { shared = true }  // no cids = assume junction
+          } else if (!cur_cids) { shared = true }
           grid[el.y][x] = shared ? '+' : 'O'
-          // Preserve existing dir, or record hline dir if provided
-          if (!dir_grid[el.y][x] && el.dir) dir_grid[el.y][x] = el.dir
+          if (el.dir) dir_grid[el.y][x] = el.dir  // hline dir always wins at junctions
         } else {
           grid[el.y][x] = '-'
+          if (el.dir) dir_grid[el.y][x] = el.dir
         }
-        if (el.cids) cid_grid[el.y][x] = el.cids
+        // Merge cids
+        if (el.cids) {
+          if (cid_grid[el.y][x]) {
+            var merged = cid_grid[el.y][x].slice()
+            for (var k = 0; k < el.cids.length; k++)
+              if (merged.indexOf(el.cids[k]) < 0) merged.push(el.cids[k])
+            cid_grid[el.y][x] = merged
+          } else {
+            cid_grid[el.y][x] = el.cids
+          }
+        }
       }
     }
 
@@ -851,19 +883,29 @@ export function render(laid_out) {
         var cur = grid[y][el.x]
         var cur_cids = cid_grid[y][el.x]
         if (cur === '-' || cur === '+' || cur === 'O' || cur === 'v' || cur === '^' || cur === '<' || cur === '>') {
-          var shared = false
-          if (cur_cids && el.cids) {
+          var shared = cur === '+' || cur === 'v' || cur === '^' || cur === '<' || cur === '>'
+          if (!shared && cur_cids && el.cids) {
             for (var k = 0; k < el.cids.length && !shared; k++)
               for (var m = 0; m < cur_cids.length && !shared; m++)
                 if (el.cids[k] === cur_cids[m]) shared = true
-          } else { shared = true }
+          } else if (!cur_cids) { shared = true }
           grid[y][el.x] = shared ? '+' : 'O'
-          if (shared && el.dir) dir_grid[y][el.x] = el.dir
+          if (shared && el.dir && !dir_grid[y][el.x]) dir_grid[y][el.x] = el.dir
         } else {
           grid[y][el.x] = '|'
         }
-        if (el.dir) dir_grid[y][el.x] = el.dir
-        if (el.cids) cid_grid[y][el.x] = el.cids
+        if (el.dir && !dir_grid[y][el.x]) dir_grid[y][el.x] = el.dir
+        // Merge cids
+        if (el.cids) {
+          if (cid_grid[y][el.x]) {
+            var merged = cid_grid[y][el.x].slice()
+            for (var k = 0; k < el.cids.length; k++)
+              if (merged.indexOf(el.cids[k]) < 0) merged.push(el.cids[k])
+            cid_grid[y][el.x] = merged
+          } else {
+            cid_grid[y][el.x] = el.cids
+          }
+        }
       }
     }
 
