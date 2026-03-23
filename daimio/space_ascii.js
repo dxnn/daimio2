@@ -225,10 +225,10 @@ export function topo_sort(topology) {
 }
 
 export function layout(topology, options) {
-  var HLINE_GAP = 3
+  var HLINE_GAP = 5
   var ROW_HEIGHT = 6
   var HEADER_HEIGHT = 2
-  var PORT_COL = 4   // 1 (port 'o') + 3 (hline '---')
+  var PORT_COL = 5   // 1 (port 'o') + 3 (visible wire '---') + 1 (paren '(' push-out)
   var max_source = (options && options.max_source !== undefined) ? options.max_source : 20
 
   var name = topology.name
@@ -413,20 +413,64 @@ export function layout(topology, options) {
 
   var deferred_right = []  // right ports placed after width is known
 
+  // Group left ports by target component, right ports by source component
+  var left_port_groups = {}   // comp_id → [port, ...]
+  var right_port_groups = {}  // comp_id → [port, ...]
+  for (var i = 0; i < connections.length; i++) {
+    var c = connections[i]
+    if (port_by_id[c.from.id] && is_comp(c.to.id)) {
+      var tid = c.to.id
+      if (!left_port_groups[tid]) left_port_groups[tid] = []
+      left_port_groups[tid].push(port_by_id[c.from.id])
+    } else if (is_comp(c.from.id) && port_by_id[c.to.id]) {
+      var fid = c.from.id
+      if (!right_port_groups[fid]) right_port_groups[fid] = []
+      right_port_groups[fid].push(port_by_id[c.to.id])
+    }
+  }
+
+  // Route left port groups — first port on the wire row, extras offset with vlines
+  var left_port_x = PORT_COL - 2  // vline column for fan-in (one before '(')
+  var left_mid_x = Math.floor(PORT_COL / 2)  // midpoint for fan-in vline
+  var max_fan_y = 0  // track max y used by fan-in/fan-out offset ports
+  for (var cid in left_port_groups) {
+    var group = left_port_groups[cid]
+    var base_wy = wire_y(row_of[cid])
+    var lx = layer_x[layer_of[cid]]
+    for (var j = 0; j < group.length; j++) {
+      var wy = base_wy + j * 2
+      if (wy > max_fan_y) max_fan_y = wy
+      elements.push({ type: 'port', x: 0, y: wy, dir: 'left', key: group[j].key })
+      if (j > 0) {
+        // Offset port: hline from port to midpoint, vline from base row
+        elements.push({ type: 'hline', x: 1, y: wy, length: left_mid_x })
+        elements.push({ type: 'vline', x: left_mid_x, y: base_wy, length: wy - base_wy + 1 })
+      } else {
+        // First port: hline from port to component
+        elements.push({ type: 'hline', x: 1, y: wy, length: lx - 1 })
+      }
+    }
+  }
+
+  // Route right port groups (deferred — need width first)
+  for (var cid in right_port_groups) {
+    var group = right_port_groups[cid]
+    for (var j = 0; j < group.length; j++) {
+      deferred_right.push({ comp_id: cid, port: group[j], offset: j })
+    }
+  }
+
   for (var i = 0; i < connections.length; i++) {
     var c = connections[i]
     var fid = c.from.id, tid = c.to.id
 
     if (port_by_id[fid] && is_comp(tid)) {
-      // Left boundary port → component
-      var row = row_of[tid]
-      var wy = wire_y(row)
-      elements.push({ type: 'port', x: 0, y: wy, dir: 'left', key: port_by_id[fid].key })
-      elements.push({ type: 'hline', x: 1, y: wy, length: layer_x[layer_of[tid]] - 1 })
+      // Already handled above in left port groups
+      continue
 
     } else if (is_comp(fid) && port_by_id[tid]) {
-      // Component → right boundary port (deferred — placed after width is known)
-      deferred_right.push({ comp_id: fid, port: port_by_id[tid] })
+      // Already handled above in right port groups
+      continue
 
     } else if (is_comp(fid) && is_comp(tid)) {
       // Skip back-edges — routed separately below
@@ -441,21 +485,20 @@ export function layout(topology, options) {
         // Same row — straight hline
         elements.push({ type: 'hline', x: rx, y: wire_y(src_row), length: lx - rx })
       } else {
-        // Different rows — hline out, vline, hline in
-        var mid_x = rx + 1
+        // Different rows — hline to midpoint, vline, hline to target
+        var mid_x = rx + Math.floor((lx - rx) / 2)
         var src_wy = wire_y(src_row)
         var dst_wy = wire_y(dst_row)
         var min_wy = Math.min(src_wy, dst_wy)
         var max_wy = Math.max(src_wy, dst_wy)
 
         // Hline from source right edge to mid_x
-        if (mid_x > rx)
-          elements.push({ type: 'hline', x: rx, y: src_wy, length: mid_x - rx })
+        elements.push({ type: 'hline', x: rx, y: src_wy, length: mid_x - rx + 1 })
         // Vline connecting the two rows
         elements.push({ type: 'vline', x: mid_x, y: min_wy, length: max_wy - min_wy + 1 })
         // Hline from mid_x to target left edge
-        if (lx > mid_x + 1)
-          elements.push({ type: 'hline', x: mid_x + 1, y: dst_wy, length: lx - mid_x - 1 })
+        if (lx > mid_x)
+          elements.push({ type: 'hline', x: mid_x, y: dst_wy, length: lx - mid_x })
       }
     }
   }
@@ -477,10 +520,23 @@ export function layout(topology, options) {
 
   var min_width = Math.max(name.length + 7, 12)
 
-  // Width from component placement: rightmost comp edge + HLINE_GAP + 1 (port)
+  // Width from component placement: rightmost edge of any component or port connection
   var max_right_x = 0
+  // From right port connections
   for (var i = 0; i < deferred_right.length; i++) {
     var rx = comp_right(deferred_right[i].comp_id) + HLINE_GAP + 1
+    if (rx > max_right_x) max_right_x = rx
+  }
+  // From rightmost component edge (even without right ports)
+  for (var i = 0; i < layers.length; i++) {
+    for (var j = 0; j < layers[i].length; j++) {
+      var rx = layer_x[i] + comp_w(layers[i][j]) + 2  // component + padding
+      if (rx > max_right_x) max_right_x = rx
+    }
+  }
+  // From back-edge vline positions (need room inside the box)
+  for (var i = 0; i < back_edges.length; i++) {
+    var rx = comp_right(back_edges[i][0]) + 4  // vline at +2, plus gap + border
     if (rx > max_right_x) max_right_x = rx
   }
   var width = Math.max(min_width, max_right_x)
@@ -490,26 +546,49 @@ export function layout(topology, options) {
   for (var i = 0; i < deferred_right.length; i++) {
     var dr = deferred_right[i]
     var row = row_of[dr.comp_id]
-    var wy = wire_y(row)
+    var base_wy = wire_y(row)
+    var wy = base_wy + (dr.offset ? dr.offset * 2 : 0)
+    if (wy > max_fan_y) max_fan_y = wy
     var rx = comp_right(dr.comp_id)
-    elements.push({ type: 'hline', x: rx, y: wy, length: width - 1 - rx })
+    var mid_x = rx + Math.floor((width - 1 - rx) / 2)
+    if (dr.offset > 0) {
+      // Offset port: hline from midpoint to port, vline from base row
+      elements.push({ type: 'hline', x: mid_x, y: wy, length: width - 1 - mid_x })
+      elements.push({ type: 'vline', x: mid_x, y: base_wy, length: wy - base_wy + 1 })
+    } else {
+      // First port: hline from component to port
+      elements.push({ type: 'hline', x: rx, y: wy, length: width - 1 - rx })
+    }
     elements.push({ type: 'port', x: width - 1, y: wy, dir: 'right', key: dr.port.key })
   }
 
+  // ── Compute content_y: bottom of all component + fan rows ───────────
+
+  var base_content_y = HEADER_HEIGHT + total_rows * ROW_HEIGHT
+  var content_y = max_fan_y > 0 ? Math.max(base_content_y, max_fan_y + 2) : base_content_y
+
   // ── Route back-edges (cycle connections) ────────────────────────────
   // Back-edges go from a later (or same) layer back to an earlier layer.
-  // Route as U-shape below all component rows:
-  //   source right edge → down → horizontal at back_y → up → target left edge
+  // Route as U-shape below stations, vlines just outside the parens:
+  //   two past ')' → down → horizontal at back_y → up → two before '('
 
   for (var i = 0; i < back_edges.length; i++) {
     var be_from = back_edges[i][0]
     var be_to = back_edges[i][1]
-    var back_y = HEADER_HEIGHT + total_rows * ROW_HEIGHT + i
-    var from_x = comp_right(be_from)
-    var to_x = layer_x[layer_of[be_to]]
+    var back_y = content_y + i
+    var from_x = comp_right(be_from) + 2   // two past ')' — one char gap
+    var to_x = layer_x[layer_of[be_to]] - 3  // two before '(' — one char gap
+    // Avoid collision with fan-in vlines at left_mid_x
+    if (to_x === left_mid_x) to_x = left_mid_x + 1
     var from_wy = wire_y(row_of[be_from])
     var to_wy = wire_y(row_of[be_to])
 
+    var from_rx = comp_right(be_from)
+    var to_lx = layer_x[layer_of[be_to]]
+
+    // Horizontal from source ')' to source vline
+    if (from_x > from_rx)
+      elements.push({ type: 'hline', x: from_rx, y: from_wy, length: from_x - from_rx + 1 })
     // Vertical down from source wire row to back-edge row
     if (back_y > from_wy)
       elements.push({ type: 'vline', x: from_x, y: from_wy, length: back_y - from_wy + 1 })
@@ -517,16 +596,19 @@ export function layout(topology, options) {
     var left_x = Math.min(from_x, to_x)
     var right_x = Math.max(from_x, to_x)
     if (right_x > left_x)
-      elements.push({ type: 'hline', x: left_x, y: back_y, length: right_x - left_x })
+      elements.push({ type: 'hline', x: left_x, y: back_y, length: right_x - left_x + 1 })
     // Vertical up from back-edge row to target wire row
     if (back_y > to_wy)
       elements.push({ type: 'vline', x: to_x, y: to_wy, length: back_y - to_wy + 1 })
+    // Horizontal from target vline to target '('
+    if (to_lx - 1 > to_x)
+      elements.push({ type: 'hline', x: to_x, y: to_wy, length: to_lx - 1 - to_x })
   }
 
   // ── Standalone port rows ─────────────────────────────────────────────
 
   var port_rows = Math.max(left_ports.length, right_ports.length)
-  var sy = HEADER_HEIGHT + total_rows * ROW_HEIGHT + back_edge_rows
+  var sy = content_y + back_edge_rows
   var li = 0, ri = 0
   while (li < left_ports.length || ri < right_ports.length) {
     if (li < left_ports.length) {
@@ -554,8 +636,8 @@ export function layout(topology, options) {
 
   // ── Height and box ───────────────────────────────────────────────────
 
-  var height = HEADER_HEIGHT + total_rows * ROW_HEIGHT + back_edge_rows + port_rows + state_rows + 1
-  if (total_rows === 0 && port_rows === 0 && state_rows === 0 && back_edge_rows === 0) height = 3
+  var height = content_y + back_edge_rows + port_rows + state_rows + 1
+  if (total_rows === 0 && port_rows === 0 && state_rows === 0 && back_edge_rows === 0 && max_fan_y === 0) height = 3
 
   elements.unshift({ type: 'box', x: 0, y: 0, width: width, height: height, name: name })
 
@@ -614,13 +696,17 @@ export function render(laid_out) {
     }
 
     else if (el.type === 'hline') {
-      for (var x = el.x; x < el.x + el.length; x++)
-        grid[el.y][x] = '-'
+      for (var x = el.x; x < el.x + el.length; x++) {
+        var cur = grid[el.y][x]
+        grid[el.y][x] = (cur === '|' || cur === '+') ? '+' : '-'
+      }
     }
 
     else if (el.type === 'vline') {
-      for (var y = el.y; y < el.y + el.length; y++)
-        grid[y][el.x] = '|'
+      for (var y = el.y; y < el.y + el.length; y++) {
+        var cur = grid[y][el.x]
+        grid[y][el.x] = (cur === '-' || cur === '+') ? '+' : '|'
+      }
     }
 
     else if (el.type === 'station') {
@@ -636,14 +722,14 @@ export function render(laid_out) {
       // Line 1: / at x, \ at x+width-1
       grid[sy + 1][sx] = '/'
       grid[sy + 1][sx + sw - 1] = '\\'
-      // Line 2: ( content )
-      grid[sy + 2][sx] = '('
-      grid[sy + 2][sx + sw - 1] = ')'
-      var inner = sw - 2
+      // Line 2: ( content ) — parens pushed out one position
+      grid[sy + 2][sx - 1] = '('
+      var inner = sw
       var content = '  ' + el.source
       while (content.length < inner) content += ' '
       for (var j = 0; j < inner; j++)
-        grid[sy + 2][sx + 1 + j] = content[j]
+        grid[sy + 2][sx + j] = content[j]
+      grid[sy + 2][sx + sw] = ')'
       // Line 3: \ underscores /
       grid[sy + 3][sx] = '\\'
       for (var x = sx + 1; x <= sx + sw - 2; x++)

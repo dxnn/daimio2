@@ -1,0 +1,198 @@
+{
+  "id": "fio",
+  "name": "fio",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "in:a",
+      "dir": "left",
+      "flavour": "in:a"
+    },
+    {
+      "id": "p1",
+      "key": "in:b",
+      "dir": "left",
+      "flavour": "in:b"
+    },
+    {
+      "id": "p2",
+      "key": "in:c",
+      "dir": "left",
+      "flavour": "in:c"
+    },
+    {
+      "id": "p3",
+      "key": "in:d",
+      "dir": "left",
+      "flavour": "in:d"
+    },
+    {
+      "id": "p4",
+      "key": "in:e",
+      "dir": "left",
+      "flavour": "in:e"
+    },
+    {
+      "id": "p5",
+      "key": "out:a",
+      "dir": "right",
+      "flavour": "out:a"
+    },
+    {
+      "id": "p6",
+      "key": "out:b",
+      "dir": "right",
+      "flavour": "out:b"
+    },
+    {
+      "id": "p7",
+      "key": "out:c",
+      "dir": "right",
+      "flavour": "out:c"
+    },
+    {
+      "id": "p8",
+      "key": "out:d",
+      "dir": "right",
+      "flavour": "out:d"
+    },
+    {
+      "id": "p9",
+      "key": "out:e",
+      "dir": "right",
+      "flavour": "out:e"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "hub",
+      "source": "{process}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "in:a"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "p1",
+        "port": "in:b"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c2",
+      "from": {
+        "id": "p2",
+        "port": "in:c"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c3",
+      "from": {
+        "id": "p3",
+        "port": "in:d"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c4",
+      "from": {
+        "id": "p4",
+        "port": "in:e"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c5",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p5",
+        "port": "out:a"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c6",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p6",
+        "port": "out:b"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c7",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p7",
+        "port": "out:c"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c8",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p8",
+        "port": "out:d"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c9",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p9",
+        "port": "out:e"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

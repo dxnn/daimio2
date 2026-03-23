@@ -1,0 +1,54 @@
+{
+  "id": "test1",
+  "name": "test1",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "init",
+      "dir": "left",
+      "flavour": "from-js"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "initializer",
+      "source": "{20 | range}",
+      "ports": []
+    },
+    {
+      "id": "s1",
+      "name": "process",
+      "source": "{cells}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "init"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

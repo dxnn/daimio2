@@ -1,0 +1,36 @@
+{
+  "id": "test3",
+  "name": "test3",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "touched",
+      "dir": "left",
+      "flavour": "dom-on-click"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "save-change",
+      "source": "{__ | >$change}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "touched"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}
