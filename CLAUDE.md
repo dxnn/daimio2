@@ -12,7 +12,7 @@ node tests/daimio_test.mjs         # 843 legacy tests (0 known failures)
 node tests/node_code.mjs           # 83 internal tests
 node tests/security_test.mjs      # 179 security tests (dialect, pollution, regex, senders)
 node tests/space_test.mjs         # 130 space/topology tests (23 known failures)
-node tests/space_ascii_test.mjs   # 143 ASCII topology renderer tests
+node tests/space_ascii_test.mjs   # 147 ASCII topology renderer tests (+ 24 fixture tests)
 node tests/example_test.mjs       # 104 command example tests
 node tests/perf_test.mjs          # 21 performance regression benchmarks
 node tests/editor_test.mjs       # 84 editor module tests (tokens, context, completions)
@@ -102,6 +102,9 @@ daimio/
   daimio.js            — entry point, imports everything, creates top-level dialect
   editor.js            — shared editor support: tokenizer + cursor context (opt-in import)
   space_ascii.js       — ASCII topology renderer: extract → layout → render pipeline
+                         extract: seedlike → topology (ports, stations, connections, subspaces)
+                         layout: topology → positioned elements (layered graph, topo sort, barycentric)
+                         render: elements → ASCII string (character grid stamping)
   2_segtypes/          — segment types (lexer priority order: a-n)
     a_terminator.js    — terminators
     b_number.js        — number literals
@@ -136,7 +139,8 @@ tests/
   daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
   node_code.mjs        — internal JS-level tests (83 tests)
   editor_test.mjs      — editor module tests (84 tests: tokens, context, completions)
-  space_ascii_test.mjs — ASCII topology renderer tests (143 tests)
+  space_ascii_test.mjs — ASCII topology renderer tests (147 tests, 24 fixture dirs)
+  space_ascii/         — fixture directories (source.dm, extract.json, render.txt per test)
   example_test.mjs     — command example tests (104 tests, auto-discovered)
   daimio.dm            — test definitions (text format)
   daimio.html          — browser REPL + test runner
@@ -228,12 +232,12 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 342/342 pass
-- **daimio_test**: 843/843 pass (0 known failures)
+- **d2_spec_test**: 425/427 pass (2 failures: effectful-unwired-sploot, parse-command — pre-existing)
+- **daimio_test**: 828/843 pass (15 known failures)
 - **node_code**: 83/83 pass
 - **security_test**: 179/179 pass
-- **space_test**: 107/130 pass (23 known failures for unimplemented spec behaviors)
-- **space_ascii_test**: 143/143 pass
+- **space_test**: 124/148 pass (24 known failures for unimplemented spec behaviors)
+- **space_ascii_test**: 147/147 pass (99 programmatic + 48 fixture-based)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
 - **editor_test**: 84/84 pass
@@ -252,6 +256,51 @@ Tests wrong per spec are marked `[WRONG:assertion-id]`.
 instead of splooting (spec says `[poke-key-unkeyed-fail]`), and svar-path poke coerces
 scalars before poking instead of using the scalar rule. Root cause: two implementation
 bugs in poke. See the test-spec sweep report in memory.
+
+## Current work: space-ascii topology renderer (2026-03-23)
+
+### What exists
+- **`daimio/space_ascii.js`**: three-phase pipeline (extract → layout → render)
+  - `extract(name, seedlike)` → topology graph (stable, won't change)
+  - `topo_sort(topology)` → layered component ordering with cycle detection
+  - `layout(topology, options)` → positioned elements with x/y coordinates
+  - `render(laid_out)` → ASCII string
+  - `render_space(name, seedlike, options)` / `render_all(seedlikes, options)`
+- **`bin/space-ascii.mjs`**: CLI (-e, -f, interactive with double-blank-line trigger)
+- **`tests/space_ascii_test.mjs`**: 147 tests (99 programmatic + 48 from 24 fixture dirs)
+- **`tests/space_ascii/`**: 24 fixture directories with source.dm, extract.json, render.txt
+- **`tests/regen_renders.mjs`**: regenerates render.txt fixtures after layout/render changes
+
+### Layout features implemented
+- Topo sort with longest-path layering
+- Barycentric crossing minimization (4 sweep iterations)
+- Fan-in/fan-out with offset ports and vline junctions
+- Cycle detection (back-edges excluded from sort, routed below stations)
+- Source truncation (`max_source` option, default 20 chars)
+- Station/space names in top border
+- Dynamic gap widths based on cross-row connection count
+- Same-row multi-layer jog routing (around intermediate stations)
+- Directional junction markers: `v` `^` `<` `>` for T-junctions, `O` for crossings, `+` for corners
+- Connection id tracking (cids) for junction vs crossing detection
+
+### What's next: layout v3 — invariant-based routing
+The current layout violates two important invariants:
+1. **Wires route through stations** — same-row hlines pass through intermediate station bodies
+2. **Wires overlap** — multiple hlines/vlines share the same grid cells
+
+The fix is a **trunk-and-channel** routing model:
+- **Trunks**: one shared hline per wire row per gap (branches at T-junctions)
+- **Vertical channels**: dedicated columns in each gap, one per cross-row connection
+- **Horizontal channels**: dedicated rows between station rows, for jog routing
+- No wire-through-station, no wire overlap, by construction
+
+With these invariants, the renderer becomes trivial:
+- hline meets vline where neither ends → `O` (crossing)
+- vline terminates at an hline → directional char (`v`/`^`/`<`/`>`)
+- No cid tracking needed
+
+Design doc: `docs/superpowers/specs/2026-03-22-layout-v2-design.md`
+Plans: `docs/superpowers/plans/2026-03-22-space-ascii.md`, `2026-03-22-layout-v2.md`
 
 ## Fuzzer
 
