@@ -514,8 +514,20 @@ export function layout(topology, options) {
         // Offset port: hline from port to midpoint, vline from base row
         elements.push({ type: 'hline', x: 1, y: wy, length: left_mid_x, cids: pcids })
         elements.push({ type: 'vline', x: left_mid_x, y: base_wy, length: wy - base_wy + 1, cids: pcids, dir: 'up' })
+      } else if (layer_of[cid] > 0) {
+        // First port but multi-layer: jog below intermediate stations
+        var jog_wy = wy + 3
+        if (jog_wy > max_fan_y) max_fan_y = jog_wy
+        var first_gap_x = PORT_COL - 2
+        elements.push({ type: 'hline', x: 1, y: wy, length: first_gap_x, cids: pcids })
+        elements.push({ type: 'vline', x: first_gap_x, y: wy, length: jog_wy - wy + 1, cids: pcids, dir: 'down' })
+        // Route across to gap before target layer
+        var target_gap_x = layer_x[layer_of[cid]] - 3
+        elements.push({ type: 'hline', x: first_gap_x, y: jog_wy, length: target_gap_x - first_gap_x + 1, cids: pcids, dir: 'right' })
+        elements.push({ type: 'vline', x: target_gap_x, y: wy, length: jog_wy - wy + 1, cids: pcids, dir: 'up' })
+        elements.push({ type: 'hline', x: target_gap_x, y: wy, length: lx - target_gap_x, cids: pcids })
       } else {
-        // First port: hline from port to component
+        // First port, adjacent layer: direct hline
         elements.push({ type: 'hline', x: 1, y: wy, length: lx - 1, cids: pcids })
       }
     }
@@ -615,6 +627,8 @@ export function layout(topology, options) {
       var dst_wy = wire_y(dst_row)
       var cids = [c.from.id, c.to.id]
 
+      var track_cid = c.id  // unique per connection for mid-track segments
+
       if (src_row === dst_row) {
         // Same-row but multi-layer: jog below intermediate stations
         var jog_wy = src_wy + 3  // below station bottom curve
@@ -623,11 +637,11 @@ export function layout(topology, options) {
         var first_gap_x = layer_x[layer_of[c.from.id]] + layer_width[layer_of[c.from.id]] + 2
         elements.push({ type: 'hline', x: rx, y: src_wy, length: first_gap_x - rx + 1, cids: cids })
         // Vline down to jog row
-        elements.push({ type: 'vline', x: first_gap_x, y: src_wy, length: jog_wy - src_wy + 1, cids: cids, dir: 'down' })
+        elements.push({ type: 'vline', x: first_gap_x, y: src_wy, length: jog_wy - src_wy + 1, cids: [track_cid], dir: 'down' })
         // Hline across jog row to track
-        elements.push({ type: 'hline', x: first_gap_x, y: jog_wy, length: track_x - first_gap_x + 1, cids: cids, dir: 'right' })
+        elements.push({ type: 'hline', x: first_gap_x, y: jog_wy, length: track_x - first_gap_x + 1, cids: [track_cid], dir: 'right' })
         // Vline up to dest row
-        elements.push({ type: 'vline', x: track_x, y: src_wy, length: jog_wy - src_wy + 1, cids: cids, dir: 'up' })
+        elements.push({ type: 'vline', x: track_x, y: src_wy, length: jog_wy - src_wy + 1, cids: [track_cid], dir: 'up' })
         // Hline from track to target
         if (lx > track_x)
           elements.push({ type: 'hline', x: track_x, y: src_wy, length: lx - track_x, cids: cids })
@@ -635,11 +649,22 @@ export function layout(topology, options) {
         var min_wy = Math.min(src_wy, dst_wy)
         var max_wy = Math.max(src_wy, dst_wy)
         var vdir = src_row < dst_row ? 'down' : 'up'
-        // Hline from source to track
+        // Hline from source to track (near station — shared cids for branch point)
         elements.push({ type: 'hline', x: rx, y: src_wy, length: track_x - rx + 1, cids: cids })
-        // Vline at track
-        elements.push({ type: 'vline', x: track_x, y: min_wy, length: max_wy - min_wy + 1, cids: cids, dir: vdir })
-        // Hline from track to target
+        // Vline at track — endpoints use shared cids, middle uses unique
+        // Split into: top cell, middle, bottom cell
+        if (max_wy - min_wy + 1 <= 2) {
+          // Short vline: just use shared cids
+          elements.push({ type: 'vline', x: track_x, y: min_wy, length: max_wy - min_wy + 1, cids: cids, dir: vdir })
+        } else {
+          // Top endpoint
+          elements.push({ type: 'vline', x: track_x, y: min_wy, length: 1, cids: cids, dir: vdir })
+          // Middle (unique cid — crossings here are real)
+          elements.push({ type: 'vline', x: track_x, y: min_wy + 1, length: max_wy - min_wy - 1, cids: [track_cid], dir: vdir })
+          // Bottom endpoint
+          elements.push({ type: 'vline', x: track_x, y: max_wy, length: 1, cids: cids, dir: vdir })
+        }
+        // Hline from track to target (near station — shared cids for merge point)
         if (lx > track_x)
           elements.push({ type: 'hline', x: track_x, y: dst_wy, length: lx - track_x, cids: cids })
       }
@@ -851,15 +876,15 @@ export function render(laid_out) {
         var cur = grid[el.y][x]
         var cur_cids = cid_grid[el.y][x]
         if (cur === '|' || cur === '+' || cur === 'O' || cur === 'v' || cur === '^' || cur === '<' || cur === '>') {
-          // Wire overlap: shared endpoint = junction, disjoint = crossing
-          var shared = cur === '+' || cur === 'v' || cur === '^' || cur === '<' || cur === '>'  // already a junction
-          if (!shared && cur_cids && el.cids) {
+          // Wire overlap: always check cids for shared endpoints
+          var shared = false
+          if (cur_cids && el.cids) {
             for (var k = 0; k < el.cids.length && !shared; k++)
               for (var m = 0; m < cur_cids.length && !shared; m++)
                 if (el.cids[k] === cur_cids[m]) shared = true
-          } else if (!cur_cids) { shared = true }
+          } else if (!cur_cids || !el.cids) { shared = true }  // no cids = assume junction
           grid[el.y][x] = shared ? '+' : 'O'
-          if (el.dir) dir_grid[el.y][x] = el.dir  // hline dir always wins at junctions
+          if (shared && el.dir) dir_grid[el.y][x] = el.dir
         } else {
           grid[el.y][x] = '-'
           if (el.dir) dir_grid[el.y][x] = el.dir
@@ -883,12 +908,12 @@ export function render(laid_out) {
         var cur = grid[y][el.x]
         var cur_cids = cid_grid[y][el.x]
         if (cur === '-' || cur === '+' || cur === 'O' || cur === 'v' || cur === '^' || cur === '<' || cur === '>') {
-          var shared = cur === '+' || cur === 'v' || cur === '^' || cur === '<' || cur === '>'
-          if (!shared && cur_cids && el.cids) {
+          var shared = false
+          if (cur_cids && el.cids) {
             for (var k = 0; k < el.cids.length && !shared; k++)
               for (var m = 0; m < cur_cids.length && !shared; m++)
                 if (el.cids[k] === cur_cids[m]) shared = true
-          } else if (!cur_cids) { shared = true }
+          } else if (!cur_cids || !el.cids) { shared = true }
           grid[y][el.x] = shared ? '+' : 'O'
           if (shared && el.dir && !dir_grid[y][el.x]) dir_grid[y][el.x] = el.dir
         } else {
