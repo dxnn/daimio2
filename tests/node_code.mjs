@@ -602,7 +602,7 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
 
 
 // =====================================================
-// [error-silent-noop] on_error is silent when no @err port
+// [error-unwired-dropped] on_error is silent when no @err port
 // =====================================================
 
 ;(function() {
@@ -613,7 +613,7 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
   console.log = orig_log
   var has_error_log = logged.some(function(args) { return /silent error/.test(args.join(' ')) })
   if(!has_error_log) pass++
-  else ERRORS.push({in: '[error-silent-noop] on_error should not console.log without @err port',
+  else ERRORS.push({in: '[error-unwired-dropped] on_error should not console.log without @err port',
     out: 'logged: ' + JSON.stringify(logged), was: 'no output'})
 })()
 

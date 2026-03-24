@@ -28,7 +28,7 @@ test('restricted allows logic.is', !!D.DIALECTS.restricted.get_method('logic', '
 test('restricted allows process.run', !!D.DIALECTS.restricted.get_method('process', 'run'))
 test('restricted allows process.quote', !!D.DIALECTS.restricted.get_method('process', 'quote'))
 
-// [I11] [P-effectlocal]
+// [independent:unsafe-ports]
 console.log('\n=== Unsafe Port Flavours ===')
 test('dom-set-raw-html is unsafe', D.PortFlavours['dom-set-raw-html'].unsafe === true)
 test('to-js is unsafe', D.PortFlavours['to-js'].unsafe === true)
@@ -338,7 +338,7 @@ test('chained dialect blocks base restriction', !strict_actor.get_method('proces
 test('chained dialect blocks sender restriction', !strict_actor.get_method('math', 'add'))
 test('chained dialect allows unrestricted', !!strict_actor.get_method('list', 'map'))
 
-// [I4] [sender-effective-default]
+// [independent:closed-space]
 console.log('\n=== Closed Space ===')
 var closed_seed = D.spaceseed_add({
   dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}, closed: true
@@ -358,7 +358,7 @@ var closed_result2 = closed_space.execute(
   null, null, null, sender_for_closed)
 test('closed space allows execution with sender', closed_result2 === 3)
 
-// Open space (default) still works without sender
+// [sender-effective-default] Open space (default) still works without sender
 test('open space works without sender', run('{math add value 1 to 2}') === '3')
 
 // ── Sender Tests ──────────────────────────────────────────────────────────────

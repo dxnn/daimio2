@@ -60,6 +60,26 @@ var known_failures = new Set([
   // '{:ash | >$hash.{"two"}.monkey.{(:x :y :z)}.flu} {$hash}',  // FIXED: D.poke parent tracking refactor
   // '{123 | >foo || __foo}',  // FIXED: __ fancy handler returns empty string instead of dropping
   // '{5 | >foo | (1 2 3) | map block "{__ | subtract _o}"}',  // FIXED: undefined vars return false (zero)
+
+  // peek-scalar: Pos/Key on scalar should yield Empty, not the scalar itself
+  '{$data.*.*.one}',
+  '{$data.*.*.*.one}',
+  '{$data.*.*.*.*.one}',
+  '{(1 2 3) | __.#1.#1}',
+  '{(1 2 3) | __.#1.#1.#1}',
+  '{$data.*.*.*.*.#1 | ( {__ | unique} {__ | count} )}',
+  '{$data.{(("*" "*" "*" "*"))}.#1}',
+  '{$data.*.*.*.#1}',
+  '{$data.*.*.#1}',
+  '{$data.*.one.foo}',
+  '{$data.*.one.#1.foo}',
+  // poke-key-unkeyed-fail: Key poke on unkeyed with non-numeric key should sploot (pass-through)
+  '{(1 2 3) | list poke path (:a) value 999}',
+  // poke-pos-scalar: Pos poke on scalar should leave scalar unchanged
+  '{"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}',
+  '{* (:a 1 :b 2 :c 3) | list poke path ( "#2" ("#2" "#6" "#4") ) value 999}',
+  '{* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}',
+
   // '{5 | >foo | (1 2 3) | map block "{__ | range _o}"}',  // FIXED: undefined vars return false (zero)
   // '{(1 2 3) | subtract _zxcv}  {// subtraction and division are weird for this internally //}',  // FIXED: undefined vars return false (zero)
   // '{(1 2 3) | subtract $jklj}',  // FIXED: undefined vars + singleArray false→0

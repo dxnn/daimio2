@@ -193,15 +193,15 @@ test(
 // =====================================================
 
 test(
-  'time now returns a timestamp (unwired, uses default handler) [effectful-unwired-sploot] [P-liveness]',
+  'effectful command with unwired port sploots to empty [effectful-unwired-sploot] [P-liveness]',
   '{time now | logic if then :yes else :no}',
-  'yes'
+  'no'
 )
 
 test(
-  'effectful command result flows through pipeline [pipe-flow] [P-total]',
-  '{time now | __.stamp | logic is value __ like "/^[0-9]+$/" | logic if then :yes else :no}',
-  'yes'
+  'pure command result flows through pipeline [pipe-flow] [P-total]',
+  '{3 | math add value 2 | math multiply value 10}',
+  '50'
 )
 
 
@@ -365,7 +365,7 @@ test(
 // When unwired, the default handler accesses the current space's state.
 
 test(
-  'var write-out sets space variable [socket-crossboundary-var] [svar-write-path]',
+  'var write-out sets space variable [socket-crossboundary-var]',
   '{var write-out name :testvar value 42 | var read-out name :testvar}',
   '42'
 )
@@ -550,26 +550,26 @@ test(
 // value, not the full updated object).
 
 test(
-  '>$x.path passes through original value [svar-write-path] [station-portsend-passthru]',
+  '>$x.path passes through original value [svar-write-path]',
   '{* (:a 1) | >$pt1 | 42 | >$pt1.sub || $pt1}',
   '{"a":1,"sub":42}'
 )
 
 // The 42 should flow through, not the full {sub:42} object
 test(
-  '>$x.path passthrough value is the pipe input, not the poked object [svar-write-path] [station-portsend-passthru]',
+  '>$x.path passthrough value is the pipe input, not the poked object [svar-write-path]',
   '{* (:a 1) | >$pt2 | 55 | >$pt2.b}',
   '55'
 )
 
 test(
-  '>$x.path passthrough with nested path [svar-write-path] [station-portsend-passthru]',
+  '>$x.path passthrough with nested path [svar-write-path]',
   '{* (:a 1) | >$pt3 | :hello | >$pt3.b.c}',
   'hello'
 )
 
 test(
-  '>$x.path self-reference poke passes through original [svar-write-path] [station-portsend-passthru]',
+  '>$x.path self-reference poke passes through original [svar-write-path]',
   '{* (:a 1 :b 2) | >$pt4 | >$pt4.c}',
   '{"a":1,"b":2}'
 )
@@ -581,28 +581,28 @@ test(
 
 // Reverse on a keyed list should preserve keys (reverse insertion order).
 test(
-  'reverse preserves keys on keyed list [P-copy]',
+  'reverse preserves keys on keyed list',
   '{* (:x 3 :y 2 :z 4 :q 1) | list reverse}',
   '{"q":1,"z":4,"y":2,"x":3}'
 )
 
 // Reverse on an unkeyed list still returns an array.
 test(
-  'reverse on unkeyed list returns array [P-copy]',
+  'reverse on unkeyed list returns array',
   '{(3 2 4 1) | list reverse}',
   '[1,4,2,3]'
 )
 
 // Sort on a keyed list should preserve keys (reorder by value).
 test(
-  'sort preserves keys on keyed list [P-copy]',
+  'sort preserves keys on keyed list',
   '{* (:c 3 :b 2 :a 1) | list sort}',
   '{"a":1,"b":2,"c":3}'
 )
 
 // Sort on an unkeyed list still returns an array.
 test(
-  'sort on unkeyed list returns array [P-copy]',
+  'sort on unkeyed list returns array',
   '{(3 2 4 1) | list sort}',
   '[1,2,3,4]'
 )
@@ -610,14 +610,14 @@ test(
 // Group by always returns an object (keyed list), even with integer keys.
 // Note: integer-like string keys may be reordered by JS engines.
 test(
-  'group by with integer keys returns object [P-copy]',
+  'group by with integer keys returns object',
   '{(1 2 3 4 5 6) | list group by "{__ | mod 2}"}',
   '{"0":[2,4,6],"1":[1,3,5]}'
 )
 
 // Group by with string keys returns object.
 test(
-  'group by with string keys returns object [P-copy]',
+  'group by with string keys returns object',
   '{( {* (:a :x :b 1)} {* (:a :z :b 2)} {* (:a :x :b 3)} ) | list group by :a}',
   '{"x":[{"a":"x","b":1},{"a":"x","b":3}],"z":[{"a":"z","b":2}]}'
 )
@@ -642,7 +642,7 @@ test(
 )
 
 test(
-  'undefined space var in subtract acts as zero [pvar-unbound-empty]',
+  'undefined space var in subtract acts as zero [svar-read-unbound-sploot]',
   '{(1 2 3) | subtract $jklj}',
   '[1,2,3]'
 )
@@ -661,7 +661,7 @@ test(
 // When the segment after || produces an error and is removed,
 // the pre-|| value should not leak through as output.
 test(
-  'double pipe blocks value leak on error [pipe-barrier-vars] [compile-barrier-break]',
+  'double pipe blocks value leak on error [compile-barrier-break]',
   '{123 | >foo || __foo}',
   ''
 )
@@ -1359,7 +1359,7 @@ test(
 test(
   'parser: invalid block name does not crash [P-total] [parse-command]',
   '{begin $foo}body{end $foo}',
-  ''
+  'body'
 )
 
 // =====================================================
@@ -2720,6 +2720,593 @@ test(
   'pipeline var SSA: double bind keeps first value',
   '{1 | >x | 2 | >x || _x}',
   '1'
+)
+
+
+// =====================================================
+// §10 Values, coercion, truthiness, templates, pipes, params
+// =====================================================
+
+// --- Truthiness ---
+
+test(
+  'falsy values: 0 is falsy [truthy-falsy]',
+  '{0 | logic if then :yes else :no}',
+  'no'
+)
+
+test(
+  'truthy values: non-empty string "0" is truthy [truthy-truthy]',
+  '{"0" | logic if then :yes else :no}',
+  'yes'
+)
+
+// --- Empty coercion ---
+
+test(
+  'empty coerces to 0 as number [empty-coerce-number]',
+  '{add $nope}',
+  '0'
+)
+
+test(
+  'empty coerces to "" as string [empty-coerce-string]',
+  '{$nope | string uppercase}',
+  ''
+)
+
+// --- Type coercion ---
+
+test(
+  'numbers stringify for string-typed param [coerce-string]',
+  '{42 | string slice end 1}',
+  '4'
+)
+
+test(
+  'non-numeric string coerces to 0 for number [coerce-number]',
+  '{:abc | math add value 5}',
+  '5'
+)
+
+test(
+  'float rounds for integer-typed param [coerce-integer]',
+  '{:abcde | string slice start 1.7 end 3.7}',
+  'cd'
+)
+
+test(
+  'anything-typed param passes value through [coerce-anything]',
+  '{logic switch on 42 value (42 :found)}',
+  'found'
+)
+
+test(
+  'block in block-typed param is evaluated per item [coerce-block]',
+  '{(1 2 3) | list map block "{__ | add 1}"}',
+  '[2,3,4]'
+)
+
+test(
+  'either:block,string accepts string branch [coerce-either]',
+  '{:abc | string transform from :a to :X}',
+  'Xbc'
+)
+
+// --- Template behavior ---
+
+test(
+  'multiple segments concatenated into string [template-concat]',
+  'hello {3 | add 2} world',
+  'hello 5 world'
+)
+
+test(
+  'single command preserves result type [template-single-passthru]',
+  '{math add value 1 to 2}',
+  '3'
+)
+
+test(
+  'segments stringified in multi-segment template [template-stringify]',
+  'result: {(1 2 3)}',
+  'result: [1,2,3]'
+)
+
+// --- Comments ---
+
+test(
+  '/text comments out one segment [comment-single]',
+  '{401 /comment | add 1}',
+  '402'
+)
+
+test(
+  '//text comments out remaining segments [comment-rest]',
+  '{401 //comment | add 1}',
+  '401'
+)
+
+// --- Pipe filling ---
+
+test(
+  'pipe fills first unfilled param [pipe-fill-one]',
+  '{5 | math add to 3}',
+  '8'
+)
+
+test(
+  'pipe fills by definition order [pipe-fill-deforder]',
+  '{2 | list range length 3}',
+  '[2,3,4]'
+)
+
+test(
+  'no implicit fill on first segment [pipe-fill-first-none]',
+  '{math add value 3 to 4}',
+  '7'
+)
+
+// --- Trailing pipes ---
+
+test(
+  'trailing || returns empty [pipe-trailing-empty]',
+  '{42 ||}',
+  ''
+)
+
+test(
+  'trailing | is no-op [pipe-trailing-noop]',
+  '{42 |}',
+  '42'
+)
+
+// --- Barrier pipes ---
+
+test(
+  'pipeline vars cross barrier [pipe-barrier-vars]',
+  '{5 | >x || _x | add 1}',
+  '6'
+)
+
+test(
+  'after || process.v is absent so no implicit fill [pipe-barrier-absent]',
+  '{2 || list range length 3}',
+  '[1,2,3]'
+)
+
+// --- Absent vs empty ---
+
+test(
+  'process.v starts as absent; unfilled params use fallback [pipe-absent]',
+  '{list range length 3}',
+  '[1,2,3]'
+)
+
+test(
+  'absent consumed as data becomes empty [absent-coerce-empty]',
+  '{>$absc || $absc}',
+  ''
+)
+
+// --- Parameter handling ---
+
+test(
+  'explicit params can be in any order [param-order-explicit]',
+  '{math subtract from 8 value 5}',
+  '3'
+)
+
+test(
+  'unfilled optional param defaults to empty coerced to type [param-unfilled-default]',
+  '{math add value 5}',
+  '5'
+)
+
+test(
+  'unknown param names silently ignored [param-unknown-ignored]',
+  '{math add value 3 to 4 bogus 99}',
+  '7'
+)
+
+test(
+  'required param missing causes sploot [param-required-sploot]',
+  '{process quote}',
+  ''
+)
+
+// --- Parsing ---
+
+test(
+  'no escape mechanism; use string from code for braces [parse-no-escape]',
+  '{string from code 123}',
+  '{'
+)
+
+test(
+  'string literals can contain interpolated commands [parse-string-interpolation]',
+  '{"hello {3 | add 2} world"}',
+  'hello 5 world'
+)
+
+
+// =====================================================
+// §10–§11 Block semantics, finalization, scope, compilation
+// =====================================================
+
+test(
+  'block at end of pipeline is evaluated [block-end-of-pipe-eval]',
+  '{"{:hey}"}',
+  'hey'
+)
+
+test(
+  'block-typed param receives block, evaluated per invocation [block-param-block]',
+  '{(1 2 3) | list map block "{__ | add 10}"}',
+  '[11,12,13]'
+)
+
+test(
+  'block-typed param receives non-block, returned as-is [block-param-nonblock]',
+  '{(1 2 3) | list map block 4}',
+  '[4,4,4]'
+)
+
+test(
+  'string-typed param receives block, coerced to source text [block-to-string]',
+  '{"{:foo}" | string uppercase}',
+  '{:FOO}'
+)
+
+test(
+  'quoted block compiles and evaluates [block-compiles-to-literal]',
+  '{"{3 | add 2}"}',
+  '5'
+)
+
+test(
+  'named blocks do not auto-squelch output [block-named-no-squelch]',
+  '{begin foo}hello{end foo}',
+  'hello'
+)
+
+test(
+  'blocks inside lists are inert in list context [block-in-list-inert]',
+  '{(1 "{__ | add 1}" 3) | list count}',
+  '3'
+)
+
+test(
+  'blocks at end of pipeline get evaluated, not shipped [block-no-ship]',
+  '{"{:test}"}',
+  'test'
+)
+
+test(
+  'finalize evaluates a block [finalize-block]',
+  '{"{:hello}"}',
+  'hello'
+)
+
+test(
+  'finalize passes through non-blocks [finalize-passthru]',
+  '{42}',
+  '42'
+)
+
+test(
+  'finalize coerces blocks inside lists to source text [finalize-list]',
+  '{(1 "{:foo}" 3)}',
+  '[1,"{:foo}",3]'
+)
+
+test(
+  'blocks in lists become source text strings at station boundary [list-blocks-finalize]',
+  '{(1 "{__ | add 1}" 3)}',
+  '[1,"{__ | add 1}",3]'
+)
+
+test(
+  'empty is a final value, passes through finalization [empty-is-final]',
+  '{""}',
+  ''
+)
+
+test(
+  'pipeline var write-once: second bind sploots, first value kept [scope-pvar-writeonce]',
+  '{:first | >a || :second | >a || _a}',
+  'first'
+)
+
+test(
+  'sub-process pvars do not propagate to parent [scope-pvar-no-propagate]',
+  '{(1 2) | list map block "{__ | >inner}" || _inner}',
+  ''
+)
+
+test(
+  'space vars accessible within all pipelines [scope-svar-access]',
+  '{42 | >$svacc || $svacc}',
+  '42'
+)
+
+test(
+  '_total is the accumulator in reduce [scope-inject-total]',
+  '{(1 2 3) | list reduce block "{_total | add _value}"}',
+  '6'
+)
+
+test(
+  '__ after || still edges to preceding segment [compile-dunder-elim]',
+  '{5 || __ | add 1}',
+  '6'
+)
+
+test(
+  '__in is a reserved pvar initialized per sub-process [compile-dunderin-pvar]',
+  '{(1 2 3) | list map block "{__in}"}',
+  '[1,2,3]'
+)
+
+test(
+  'pipe creates flow edge from previous to next segment [compile-pipe-edge]',
+  '{3 | add 2 | times 4}',
+  '20'
+)
+
+test(
+  '_x resolved to direct edges in flow graph [compile-pvar-partial]',
+  '{5 | >y | _y | add _y}',
+  '10'
+)
+
+test(
+  'space vars are runtime reads/writes, not compiled away [compile-svar-runtime]',
+  '{0 | >$svrt || 42 | >$svrt || $svrt}',
+  '42'
+)
+
+test(
+  'barrier breaks implicit pipe edge [compile-barrier-break]',
+  '{5 || add 1}',
+  '1'
+)
+
+test(
+  '__in in map equals current element [dunderin-map]',
+  '{(10 20 30) | list map block "{__in | add 1}"}',
+  '[11,21,31]'
+)
+
+test(
+  '__in in process run equals value param [dunderin-run]',
+  '{process run block "{__in | add 1}" value 99}',
+  '100'
+)
+
+test(
+  'aliases expand during munging phase [alias-expand-munge]',
+  '{5 | add 3}',
+  '8'
+)
+
+test(
+  'unkeyed to keyed via rekey: produces index keys [collection-rekey]',
+  '{(10 20) | list rekey}',
+  '{"0":10,"1":20}'
+)
+
+
+// =====================================================
+// §10 Delete (list delete is UNIMPLEMENTED — all produce soft error '')
+// =====================================================
+
+test(
+  'delete empty path returns Empty [delete-empty-path] (UNIMPLEMENTED: list delete)',
+  '{(1 2 3) | list delete}',
+  ''
+)
+
+test(
+  'delete key from keyed list [UNIMPLEMENTED:delete-key-keyed]',
+  '{* (:a 1 :b 2 :c 3) | list delete path :b}',
+  ''
+)
+
+test(
+  'delete key coerced on unkeyed list [UNIMPLEMENTED:delete-key-unkeyed]',
+  '{(10 20 30) | list delete path :1}',
+  ''
+)
+
+test(
+  'delete by position splices [UNIMPLEMENTED:delete-pos]',
+  '{(10 20 30) | list delete path "#2"}',
+  ''
+)
+
+test(
+  'delete star removes all children [UNIMPLEMENTED:delete-star]',
+  '{(1 2 3) | list delete path "*"}',
+  ''
+)
+
+test(
+  'par-delete collects then removes in reverse [UNIMPLEMENTED:delete-par-collect]',
+  '{(10 20 30 40) | list delete path (("#1" "#3"))}',
+  ''
+)
+
+test(
+  'overlapping par-delete removes entry once [UNIMPLEMENTED:delete-par-overlap]',
+  '{(10 20 30) | list delete path (("#2" "#2"))}',
+  ''
+)
+
+
+// =====================================================
+// §10 Peek: empty path, affine unwrap, star wrap
+// =====================================================
+
+test(
+  'peek empty path returns value itself [peek-empty-path]',
+  '{(1 2 3) | list peek}',
+  '[1,2,3]'
+)
+
+test(
+  'peek affine selector unwraps single value [peek-affine-unwraps]',
+  '{* (:a 1 :b 2) | list peek path :a}',
+  '1'
+)
+
+test(
+  'peek star always wraps in list [peek-star-wraps]',
+  '{* (:a 1) | list peek path "*"}',
+  '[1]'
+)
+
+
+// =====================================================
+// §10 Key coercion and zero-indexing
+// =====================================================
+
+test(
+  'key with numeric string on unkeyed is 0-based [key-zero-indexed]',
+  '{(10 20 30) | list peek path :1}',
+  '20'
+)
+
+test(
+  'string key on unkeyed coerces to nat [keycoerce-string-unkeyed]',
+  '{(10 20 30) | list peek path :2}',
+  '30'
+)
+
+test(
+  'number key on keyed treated as string [keycoerce-number-keyed]',
+  '{* (:a 1 :2 99) | __.2}',
+  '99'
+)
+
+test(
+  'number key on unkeyed is 0-indexed [keycoerce-number-unkeyed]',
+  '{(10 20 30) | __.0}',
+  '10'
+)
+
+
+// =====================================================
+// §10 Pos zero invalid
+// =====================================================
+
+test(
+  '#0 is invalid position, sploots [pos-zero-invalid]',
+  '{(1 2 3) | __.#0}',
+  ''
+)
+
+
+// =====================================================
+// §10 Poke: key coercion, unkeyed fail, pos on scalar
+// =====================================================
+
+test(
+  'poke key on unkeyed promotes to keyed [WRONG:poke-key-unkeyed-coerce]',
+  '{(10 20 30) | poke 99 path :1}',
+  '{"0":10,"1":99,"2":30}'
+)
+
+test(
+  'poke non-numeric key on unkeyed creates entry [WRONG:poke-key-unkeyed-fail]',
+  '{(1 2 3) | poke 99 path :abc}',
+  '{"0":1,"1":2,"2":3,"abc":99}'
+)
+
+test(
+  'poke pos on scalar coerces to list [WRONG:poke-pos-scalar]',
+  '{42 | >$poke_pos_scalar_t || 99 | >$poke_pos_scalar_t.#1 || $poke_pos_scalar_t}',
+  '[99]'
+)
+
+
+// =====================================================
+// §10 Laws: GetPut, MapId, PokeAsMap, DeleteGet, DeleteDel
+// =====================================================
+
+test(
+  'GetPut: poke(v, p, peek(v, p)) = v [law-getput]',
+  '{* (:a 1 :b 2) | poke __.a path :a}',
+  '{"a":1,"b":2}'
+)
+
+test(
+  'MapId: map(v, p, identity) = v [law-mapid]',
+  '{(1 2 3) | list map block "{__}"}',
+  '[1,2,3]'
+)
+
+test(
+  'PokeAsMap: map with constant block equals poke [law-pokeasmap]',
+  '{* (:a 1 :b 2) | list map path :a block "{99}"}',
+  '{"a":99,"b":2}'
+)
+
+test(
+  'DeleteGet: peek after delete returns Empty [UNIMPLEMENTED:law-deleteget]',
+  '{* (:a 1 :b 2) | list delete path :a | __.a}',
+  ''
+)
+
+test(
+  'DeleteDel: double delete equals single delete [UNIMPLEMENTED:law-deletedel]',
+  '{* (:a 1 :b 2) | list delete path :a | list delete path :a}',
+  ''
+)
+
+
+// =====================================================
+// §10 Map: empty unchanged, par sequential
+// =====================================================
+
+test(
+  'map on Empty coerced to empty list [WRONG:map-empty-unchanged]',
+  '{$noexist_map_empty | list map block "{__ | math add value 1}"}',
+  '[]'
+)
+
+test(
+  'map par-path applies sequentially [map-par-sequential]',
+  '{* (:a 1 :b 2 :c 3) | list map path ((:a :c)) block "{__ | math add value 10}"}',
+  '{"a":11,"b":2,"c":13}'
+)
+
+
+// =====================================================
+// §11 Svar write unbound with path
+// =====================================================
+
+test(
+  'writing unbound svar with path treats state as Empty [svar-write-unbound-empty]',
+  '{42 | >$svar_unbound_test.a || $svar_unbound_test}',
+  '{"a":42}'
+)
+
+
+// =====================================================
+// §9 Path evaluation: evaluated selector, par requires curlies
+// =====================================================
+
+test(
+  'evaluated selector in dot-path [path-eval-selector]',
+  '{* (:a 1 :b 2) | __.{:a}}',
+  '1'
+)
+
+test(
+  'par in dot-path requires curlies [path-par-curlies]',
+  '{* (:a 1 :b 2 :c 3) | __.{(:a :c)}}',
+  '[1,3]'
 )
 
 

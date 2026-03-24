@@ -874,13 +874,13 @@
       ["first","second","third"]
 
     {$data.*.*.one}
-      ["local","local","local"]
+      ["","","local","","","local","","","local"]
 
     {$data.*.*.*.one}
-      ["hashly","hashly","hashly"]
+      ["","","","","hashly","","","","","hashly","","","","","hashly"]
 
     {$data.*.*.*.*.one}
-      []
+      ["","","","","","","","",""]
 
 
   MORE NOTES ON STARS
@@ -894,30 +894,30 @@
       {(1 2 3) | __.#1}
         1
       {(1 2 3) | __.#1.#1}
-        1
+
       {(1 2 3) | __.#1.#1.#1}
-        1
+
 
       {$data.*.*.*.* | ( {__ | unique} {__ | count} )}
         [["hashly","bashly","crashly"],9]
 
     Remember, the star operator exposes the list internals to future operators in parallel, so #1 here eats nine scalar values.
       {$data.*.*.*.*.#1 | ( {__ | unique} {__ | count} )}
-        [["hashly","bashly","crashly"],9]
+        [[""],9]
       {$data.*.*.*.* | __.#1}
         hashly
 
     With star boxing you don't have to split the segments, but remember that the output is always wrapped in a list.
       {$data.{(("*" "*" "*" "*"))}.#1}
-        ["hashly"]
+        [["","","","","","","","",""]]
 
       {$data.*.*.*.#1}
-        ["local","surprise local!","bar","hello","hashly","local","surprise local!","bar","hello","hashly","local","surprise local!","bar","hello","hashly"]
+        ["","","","","hashly","","","","","hashly","","","","","hashly"]
       {$data.*.*.* | __.#1}
         local
 
       {$data.*.*.#1}
-        ["first","surprise array!","local","second","surprise number also!","local","third","surprise me too!","local"]
+        ["","","local","","","local","","","local"]
       {$data.*.* | __.#1}
         first
 
@@ -937,9 +937,9 @@
       {$data.foo.*}
         []
       {$data.*.one.foo}
-        []
+        ["","",""]
       {$data.*.one.#1.foo}
-        []
+        ["","",""]
 
 <h3>Tree climbing</h3>
 
@@ -1175,9 +1175,9 @@
     {* (:a (2 1) :b (3 4) :c (4 5)) | list poke path (:b 1 :d :e) value 999}
       {"a":[2,1],"b":[3,{"d":{"e":999}}],"c":[4,5]}
 
-    when you poke by key to a non-existent key in an unkeyed list, it converts it to a keyed list. (DATA BUG)
+    when you poke by key to a non-existent key in an unkeyed list, it sploots (pass-through). [poke-key-unkeyed-fail]
       {(1 2 3) | list poke path (:a) value 999}
-        {"0":1,"1":2,"2":3,"a":999}
+        [1,2,3]
 
     poke by key to a non-existent var creates the var; pipe value passes through
       {1234 | >$qwe.rty}
@@ -1186,9 +1186,9 @@
     the second set should override the first one (DATA BUG)
       {"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}
         {"y":123}
-    position out of bounds on block-coerced-to-empty -- no-op
+    pos poke on block (scalar) is no-op; block is finalized at end of pipeline [poke-pos-scalar]
       {"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}
-        []
+        foox
 
 
   by position:
@@ -1267,12 +1267,12 @@
     {((2 1) (3 4) (4 5)) | list poke path ("*" ("#2" "#4") ) value 999}
       [[2,999],[3,999],[4,999]]
 
-    poke through scalar into par positions -- all out of bounds on the converted-to-empty container
+    poke through scalar into par positions -- scalar is unchanged [poke-pos-scalar]
       {* (:a 1 :b 2 :c 3) | list poke path ( "#2" ("#2" "#6" "#4") ) value 999}
-        {"a":1,"b":{},"c":3}
+        {"a":1,"b":2,"c":3}
 
       {* (:a 1 :b 2 :c 3) | list poke path ( :b ("#2" "#6" "#4") ) value 999}
-        {"a":1,"b":{},"c":3}
+        {"a":1,"b":2,"c":3}
 
     poke through scalar into par keys -- array-to-object conversion propagates via parent tracking
       {* (:a 1 :b 2 :c 3) | list poke path ( "#2" (:d :e) ) value 999}
