@@ -571,6 +571,9 @@ endpoint     ::= '@' dir (':' name)?    -- space-level port (@in, @out:display)
                | name '@' name          -- station named port (splitter@left)
                | '{' daml '}'           -- anonymous inline station
                | name                   -- station (implicit _in/_out)
+                                        -- NB: dir keywords (in/out/up/down) are
+                                        -- reserved in the @-position; station named
+                                        -- ports cannot use them as names
 
 -- Lexical -----------------------------------------------------
 
@@ -737,7 +740,7 @@ spaceseed = {
   contracts      : [[int, int]]    -- contract connections: pairs of port indices
   wiringRules    : [WiringRule]    -- cmd port pattern-matching rules
   subspaces      : name -> SpaceseedId  -- nested spaceseeds (by name)
-  state          : key -> Val      -- initial space variable values
+  state          : SVar -> Val     -- initial space variable values
 }
 
 PortDescriptor = {
@@ -902,7 +905,8 @@ carrying a sender. Ships carry only final values (see §10) —
 blocks are evaluated before leaving a station.
 
 When a ship arrives at a station's in-port, a process is
-created to handle it (see section 10, Processes). When a process completes,
+created to handle it (see §5 for the process lifecycle, §10 for the
+process domain). When a process completes,
 it sends its result as a ship through the station's out-port. A
 single process may send multiple ships to different ports during its
 execution (via `>@portname`), and soft errors send ships to the
@@ -1100,10 +1104,11 @@ flavour   -- the port's behaviour (e.g. "dom-on-click", "in")
 
 ### Spaces
 ```
-space = (spaceseed, state, queue, subspaces, parent?, dialect)
+space = (spaceseed, state, queue, active, subspaces, parent?, dialect)
   where spaceseed     : Spaceseed       -- the compiled topology
         state         : SVar -> Val     -- live space variable store
-        queue         : [Ship]          -- pending ships (FIFO)
+        queue         : [(Ship, StationId)]  -- pending ships with target station (FIFO)
+        active        : bool            -- true when a process is executing
         subspaces     : [Space]         -- live subspace instances
         parent        : Space?          -- enclosing space (null for outer space)
         dialect       : Dialect         -- inherited from parent, or set explicitly
@@ -1422,9 +1427,12 @@ process goes through these phases:
      via a down-port -- the space remains busy
   4. **Resume** (when response arrives): process continues from
      where it was waiting
-  5. **Complete**: block finishes, final value exits as a ship
-     through the station's `_out` port, process is destroyed,
-     space becomes available for the next queued ship
+  5. **Finalize**: block finishes, result is finalized —
+     blocks are evaluated, blocks inside lists are coerced to
+     source text (see §11 "Finalization") [lifecycle-finalize]
+  6. **Complete**: finalized value exits as a ship through the
+     station's `_out` port, process is destroyed, space becomes
+     available for the next queued ship
 
 A process may also send ships to named ports during execution
 (via `>@portname`), and soft errors send ships to the space's
@@ -1750,7 +1758,7 @@ S@cmd:*:*       <-> @down:fwd       -- catch-all (2 wildcards)
 ```
 
 **Specificity determines priority**, not declaration order.
-[wiring-first-match] Patterns are compared left-to-right,
+[wiring-most-specific] Patterns are compared left-to-right,
 segment by segment. At each position, a literal beats `*`.
 The first difference decides. Among patterns that match the
 same command, priority is always unambiguous:
@@ -2005,7 +2013,7 @@ mechanics" for the full round-trip lifecycle.
   c is Effectful(c, params, portType)
   args' = fillImplicit(args, process.v)       -- same filling as PureCmd
   p = resolveOrCreatePort(space, portType)    -- see section 6
-  payload = {handler: c.handler, method: c.method} | args'   -- keyed list [effcmd-request-val]
+  payload = merge({handler: c.handler, method: c.method}, args')  -- keyed list [effcmd-request-val]
   request = ship(payload, process.sender)     -- a proper ship(FinalVal, sender)
   ---
   send request through p                      -- dispatch to handler/sibling/parent
@@ -2048,10 +2056,11 @@ determined by:
   3. If no wire in the chain has an explicit value, the system
      default of 10 seconds.
 
-Inheritance means: if spaces are nested A > B > C > D, and the
-B-A wire has timeout 30s, and C-B has no explicit timeout, then
-C-B inherits 30s from B-A. If D-C is explicitly set to 20s, it
-stays at 20s.
+Inheritance means: if spaces are nested A > B > C > D (A contains
+B, B contains C, etc.; X-Y wire means the wire from X outward to
+its parent Y), and the B-A wire has timeout 30s, and C-B has no
+explicit timeout, then C-B inherits 30s from B-A. If D-C is
+explicitly set to 20s, it stays at 20s.
 
 #### Effective timeout
 
@@ -2094,8 +2103,9 @@ and no `cmd:*:*` catch-all), the command sploots -- no async boundary, no
 timeout:
 
 ```
-  p has no wiring
   c is Effectful(c, params, portType)
+  p = resolveOrCreatePort(space, portType)
+  p has no wiring
   ---
   (process, state) --[EffCmd(c, args)]--> (process{v := empty}, state)
   emit soft error: {type: "unwired_port", port: p}
@@ -2248,6 +2258,10 @@ implicit_ref ::= '__in' path?          -- pipeline input (fixed for whole block)
                | '__' path?            -- previous segment's output (compiled to flow edge)
 
 command_call ::= handler method (param_name value)*
+                                        -- NB: this is the post-expansion form;
+                                        -- pre-expansion text (e.g. {add 5}) is
+                                        -- tokenized permissively, then aliases are
+                                        -- expanded during munging (see §11)
 
 handler    ::= name                     -- e.g. math, string, list
 method     ::= name                     -- e.g. add, split, transmogrify
@@ -2392,8 +2406,9 @@ A collection is either keyed or unkeyed.
 of keys and values and produces a keyed collection:
 `{* (:a 1 :b 2)}` → `{a: 1, b: 2}`. Note: `*` is a
 special-cased alias name — it does not match the `name`
-production in the grammar. The parser recognizes it as a
-built-in alias before normal tokenization.
+production in the grammar. The tokenizer recognizes `*` as a
+valid token despite not matching `name`; it is then expanded
+during munging like any other alias (`[alias-expand-munge]`).
 
 Ideally, the distinction would be invisible to the end user: anything
 you want to do with a collection, you should be able to do. Achieving
@@ -2464,7 +2479,8 @@ Examples:
 ### Collection equality
 
 Two values are equal if they have the same type and content:
-  - Numbers: numeric equality (0.0 == -0.0; NaN never equals anything)
+  - Numbers: numeric equality (0.0 == -0.0; NaN never equals anything,
+    though vacuously — NaN is coerced to 0 before reaching equality)
   - Strings: byte-for-byte equality
   - Lists: same keyed/unkeyed status, same length, same entries
     in the same order. For keyed lists, keys must match pairwise.
@@ -2723,7 +2739,13 @@ map(scalar, _ :: _, block) = unchanged                              [map-scalar-
 map(Empty, _ :: _, block) = Empty                                   [map-empty-unchanged]
 ```
 
-**Par-map is sequential** (same as Par-poke).
+**Par:**
+```
+map(v, Par(ps) :: rest, block) =                                    [map-par-sequential]
+  for each path p in ps (left to right):
+    v = map(v, p ++ rest, block)
+  return v
+```
 
 **When path is omitted, default is `("*")`** [map-default-star] -- this matches current
 `list map` behavior (map over all children).
@@ -2803,7 +2825,7 @@ GetPut:    poke(v, p, peek(v, p)) = v                               [law-getput]
 DeleteGet: peek(delete(v, p), p) = Empty                            [law-deleteget]
 DeleteDel: delete(delete(v, p), p) = delete(v, p)                   [law-deletedel]
 MapId:     map(v, p, "{__}") = v                                    [law-mapid]
-PokeAsMap: poke(v, p, x) = map(v, p, "{x}")                        [law-pokeasmap]
+PokeAsMap: poke(v, p, x) = map(v, p, const(x))   -- const(x) = a block that returns x  [law-pokeasmap]
 ```
 
 PutPut holds universally (poke doesn't change collection shape, so
@@ -2848,9 +2870,10 @@ Star would also skip (both unchanged), so they actually agree there.
 
 ### Blocks
 ```
-block = (segments, flow)
+block = (segments, flow, source)
   where segments : [Segment]         -- the compiled pipeline steps
         flow     : key -> [key]      -- the segment flow graph
+        source   : String            -- original DAML source text
 ```
 
 A block is a compiled DAML template. It holds an array of segments
@@ -2876,7 +2899,11 @@ resolves data flow into a static segment flow graph:
        parameter [compile-pipe-edge].
      - `||` (barrier) breaks the implicit edge [compile-barrier-break].
      - `__` is **compiled away**: references to `__` are replaced
-       with direct edges to the upstream segment
+       with direct edges to the upstream segment. When there is
+       no upstream segment (first segment of the pipeline), `__`
+       resolves to `ReadPVar("__in", path)` — same as `__in`.
+       After `||`, `__` still edges to the preceding segment
+       (the barrier breaks `process.v`, not the `__` flow edge)
        [compile-dunder-elim].
      - `__in` is compiled to a pipeline variable read
        (`ReadPVar("__in", path)`) — it is a reserved pipeline
@@ -2906,7 +2933,7 @@ DAML.
 
 ### Processes
 ```
-process = (space, block, v, state, pipeline_vars, current, asynced,
+process = (space, block, v, state, pipeline_vars, current,
            sender?, effective_dialect)
   where space             : Space          -- the enclosing space
         block             : Block          -- the block being executed
@@ -2915,7 +2942,6 @@ process = (space, block, v, state, pipeline_vars, current, asynced,
         state             : key -> Val     -- segment outputs and scope vars
         pipeline_vars     : PVar -> Val    -- pipeline variable bindings (write-once)
         current           : int            -- current segment index
-        asynced           : bool           -- waiting for async response?
         sender            : Sender?        -- who sent the originating ship
         effective_dialect : Dialect         -- sender.dialect intersection space.dialect
 ```
@@ -2951,8 +2977,10 @@ inherited value.
 ```
 
 If `_x` is read before `>x` writes, `x` is free — the read
-resolves to the inherited value and the subsequent `>x` is
-ineffective.
+resolves to the inherited value. The subsequent `>x` still
+creates a binding in `pipeline_vars`, but it cannot affect
+the already-compiled read in the current block. Sub-processes
+spawned after the write will see the new binding.
 
 **Sub-processes** are synchronous and depth-first. When a command
 evaluates a block, the sub-process runs to completion (or waits)
@@ -3239,11 +3267,13 @@ uses of the same alias (e.g. `{({1 | then :yay} {0 | then :boo})}`)
 don't corrupt each other's wiring [alias-multi-invoke].
 
 **Parsing.** Aliases are resolved during the munging phase, after
-tokenization. The parser first classifies tokens as `handler method`
-pairs using the grammar — so `{add 5}` is initially parsed as
-handler=`add` method=`5`. During munging, if the handler token
-matches a registered alias, the token is expanded before method
-resolution [alias-expand-munge]. This means alias names occupy the
+tokenization. The tokenizer splits on whitespace into positional
+slots — so `{add 5}` is initially tokenized as first=`add`
+second=`5`, without validating against the grammar. During
+munging, if the first token matches a registered alias, it is
+expanded before method resolution [alias-expand-munge]. After
+expansion, the result must be a valid `handler method` pair per
+the grammar. This means alias names occupy the
 handler slot — an alias `map` would shadow the `list map` handler
 for tokens where `map` appears as the first word. The trailing
 token in an alias expansion (e.g., `value` in `math add value`)
@@ -3335,7 +3365,8 @@ integer  -- like number, then rounded [coerce-integer]
 block    -- see below [coerce-block]
 anything -- passed through (with empty normalization) [coerce-anything]
 
-either:A,B -- if the value matches type A, coerce as A; [coerce-either]
+either:A,B -- if the value is natively of type A (runtime  [coerce-either]
+             type check, not coercion), coerce as A;
              otherwise coerce as B. Used for params that
              accept e.g. a block or a string key.
 ```
@@ -3372,6 +3403,11 @@ chain: block → string (source text) → target type.
     [block-end-of-pipe-eval] `{"{:hey}"}` → `"hey"`.
   - **Template concatenation**: block segments in a template
     are evaluated. [template-stringify]
+  - **Block-typed param receives block**: the block is evaluated
+    per invocation, creating a sub-process. [block-param-block]
+    `{(1 2 3) | map block "hello"}` → `["hello","hello","hello"]`
+    (the `"hello"` literal is a block — see §9 — evaluated each
+    time to produce the string `"hello"`).
   - **Block-typed param receives non-block**: the value is
     returned as-is, not evaluated. [block-param-nonblock]
     `{(1 2 3) | map block 4}` → `[4,4,4]`.
@@ -3478,9 +3514,10 @@ resolved to direct edges in the block's flow graph — see §10
 **Port send:**
 ```
   portname exists on this station (declared by a route)
+  v' = finalize(val(process.v))          -- evaluate blocks, pass others through
   ---
   (process, state) --[PortSend(portname)]--> (process, state)
-  schedule deferred: ship(val(process.v), process.sender) -> portname
+  schedule deferred: ship(v', process.sender) -> portname    [portsend-finalize]
 
   portname does not exist on this station
   ---
@@ -3588,6 +3625,8 @@ depth-first **sub-process** (P-uniformeval).
      - **`process run` with value param**: `__in` = the value
        param [dunderin-run]
      - **`process run` without value**: `__in` = empty
+     - **Finalization** (block at end of pipeline or in
+       PortSend): `__in` = empty [dunderin-finalize]
      At the start of any pipeline, `__ = __in`.
   4. The sub-process executes in the same space as the parent, under
      the same effective dialect, with the same sender, and with
@@ -3622,22 +3661,35 @@ pipeline ::= seg1 pipe seg2 pipe ...  -- sequential composition
 pipe     ::= '|' or '||'             -- normal pipe or barrier pipe
 ```
 
-### Station finalization
+### Finalization
 
-When a station's pipeline completes, the final `process.v` is
-finalized before exiting through `_out`. Blocks are evaluated;
-all other values pass through unchanged. This enforces
-`[ship-final-only]`: ships carry only final values, never blocks.
+Ships carry only final values (`[ship-final-only]`). The
+`finalize` function converts a Val to a FinalVal:
 
 ```
-  process.v is Block(b)
-  ---
-  evaluate b as a sub-process; process.v := result   [station-finalize-block]
+finalize(Block(b))  = evaluate b as a sub-process; return result  [finalize-block]
+finalize(List(xs))  = List([fin_elem(x) for x in xs])             [finalize-list]
+finalize(v)         = v                  -- Number, String, Empty  [finalize-passthru]
 
-  process.v is not Block
-  ---
-  (no change)                                         [station-finalize-passthru]
+  where fin_elem(Block(b)) = b.source    -- coerce to dead string  [list-blocks-finalize]
+        fin_elem(List(ys)) = List([fin_elem(y) for y in ys])      -- nested lists
+        fin_elem(v)        = v            -- Number, String, Empty
 ```
+
+Blocks at top level are evaluated. Blocks inside lists are
+coerced to their source text as dead strings — not evaluated
+(`[list-blocks-finalize]`). This distinction matters: a list is
+a container, not an evaluation context. All other values pass
+through.
+
+`finalize` is applied in two contexts:
+
+  - **Station completion**: `process.v = finalize(process.v)`
+    before the result exits through `_out`.
+    [station-finalize]
+  - **Port send**: the PortSend transition rule applies
+    `finalize(val(process.v))` before constructing the
+    deferred ship. [portsend-finalize]
 
 This is why `{"{:hey}"}` produces `"hey"` [block-end-of-pipe-eval]:
 the pipeline produces a Block, and finalization evaluates it. The
