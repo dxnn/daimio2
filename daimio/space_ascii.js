@@ -241,7 +241,7 @@ export function topo_sort(topology) {
 
 export function layout(topology, options) {
   var HLINE_GAP = 5
-  var ROW_HEIGHT = 6
+  var ROW_HEIGHT = 7
   var HEADER_HEIGHT = 2
   var PORT_COL = 5   // 1 (port 'o') + 3 (visible wire '---') + 1 (paren '(' push-out)
   var max_source = (options && options.max_source !== undefined) ? options.max_source : 20
@@ -600,12 +600,22 @@ export function layout(topology, options) {
   }
 
   // Row heights: base + horizontal channel space below each row (stride 2 for spacing)
-  var row_h_count = {}
+  // h-channel count (for positioning jogs after h-channels)
+  var row_hc_only = {}
   for (var rk in row_pair_h_channels) {
     var r = parseInt(rk)
     var n = row_pair_h_channels[rk].length
-    row_h_count[r] = (row_h_count[r] || 0) + (n > 0 ? 2 * n - 1 : 0)
+    row_hc_only[r] = (row_hc_only[r] || 0) + (n > 0 ? 2 * n - 1 : 0)
   }
+  // Full count includes port jog hlines (for row spacing)
+  var row_h_count = {}
+  for (var r in row_hc_only) row_h_count[r] = row_hc_only[r]
+  for (var cid in left_port_groups)
+    if (layer_of[cid] > 0)
+      row_h_count[row_of[cid]] = (row_h_count[row_of[cid]] || 0) + 2
+  for (var cid in right_port_groups)
+    if (layer_of[cid] < layers.length - 1)
+      row_h_count[row_of[cid]] = (row_h_count[row_of[cid]] || 0) + 2
 
   var row_y_offset = []
   var cum_y = HEADER_HEIGHT
@@ -787,8 +797,8 @@ export function layout(topology, options) {
         if (wy > max_left_wy) max_left_wy = wy
       } else if (layer_of[cid] > 0) {
         // First port but multi-layer target: jog below
-        var row_hc = row_h_count[row_of[cid]] || 0
-        var jog_wy = wy + 3 + row_hc + (row_hc > 0 ? 1 : 0)
+        var row_hc = row_hc_only[row_of[cid]] || 0
+        var jog_wy = comp_y_v3(row_of[cid]) + ROW_HEIGHT + row_hc + (row_hc > 0 ? 1 : 0)
         if (jog_wy > max_fan_y) max_fan_y = jog_wy
         var first_gap_x = PORT_COL - 2
         add_hline_range(wy, 1, first_gap_x + 1)
@@ -928,7 +938,7 @@ export function layout(topology, options) {
       }
     } else if (layer_of[dr.comp_id] < layers.length - 1) {
       // Non-last-layer: jog below to avoid crossing intermediate stations
-      var right_jog_y = wy + 3 + (row_h_count[row] || 0) + (row_h_count[row] > 0 ? 1 : 0)
+      var right_jog_y = comp_y_v3(row) + ROW_HEIGHT + (row_hc_only[row] || 0) + (row_hc_only[row] > 0 ? 1 : 0)
       if (right_jog_y > max_fan_y) max_fan_y = right_jog_y
       var right_gap_x = v_channel_x['rp_' + dr.comp_id + 'rp_src'] || (rx + 2)
       var right_edge_x = right_edge_positions[dr.comp_id] || (width - 3)
