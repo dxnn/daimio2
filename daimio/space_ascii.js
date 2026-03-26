@@ -473,18 +473,43 @@ export function layout(topology, options) {
     gap_v_channels[dl - 1].push({ conn: c, from_row: dr, to_row: dr, side: 'dest' })
   }
 
-  // Back-edges: vchannel in source-side gap and dest-side gap
+  // Back-edges: vchannel in gap to the LEFT of source and LEFT of dest
+  // (connecting to _out on source side, _in on dest side)
+  // For last-layer sources with multi-layer span → right margin.
+  // For layer-0 dests → left margin if room, else gap to the RIGHT.
+  var be_right_margin = []  // back-edges whose source needs right-margin routing
+  var be_left_margin = []   // back-edges whose dest needs left-margin routing
+
+  // Pre-check left margin capacity: slots 2..PORT_COL-2, minus reserved positions
+  var has_left_ports = false
+  for (var cid in left_port_groups) { has_left_ports = true; break }
+  var left_margin_reserved = {}
+  if (has_left_ports) { left_margin_reserved[left_mid_x] = true; left_margin_reserved[PORT_COL - 2] = true }
+  var left_margin_capacity = 0
+  for (var lmx = 2; lmx < PORT_COL - 1; lmx++)
+    if (!left_margin_reserved[lmx]) left_margin_capacity++
+  var left_margin_used = 0
+
   if (gap_v_channels.length > 0) {
     for (var i = 0; i < back_edges.length; i++) {
       var be_from = back_edges[i][0], be_to = back_edges[i][1]
       var be_id = 'be_' + be_from + '_' + be_to
       var from_layer = layer_of[be_from], to_layer = layer_of[be_to]
-      // Source vline: in gap to the LEFT of source (back-edges go rightward-to-leftward)
-      var from_gap = from_layer > 0 ? from_layer - 1 : 0
-      gap_v_channels[from_gap].push({ conn: { id: be_id }, from_row: row_of[be_from], to_row: row_of[be_from], side: 'be_from' })
-      // Dest vline: in gap to the RIGHT of dest
-      var to_gap = to_layer < layers.length - 1 ? to_layer : Math.max(0, to_layer - 1)
-      gap_v_channels[to_gap].push({ conn: { id: be_id }, from_row: row_of[be_to], to_row: row_of[be_to], side: 'be_to' })
+      // Source vline: gap to the RIGHT (connects to _out), or right margin if last layer
+      if (from_layer >= layers.length - 1) {
+        be_right_margin.push(back_edges[i])
+      } else {
+        var from_gap = from_layer  // gap to the RIGHT of source station
+        gap_v_channels[from_gap].push({ conn: { id: be_id }, from_row: row_of[be_from], to_row: row_of[be_from], side: 'be_from' })
+      }
+      // Dest vline: left margin if layer 0 and room, else gap to the LEFT (or RIGHT for layer 0)
+      if (to_layer === 0 && left_margin_used < left_margin_capacity) {
+        be_left_margin.push(back_edges[i])
+        left_margin_used++
+      } else {
+        var to_gap = to_layer > 0 ? to_layer - 1 : 0
+        gap_v_channels[to_gap].push({ conn: { id: be_id }, from_row: row_of[be_to], to_row: row_of[be_to], side: 'be_to' })
+      }
     }
   }
 
@@ -724,8 +749,10 @@ export function layout(topology, options) {
     var jog_y = h_channel_y[c.id]
 
     // Source vchannel: source wire row to h-channel
-    if (jog_y > src_wy)
-      elements.push({ type: 'vline', x: src_vx, y: src_wy, length: jog_y - src_wy + 1, dir: 'down' })
+    var src_vmin = Math.min(src_wy, jog_y)
+    var src_vmax = Math.max(src_wy, jog_y)
+    if (src_vmax > src_vmin)
+      elements.push({ type: 'vline', x: src_vx, y: src_vmin, length: src_vmax - src_vmin + 1, dir: jog_y > src_wy ? 'down' : 'up' })
     // H-channel hline: across intermediate layers
     var hx_left = Math.min(src_vx, dst_vx)
     var hx_right = Math.max(src_vx, dst_vx)
@@ -856,12 +883,30 @@ export function layout(topology, options) {
       if (cr > max_comp_right) max_comp_right = cr
     }
   var next_right_edge = max_comp_right + 2
+  // Allocate right-margin positions for back-edge sources first (closer to station output)
+  var be_right_margin_x = {}  // be_id → x position
+  for (var i = 0; i < be_right_margin.length; i++) {
+    var be_id = 'be_' + be_right_margin[i][0] + '_' + be_right_margin[i][1]
+    be_right_margin_x[be_id] = next_right_edge
+    next_right_edge += 2  // leave space between parallel vlines
+  }
+  // Then right-port jog positions (further from station, closer to port)
   for (var i = 0; i < deferred_right.length; i++) {
     var dr_pre = deferred_right[i]
     if (dr_pre.offset === 0 && layer_of[dr_pre.comp_id] < layers.length - 1) {
       right_edge_positions[dr_pre.comp_id] = next_right_edge
-      next_right_edge++
+      next_right_edge += 2  // leave space between parallel vlines
     }
+  }
+  // Allocate left-margin positions for layer-0 back-edge dests
+  // These go between the left box border and layer 0, avoiding port fan-in vlines
+  var be_left_margin_x = {}  // be_id → x position
+  var next_left_margin = 2  // one space from left box border, with visible hline to station
+  for (var i = 0; i < be_left_margin.length; i++) {
+    while (left_margin_reserved[next_left_margin]) next_left_margin++
+    var be_id = 'be_' + be_left_margin[i][0] + '_' + be_left_margin[i][1]
+    be_left_margin_x[be_id] = next_left_margin
+    next_left_margin++
   }
   // Ensure width accommodates right-edge jog vlines + port column
   if (next_right_edge + 3 > width) width = next_right_edge + 3
@@ -930,19 +975,34 @@ export function layout(topology, options) {
       var max_row = Math.max(row_of[be_from], row_of[be_to])
       back_y = comp_y_v3(max_row) + ROW_HEIGHT - 1
     }
-    // Use allocated vchannel positions instead of fixed offsets
+    // Use allocated vchannel positions or right-margin for last-layer sources
     var from_x = v_channel_x[be_id + 'be_from']
+    var from_is_right_margin = false
+    if (from_x === undefined && be_right_margin_x[be_id] !== undefined) {
+      from_x = be_right_margin_x[be_id]
+      from_is_right_margin = true
+    }
     var to_x = v_channel_x[be_id + 'be_to']
+    var to_is_left_margin = false
+    if (to_x === undefined && be_left_margin_x[be_id] !== undefined) {
+      to_x = be_left_margin_x[be_id]
+      to_is_left_margin = true
+    }
     var from_wy = wire_y_v3(row_of[be_from])
     var to_wy = wire_y_v3(row_of[be_to])
-    // Source vchannel is to the LEFT of source station → hline from vchannel to station LEFT edge
-    var from_station_edge = layer_x[layer_of[be_from]]
-    // Dest vchannel is to the RIGHT of dest station → hline from station RIGHT edge to vchannel
-    var to_station_edge = comp_right(be_to)
 
-    // Source-side: hline from vchannel to station left edge (within the gap)
-    if (from_x !== undefined && from_station_edge > from_x)
-      add_hline_range(from_wy, from_x, from_station_edge)
+    // Source-side hline
+    if (from_x !== undefined) {
+      if (from_is_right_margin) {
+        // Right-margin source: hline from station RIGHT edge to vline (past station)
+        add_hline_range(from_wy, comp_right(be_from), from_x + 1)
+      } else {
+        // Gap source: hline from station RIGHT edge to vchannel (connects to _out)
+        var from_right = comp_right(be_from)
+        if (from_x > from_right)
+          add_hline_range(from_wy, from_right, from_x + 1)
+      }
+    }
     // Source vline down to h-channel
     if (from_x !== undefined && back_y > from_wy)
       elements.push({ type: 'vline', x: from_x, y: from_wy, length: back_y - from_wy + 1, dir: 'down' })
@@ -956,9 +1016,18 @@ export function layout(topology, options) {
     // Dest vline up from h-channel to wire row
     if (to_x !== undefined && back_y > to_wy)
       elements.push({ type: 'vline', x: to_x, y: to_wy, length: back_y - to_wy + 1, dir: 'up' })
-    // Dest-side: hline from station right edge to vchannel (within the gap)
-    if (to_x !== undefined && to_x > to_station_edge)
-      add_hline_range(to_wy, to_station_edge, to_x + 1)
+    // Dest-side hline
+    if (to_x !== undefined) {
+      if (to_is_left_margin) {
+        // Left-margin dest: hline from vline to station LEFT edge (connects to _in)
+        var to_left_edge = layer_x[layer_of[be_to]]
+        if (to_left_edge > to_x)
+          add_hline_range(to_wy, to_x, to_left_edge)
+      } else {
+        // Gap dest: vchannel meets the trunk at wire row — no explicit hline needed
+        // (the trunk already connects to the station, and the vline joins the trunk at a junction)
+      }
+    }
   }
 
   // ── Emit all accumulated hlines ─────────────────────────────────────
