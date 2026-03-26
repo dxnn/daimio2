@@ -732,6 +732,24 @@ export function layout(topology, options) {
     add_hline_range(wire_y_v3(row), x_left, x_right)
   }
 
+  // Accumulate a port jog vline at x, spanning from y_top to y_bot
+  function add_port_jog_vline(x, y_top, y_bot, dir) {
+    var k = x + '|' + dir
+    if (!port_jog_vlines[k]) port_jog_vlines[k] = { x: x, min_y: y_top, max_y: y_bot, dir: dir }
+    else {
+      if (y_top < port_jog_vlines[k].min_y) port_jog_vlines[k].min_y = y_top
+      if (y_bot > port_jog_vlines[k].max_y) port_jog_vlines[k].max_y = y_bot
+    }
+  }
+
+  // Emit segmented fan vline: split at each y in ys so each is an endpoint
+  function emit_fan_vline(x, ys, dir) {
+    if (ys.length < 2) return
+    elements.push({ type: 'vline', x: x, y: ys[0], length: ys[1] - ys[0] + 1, dir: dir })
+    for (var fi = 1; fi < ys.length - 1; fi++)
+      elements.push({ type: 'vline', x: x, y: ys[fi] + 1, length: ys[fi + 1] - ys[fi], dir: dir })
+  }
+
   // Direct connections: trunk spans entire gap
   for (var i = 0; i < direct_conns.length; i++) {
     var c = direct_conns[i]
@@ -832,12 +850,8 @@ export function layout(topology, options) {
     }
     if (fan_wys.length <= 1) continue
     fan_wys.sort(function(a, b) { return a - b })
-    // Vline at left_mid_x split into segments so each station wire_y is an endpoint
-    var fan_min = fan_wys[0], fan_max = fan_wys[fan_wys.length - 1]
-    elements.push({ type: 'vline', x: left_mid_x, y: fan_wys[0], length: fan_wys[1] - fan_wys[0] + 1, dir: 'down' })
-    for (var fi = 1; fi < fan_wys.length - 1; fi++)
-      elements.push({ type: 'vline', x: left_mid_x, y: fan_wys[fi] + 1, length: fan_wys[fi + 1] - fan_wys[fi], dir: 'down' })
-    if (fan_max > max_fan_y) max_fan_y = fan_max
+    emit_fan_vline(left_mid_x, fan_wys, 'down')
+    if (fan_wys[fan_wys.length - 1] > max_fan_y) max_fan_y = fan_wys[fan_wys.length - 1]
   }
 
   for (var cid in left_port_groups) {
@@ -867,20 +881,10 @@ export function layout(topology, options) {
           if (jog_wy > max_fan_y) max_fan_y = jog_wy
           var first_gap_x = left_mid_x + 2  // space between fan vline and jog vline
           add_hline_range(wy, left_mid_x, first_gap_x + 1)
-          var pjk_d = first_gap_x + '|down'
-          if (!port_jog_vlines[pjk_d]) port_jog_vlines[pjk_d] = { x: first_gap_x, min_y: wy, max_y: jog_wy, dir: 'down' }
-          else {
-            if (wy < port_jog_vlines[pjk_d].min_y) port_jog_vlines[pjk_d].min_y = wy
-            if (jog_wy > port_jog_vlines[pjk_d].max_y) port_jog_vlines[pjk_d].max_y = jog_wy
-          }
+          add_port_jog_vline(first_gap_x, wy, jog_wy, 'down')
           var target_gap_x = v_channel_x['lp_' + cid + 'lp_tgt'] || (layer_x[layer_of[cid]] - 3)
           add_hline_range(jog_wy, first_gap_x, target_gap_x + 1)
-          var pjk_u = target_gap_x + '|up'
-          if (!port_jog_vlines[pjk_u]) port_jog_vlines[pjk_u] = { x: target_gap_x, min_y: wy, max_y: jog_wy, dir: 'up' }
-          else {
-            if (wy < port_jog_vlines[pjk_u].min_y) port_jog_vlines[pjk_u].min_y = wy
-            if (jog_wy > port_jog_vlines[pjk_u].max_y) port_jog_vlines[pjk_u].max_y = jog_wy
-          }
+          add_port_jog_vline(target_gap_x, wy, jog_wy, 'up')
           add_hline_range(wy, target_gap_x, lx)
         } else {
           // Direct from fan vline to layer-0 station
@@ -893,20 +897,10 @@ export function layout(topology, options) {
         if (jog_wy > max_fan_y) max_fan_y = jog_wy
         var first_gap_x = PORT_COL - 2
         add_hline_range(wy, 1, first_gap_x + 1)
-        var pjk_d = first_gap_x + '|down'
-        if (!port_jog_vlines[pjk_d]) port_jog_vlines[pjk_d] = { x: first_gap_x, min_y: wy, max_y: jog_wy, dir: 'down' }
-        else {
-          if (wy < port_jog_vlines[pjk_d].min_y) port_jog_vlines[pjk_d].min_y = wy
-          if (jog_wy > port_jog_vlines[pjk_d].max_y) port_jog_vlines[pjk_d].max_y = jog_wy
-        }
+        add_port_jog_vline(first_gap_x, wy, jog_wy, 'down')
         var target_gap_x = v_channel_x['lp_' + cid + 'lp_tgt'] || (layer_x[layer_of[cid]] - 3)
         add_hline_range(jog_wy, first_gap_x, target_gap_x + 1)
-        var pjk_u = target_gap_x + '|up'
-        if (!port_jog_vlines[pjk_u]) port_jog_vlines[pjk_u] = { x: target_gap_x, min_y: wy, max_y: jog_wy, dir: 'up' }
-        else {
-          if (wy < port_jog_vlines[pjk_u].min_y) port_jog_vlines[pjk_u].min_y = wy
-          if (jog_wy > port_jog_vlines[pjk_u].max_y) port_jog_vlines[pjk_u].max_y = jog_wy
-        }
+        add_port_jog_vline(target_gap_x, wy, jog_wy, 'up')
         add_hline_range(wy, target_gap_x, lx)
       } else {
         // First port, layer 0: direct hline
@@ -917,11 +911,7 @@ export function layout(topology, options) {
     if (max_left_wy > base_wy) {
       var fan_ys = [base_wy]
       for (var j = 1; j < group.length; j++) fan_ys.push(base_wy + j * 2)
-      // First segment: includes both endpoints
-      elements.push({ type: 'vline', x: left_mid_x, y: fan_ys[0], length: fan_ys[1] - fan_ys[0] + 1, dir: 'up' })
-      // Subsequent segments: start one below the junction to avoid overlap
-      for (var j = 1; j < fan_ys.length - 1; j++)
-        elements.push({ type: 'vline', x: left_mid_x, y: fan_ys[j] + 1, length: fan_ys[j + 1] - fan_ys[j], dir: 'up' })
+      emit_fan_vline(left_mid_x, fan_ys, 'up')
     }
   }
   // Emit merged port jog vlines
@@ -1041,17 +1031,10 @@ export function layout(topology, options) {
     }
     if (fan_wys.length <= 1) continue
     fan_wys.sort(function(a, b) { return a - b })
-    var fan_min = fan_wys[0], fan_max = fan_wys[fan_wys.length - 1]
-    // Direction: toward the port's row
-    var port_wy = right_port_wy[pid] || fan_min
-    var fan_dir = port_wy <= fan_min ? 'up' : 'down'
-    // Split into segments so each station wire_y is an endpoint (junction, not crossing)
-    // First segment: includes both endpoints
-    elements.push({ type: 'vline', x: right_fan_x, y: fan_wys[0], length: fan_wys[1] - fan_wys[0] + 1, dir: fan_dir })
-    // Subsequent segments: start one past the junction to avoid overlap
-    for (var fi = 1; fi < fan_wys.length - 1; fi++)
-      elements.push({ type: 'vline', x: right_fan_x, y: fan_wys[fi] + 1, length: fan_wys[fi + 1] - fan_wys[fi], dir: fan_dir })
-    if (fan_max > max_fan_y) max_fan_y = fan_max
+    var port_wy = right_port_wy[pid] || fan_wys[0]
+    var fan_dir = port_wy <= fan_wys[0] ? 'up' : 'down'
+    emit_fan_vline(right_fan_x, fan_wys, fan_dir)
+    if (fan_wys[fan_wys.length - 1] > max_fan_y) max_fan_y = fan_wys[fan_wys.length - 1]
   }
 
   var right_vline_max = {}  // comp_id → max_wy for vline grouping
@@ -1103,11 +1086,7 @@ export function layout(topology, options) {
     for (var j = 1; j < rgroup.length; j++) rfan_ys.push(rbase_wy + j * 2)
     var rmid_x = right_vline_max[cid] ? right_vline_max[cid].mid_x : 0
     if (!rmid_x) continue
-    // First segment
-    elements.push({ type: 'vline', x: rmid_x, y: rfan_ys[0], length: rfan_ys[1] - rfan_ys[0] + 1, dir: 'down' })
-    // Subsequent segments
-    for (var j = 1; j < rfan_ys.length - 1; j++)
-      elements.push({ type: 'vline', x: rmid_x, y: rfan_ys[j] + 1, length: rfan_ys[j + 1] - rfan_ys[j], dir: 'down' })
+    emit_fan_vline(rmid_x, rfan_ys, 'down')
   }
 
   // ── Compute content_y ──────────────────────────────────────────────
