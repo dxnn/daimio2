@@ -1,6 +1,31 @@
 // daimio/space_ascii.js — three-phase ASCII topology renderer for Daimio spaces
 //
 // Pipeline: extract (seedlike → topology) → layout (topology → positioned) → render (positioned → ASCII)
+//
+// Layout invariants:
+//   1. No wire passes through a station or subspace body (hline or vline)
+//   2. No two parallel wires share a grid cell (no overlapping hlines, no overlapping vlines)
+//   3. At least one empty space between parallel wires (adjacent hlines or vlines)
+//   4. At least one empty space between any wire and the box boundary
+//
+// Junction rules:
+//   5. Wire terminating at a perpendicular through-wire: show terminating wire's direction
+//      (> or < for hlines, v or ^ for vlines)
+//   6. Wire crossing over a perpendicular wire without connecting: O
+//   7. Every hline starts and ends at a port, station, or < / >
+//   8. Every vline starts and ends at a port, station, or v / ^
+//
+// Port rules:
+//   9. Each unique port renders as a single 'o' (no duplicates)
+//  10. Ports connecting to multiple stations use a fan vline to reach all rows
+//
+// Back-edge rules:
+//  11. Source vline on the output side (_out) of the source station
+//  12. Dest vline on the input side (_in) of the dest station
+//  13. Back-edge flow is visually right-to-left (opposite of forward flow)
+//
+// Topo sort:
+//  14. Port-connected stations prioritized for lower layers (closer to ports)
 
 export function extract(name, seedlike) {
   var ports = []
@@ -806,9 +831,11 @@ export function layout(topology, options) {
     }
     if (fan_wys.length <= 1) continue
     fan_wys.sort(function(a, b) { return a - b })
-    // Vline at left_mid_x spanning all connected wire rows
+    // Vline at left_mid_x split into segments so each station wire_y is an endpoint
     var fan_min = fan_wys[0], fan_max = fan_wys[fan_wys.length - 1]
-    elements.push({ type: 'vline', x: left_mid_x, y: fan_min, length: fan_max - fan_min + 1, dir: 'down' })
+    elements.push({ type: 'vline', x: left_mid_x, y: fan_wys[0], length: fan_wys[1] - fan_wys[0] + 1, dir: 'down' })
+    for (var fi = 1; fi < fan_wys.length - 1; fi++)
+      elements.push({ type: 'vline', x: left_mid_x, y: fan_wys[fi] + 1, length: fan_wys[fi + 1] - fan_wys[fi], dir: 'down' })
     if (fan_max > max_fan_y) max_fan_y = fan_max
   }
 
@@ -1017,7 +1044,12 @@ export function layout(topology, options) {
     // Direction: toward the port's row
     var port_wy = right_port_wy[pid] || fan_min
     var fan_dir = port_wy <= fan_min ? 'up' : 'down'
-    elements.push({ type: 'vline', x: right_fan_x, y: fan_min, length: fan_max - fan_min + 1, dir: fan_dir })
+    // Split into segments so each station wire_y is an endpoint (junction, not crossing)
+    // First segment: includes both endpoints
+    elements.push({ type: 'vline', x: right_fan_x, y: fan_wys[0], length: fan_wys[1] - fan_wys[0] + 1, dir: fan_dir })
+    // Subsequent segments: start one past the junction to avoid overlap
+    for (var fi = 1; fi < fan_wys.length - 1; fi++)
+      elements.push({ type: 'vline', x: right_fan_x, y: fan_wys[fi] + 1, length: fan_wys[fi + 1] - fan_wys[fi], dir: fan_dir })
     if (fan_max > max_fan_y) max_fan_y = fan_max
   }
 
@@ -1214,6 +1246,15 @@ export function render(laid_out) {
     for (var x = 0; x < w; x++) grid[y][x] = ' '
   }
 
+  // Pre-build vline cell map for detecting vline continuation at segment boundaries
+  var vline_cells = {}  // 'x,y' → true
+  for (var i = 0; i < elements.length; i++) {
+    if (elements[i].type === 'vline') {
+      for (var vy = elements[i].y; vy < elements[i].y + elements[i].length; vy++)
+        vline_cells[elements[i].x + ',' + vy] = true
+    }
+  }
+
   for (var i = 0; i < elements.length; i++) {
     var el = elements[i]
 
@@ -1255,7 +1296,21 @@ export function render(laid_out) {
         var is_endpoint = (y === el.y || y === el.y + el.length - 1)
         if (cur === '-' || cur === 'O') {
           if (is_endpoint && el.dir) {
-            if (el.dir === 'down') grid[y][el.x] = 'v'
+            var h_left = el.x > 0 && (grid[y][el.x - 1] === '-' || grid[y][el.x - 1] === 'O')
+            var h_right = el.x < w - 1 && (grid[y][el.x + 1] === '-' || grid[y][el.x + 1] === 'O')
+            // Check if vline continues past this endpoint (another vline segment)
+            var v_above = y > 0 && vline_cells[el.x + ',' + (y - 1)]
+            var v_below = y < h - 1 && vline_cells[el.x + ',' + (y + 1)]
+            var vline_continues = (y === el.y) ? v_above : v_below
+            if (!vline_continues && (h_left ? 1 : 0) + (h_right ? 1 : 0) === 1) {
+              // Corner: both vline and hline terminate here (90° turn)
+              // Use the vline direction (the explicit routing direction)
+              if (el.dir === 'down') grid[y][el.x] = 'v'
+              else if (el.dir === 'up') grid[y][el.x] = '^'
+              else grid[y][el.x] = el.dir === 'right' ? '>' : '<'
+            } else if (h_left && !h_right) grid[y][el.x] = '>'   // T-junction: signal flows right through vline
+            else if (!h_left && h_right) grid[y][el.x] = '>'
+            else if (el.dir === 'down') grid[y][el.x] = 'v'      // vline feeds into through-hline
             else if (el.dir === 'up') grid[y][el.x] = '^'
             else if (el.dir === 'right') grid[y][el.x] = '>'
             else if (el.dir === 'left') grid[y][el.x] = '<'
