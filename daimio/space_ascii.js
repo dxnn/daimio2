@@ -699,9 +699,10 @@ export function layout(topology, options) {
 
   // Hline accumulator: tracks all hline ranges per y-coordinate
   // Multiple ranges at the same y are kept separate if they don't overlap
-  var hline_ranges = {}  // y → [{min_x, max_x}, ...]
+  var hline_ranges = {}  // y → [{min_x, max_x, dir}, ...]
 
-  function add_hline_range(y, x_left, x_right) {
+  function add_hline_range(y, x_left, x_right, dir) {
+    if (!dir) dir = 'right'
     if (!hline_ranges[y]) hline_ranges[y] = []
     var ranges = hline_ranges[y]
     // Try to merge with existing range
@@ -724,7 +725,7 @@ export function layout(topology, options) {
       }
     }
     // No overlap — add new range
-    ranges.push({ min_x: x_left, max_x: x_right })
+    ranges.push({ min_x: x_left, max_x: x_right, dir: dir })
   }
 
   function add_trunk(gap, row, x_left, x_right) {
@@ -1162,7 +1163,7 @@ export function layout(topology, options) {
       var left_x = Math.min(from_x, to_x)
       var right_x = Math.max(from_x, to_x)
       if (right_x > left_x)
-        add_hline_range(back_y, left_x, right_x + 1)
+        add_hline_range(back_y, left_x, right_x + 1, 'left')
     }
     // Dest vline up from h-channel to wire row
     if (to_x !== undefined && back_y > to_wy)
@@ -1188,7 +1189,35 @@ export function layout(topology, options) {
     for (var ri2 = 0; ri2 < ranges.length; ri2++) {
       var rng = ranges[ri2]
       if (rng.max_x > rng.min_x)
-        elements.push({ type: 'hline', x: rng.min_x, y: parseInt(hy), length: rng.max_x - rng.min_x })
+        elements.push({ type: 'hline', x: rng.min_x, y: parseInt(hy), length: rng.max_x - rng.min_x, dir: rng.dir || 'right' })
+    }
+  }
+
+  // ── Compute intersections ──────────────────────────────────────────
+  // For each cell where an hline and vline overlap, classify and pick a char.
+  // h_thru/v_thru: does that wire pass through (middle) or terminate (endpoint)?
+  // Crossing (both through) → O. Tee (one through) → stem wire's dir. Corner → vline's dir.
+
+  var v_cells = {}  // vline cell map for detecting split-segment continuation
+  for (var i = 0; i < elements.length; i++)
+    if (elements[i].type === 'vline')
+      for (var vy = elements[i].y; vy < elements[i].y + elements[i].length; vy++)
+        v_cells[elements[i].x + ',' + vy] = true
+
+  var dir_char = { down: 'v', up: '^', right: '>', left: '<' }
+  for (var i = 0; i < elements.length; i++) {
+    if (elements[i].type !== 'hline') continue
+    var hl = elements[i]
+    for (var j = 0; j < elements.length; j++) {
+      if (elements[j].type !== 'vline') continue
+      var vl = elements[j]
+      if (vl.x < hl.x || vl.x >= hl.x + hl.length) continue
+      if (hl.y < vl.y || hl.y >= vl.y + vl.length) continue
+      var h_thru = vl.x > hl.x && vl.x < hl.x + hl.length - 1
+      var v_thru = (hl.y > vl.y || v_cells[vl.x + ',' + (hl.y - 1)])
+              && (hl.y < vl.y + vl.length - 1 || v_cells[vl.x + ',' + (hl.y + 1)])
+      var ch = h_thru && v_thru ? 'O' : h_thru ? dir_char[vl.dir] : v_thru ? dir_char[hl.dir] : dir_char[vl.dir]
+      elements.push({ type: 'intersection', x: vl.x, y: hl.y, char: ch })
     }
   }
 
@@ -1236,23 +1265,14 @@ export function render(laid_out) {
   var h = laid_out.height
   var elements = laid_out.elements.slice()
 
-  // Sort: box first, then labels/text/ports, then hlines, then vlines, then stations on top
-  var render_order = { box: 0, label: 1, text: 1, port: 1, hline: 2, vline: 3, station: 4, subspace_box: 4 }
+  // Sort: box first, then labels/text/ports, then wires, then intersections, then stations on top
+  var render_order = { box: 0, label: 1, text: 1, port: 1, hline: 2, vline: 2, intersection: 3, station: 4, subspace_box: 4 }
   elements.sort(function(a, b) { return (render_order[a.type] || 0) - (render_order[b.type] || 0) })
 
   var grid = []
   for (var y = 0; y < h; y++) {
     grid[y] = []
     for (var x = 0; x < w; x++) grid[y][x] = ' '
-  }
-
-  // Pre-build vline cell map for detecting vline continuation at segment boundaries
-  var vline_cells = {}  // 'x,y' → true
-  for (var i = 0; i < elements.length; i++) {
-    if (elements[i].type === 'vline') {
-      for (var vy = elements[i].y; vy < elements[i].y + elements[i].length; vy++)
-        vline_cells[elements[i].x + ',' + vy] = true
-    }
   }
 
   for (var i = 0; i < elements.length; i++) {
@@ -1283,44 +1303,17 @@ export function render(laid_out) {
     }
 
     else if (el.type === 'hline') {
-      for (var x = el.x; x < el.x + el.length; x++) {
-        var cur = grid[el.y][x]
-        if (cur === '|') grid[el.y][x] = 'O'
-        else if (cur !== 'O') grid[el.y][x] = '-'
-      }
+      for (var x = el.x; x < el.x + el.length; x++)
+        grid[el.y][x] = '-'
     }
 
     else if (el.type === 'vline') {
-      for (var y = el.y; y < el.y + el.length; y++) {
-        var cur = grid[y][el.x]
-        var is_endpoint = (y === el.y || y === el.y + el.length - 1)
-        if (cur === '-' || cur === 'O') {
-          if (is_endpoint && el.dir) {
-            var h_left = el.x > 0 && (grid[y][el.x - 1] === '-' || grid[y][el.x - 1] === 'O')
-            var h_right = el.x < w - 1 && (grid[y][el.x + 1] === '-' || grid[y][el.x + 1] === 'O')
-            // Check if vline continues past this endpoint (another vline segment)
-            var v_above = y > 0 && vline_cells[el.x + ',' + (y - 1)]
-            var v_below = y < h - 1 && vline_cells[el.x + ',' + (y + 1)]
-            var vline_continues = (y === el.y) ? v_above : v_below
-            if (!vline_continues && (h_left ? 1 : 0) + (h_right ? 1 : 0) === 1) {
-              // Corner: both vline and hline terminate here (90° turn)
-              // Use the vline direction (the explicit routing direction)
-              if (el.dir === 'down') grid[y][el.x] = 'v'
-              else if (el.dir === 'up') grid[y][el.x] = '^'
-              else grid[y][el.x] = el.dir === 'right' ? '>' : '<'
-            } else if (h_left && !h_right) grid[y][el.x] = '>'   // T-junction: signal flows right through vline
-            else if (!h_left && h_right) grid[y][el.x] = '>'
-            else if (el.dir === 'down') grid[y][el.x] = 'v'      // vline feeds into through-hline
-            else if (el.dir === 'up') grid[y][el.x] = '^'
-            else if (el.dir === 'right') grid[y][el.x] = '>'
-            else if (el.dir === 'left') grid[y][el.x] = '<'
-          } else {
-            grid[y][el.x] = 'O'
-          }
-        } else {
-          grid[y][el.x] = '|'
-        }
-      }
+      for (var y = el.y; y < el.y + el.length; y++)
+        grid[y][el.x] = '|'
+    }
+
+    else if (el.type === 'intersection') {
+      grid[el.y][el.x] = el.char
     }
 
     else if (el.type === 'station') {

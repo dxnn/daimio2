@@ -418,6 +418,23 @@ var r_junc = render(layout(extract('junc', sl_junc.junc)))
 test('junction: no raw + chars', r_junc.indexOf('+') < 0, true)
 test('junction: crossing produces O', r_junc.indexOf('O') >= 0, true)
 
+// === Tricky topologies: invariants checked on inline definitions ===
+
+var tricky_defs = [
+  'deep\n  A {A}\n  B {B}\n  C {C}\n  D {D}\n  A -> B\n  B -> C\n  C -> D\n  D -> A',
+  'wide\n  @in\n  @out\n  A {A}\n  B {B}\n  C {C}\n  D {D}\n  E {E}\n  Z {Z}\n  @in -> A\n  @in -> B\n  @in -> C\n  @in -> D\n  @in -> E\n  A -> Z\n  B -> Z\n  C -> Z\n  D -> Z\n  E -> Z\n  Z -> @out',
+]
+for (var i = 0; i < tricky_defs.length; i++) {
+  var tname = tricky_defs[i].split('\n')[0].trim()
+  var tsl = D.seedlikes_from_string(tricky_defs[i])
+  var ttopo = extract(tname, tsl[tname])
+  var tlaid = layout(ttopo)
+  var trendered = render(tlaid)
+  check_no_wire_through_stations('invariant[no-wire-through] ' + tname, tlaid)
+  check_no_parallel_overlap('invariant[no-overlap] ' + tname, tlaid)
+  test(tname + ': no raw + chars', trendered.indexOf('+') < 0, true)
+}
+
 // Report
 console.log('space_ascii_test: ' + pass + '/' + (pass + fail) + ' passed')
 if (failures.length) {
