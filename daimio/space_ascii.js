@@ -782,6 +782,36 @@ export function layout(topology, options) {
   var left_mid_x = Math.floor(PORT_COL / 2)
   // Collect port jog vlines for merging (key: x → {min_y, max_y, dir})
   var port_jog_vlines = {}
+  var emitted_ports = {}  // port id → { y } (deduplicate port elements, track position)
+
+  // Build reverse map: port_id → [station_ids] for fan-out from one port to many stations
+  var left_port_stations = {}  // port_id → [cid, ...]
+  for (var cid in left_port_groups) {
+    var group = left_port_groups[cid]
+    for (var j = 0; j < group.length; j++) {
+      if (!left_port_stations[group[j].id]) left_port_stations[group[j].id] = []
+      left_port_stations[group[j].id].push(cid)
+    }
+  }
+
+  // Emit fan-out vlines for ports connecting to multiple stations at different rows
+  for (var pid in left_port_stations) {
+    var sids = left_port_stations[pid]
+    if (sids.length <= 1) continue
+    // Collect unique wire_y values
+    var fan_wys = []
+    for (var j = 0; j < sids.length; j++) {
+      var fwy = wire_y_v3(row_of[sids[j]])
+      if (fan_wys.indexOf(fwy) < 0) fan_wys.push(fwy)
+    }
+    if (fan_wys.length <= 1) continue
+    fan_wys.sort(function(a, b) { return a - b })
+    // Vline at left_mid_x spanning all connected wire rows
+    var fan_min = fan_wys[0], fan_max = fan_wys[fan_wys.length - 1]
+    elements.push({ type: 'vline', x: left_mid_x, y: fan_min, length: fan_max - fan_min + 1, dir: 'down' })
+    if (fan_max > max_fan_y) max_fan_y = fan_max
+  }
+
   for (var cid in left_port_groups) {
     var group = left_port_groups[cid]
     var base_wy = wire_y_v3(row_of[cid])
@@ -790,19 +820,51 @@ export function layout(topology, options) {
     for (var j = 0; j < group.length; j++) {
       var wy = base_wy + j * 2
       if (wy > max_fan_y) max_fan_y = wy
-      elements.push({ type: 'port', x: 0, y: wy, dir: 'left', key: group[j].key })
+      var is_fan_out = left_port_stations[group[j].id] && left_port_stations[group[j].id].length > 1
+      if (!emitted_ports[group[j].id]) {
+        elements.push({ type: 'port', x: 0, y: wy, dir: 'left', key: group[j].key })
+        emitted_ports[group[j].id] = { y: wy }
+      }
       if (j > 0) {
-        // Offset port: hline from port to midpoint
+        // Offset port (multiple ports to same station): hline from port to midpoint
         add_hline_range(wy, 1, left_mid_x + 1)
         if (wy > max_left_wy) max_left_wy = wy
+      } else if (is_fan_out && emitted_ports[group[j].id].y !== wy) {
+        // Fan-out: this station shares a port on a different row
+        // Hline from fan vline (left_mid_x) to station (direct or jog)
+        if (layer_of[cid] > 0) {
+          // Jog from left_mid_x to non-layer-0 station
+          var row_hc = row_hc_only[row_of[cid]] || 0
+          var jog_wy = comp_y_v3(row_of[cid]) + ROW_HEIGHT + row_hc + (row_hc > 0 ? 1 : 0)
+          if (jog_wy > max_fan_y) max_fan_y = jog_wy
+          var first_gap_x = left_mid_x + 2  // space between fan vline and jog vline
+          add_hline_range(wy, left_mid_x, first_gap_x + 1)
+          var pjk_d = first_gap_x + '|down'
+          if (!port_jog_vlines[pjk_d]) port_jog_vlines[pjk_d] = { x: first_gap_x, min_y: wy, max_y: jog_wy, dir: 'down' }
+          else {
+            if (wy < port_jog_vlines[pjk_d].min_y) port_jog_vlines[pjk_d].min_y = wy
+            if (jog_wy > port_jog_vlines[pjk_d].max_y) port_jog_vlines[pjk_d].max_y = jog_wy
+          }
+          var target_gap_x = v_channel_x['lp_' + cid + 'lp_tgt'] || (layer_x[layer_of[cid]] - 3)
+          add_hline_range(jog_wy, first_gap_x, target_gap_x + 1)
+          var pjk_u = target_gap_x + '|up'
+          if (!port_jog_vlines[pjk_u]) port_jog_vlines[pjk_u] = { x: target_gap_x, min_y: wy, max_y: jog_wy, dir: 'up' }
+          else {
+            if (wy < port_jog_vlines[pjk_u].min_y) port_jog_vlines[pjk_u].min_y = wy
+            if (jog_wy > port_jog_vlines[pjk_u].max_y) port_jog_vlines[pjk_u].max_y = jog_wy
+          }
+          add_hline_range(wy, target_gap_x, lx)
+        } else {
+          // Direct from fan vline to layer-0 station
+          add_hline_range(wy, left_mid_x, lx)
+        }
       } else if (layer_of[cid] > 0) {
-        // First port but multi-layer target: jog below
+        // First port occurrence, multi-layer target: jog below
         var row_hc = row_hc_only[row_of[cid]] || 0
         var jog_wy = comp_y_v3(row_of[cid]) + ROW_HEIGHT + row_hc + (row_hc > 0 ? 1 : 0)
         if (jog_wy > max_fan_y) max_fan_y = jog_wy
         var first_gap_x = PORT_COL - 2
         add_hline_range(wy, 1, first_gap_x + 1)
-        // Accumulate port jog vline at first_gap_x (down)
         var pjk_d = first_gap_x + '|down'
         if (!port_jog_vlines[pjk_d]) port_jog_vlines[pjk_d] = { x: first_gap_x, min_y: wy, max_y: jog_wy, dir: 'down' }
         else {
@@ -811,7 +873,6 @@ export function layout(topology, options) {
         }
         var target_gap_x = v_channel_x['lp_' + cid + 'lp_tgt'] || (layer_x[layer_of[cid]] - 3)
         add_hline_range(jog_wy, first_gap_x, target_gap_x + 1)
-        // Accumulate port jog vline at target_gap_x (up)
         var pjk_u = target_gap_x + '|up'
         if (!port_jog_vlines[pjk_u]) port_jog_vlines[pjk_u] = { x: target_gap_x, min_y: wy, max_y: jog_wy, dir: 'up' }
         else {
@@ -922,6 +983,33 @@ export function layout(topology, options) {
   // Ensure width accommodates right-edge jog vlines + port column
   if (next_right_edge + 3 > width) width = next_right_edge + 3
 
+  // Build reverse map for right ports: port_id → [comp_ids]
+  var right_port_stations = {}
+  for (var cid in right_port_groups) {
+    var group = right_port_groups[cid]
+    for (var j = 0; j < group.length; j++) {
+      if (!right_port_stations[group[j].id]) right_port_stations[group[j].id] = []
+      right_port_stations[group[j].id].push(cid)
+    }
+  }
+
+  // Emit fan-in vlines for right ports connecting from multiple station rows
+  var right_fan_x = width - 3  // space between fan vline and box border/port
+  for (var pid in right_port_stations) {
+    var sids = right_port_stations[pid]
+    if (sids.length <= 1) continue
+    var fan_wys = []
+    for (var j = 0; j < sids.length; j++) {
+      var fwy = wire_y_v3(row_of[sids[j]])
+      if (fan_wys.indexOf(fwy) < 0) fan_wys.push(fwy)
+    }
+    if (fan_wys.length <= 1) continue
+    fan_wys.sort(function(a, b) { return a - b })
+    var fan_min = fan_wys[0], fan_max = fan_wys[fan_wys.length - 1]
+    elements.push({ type: 'vline', x: right_fan_x, y: fan_min, length: fan_max - fan_min + 1, dir: 'down' })
+    if (fan_max > max_fan_y) max_fan_y = fan_max
+  }
+
   var right_vline_max = {}  // comp_id → max_wy for vline grouping
   for (var i = 0; i < deferred_right.length; i++) {
     var dr = deferred_right[i]
@@ -949,9 +1037,18 @@ export function layout(topology, options) {
       add_hline_range(wy, right_edge_x, width - 1)
     } else {
       // Last layer: direct hline to right edge
-      add_hline_range(wy, rx, width - 1)
+      var is_right_fan = right_port_stations[dr.port.id] && right_port_stations[dr.port.id].length > 1
+      if (is_right_fan && emitted_ports[dr.port.id]) {
+        // Fan-in: route to fan vline, not to port
+        add_hline_range(wy, rx, right_fan_x + 1)
+      } else {
+        add_hline_range(wy, rx, width - 1)
+      }
     }
-    elements.push({ type: 'port', x: width - 1, y: wy, dir: 'right', key: dr.port.key })
+    if (!emitted_ports[dr.port.id]) {
+      elements.push({ type: 'port', x: width - 1, y: wy, dir: 'right', key: dr.port.key })
+      emitted_ports[dr.port.id] = { y: wy }
+    }
   }
   // Non-overlapping vline segments for right port groups
   for (var cid in right_port_groups) {
