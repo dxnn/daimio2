@@ -551,7 +551,7 @@ export function layout(topology, options) {
     if (i === 0) layer_x.push(PORT_COL)
     else {
       var n_channels = gap_v_channels[i - 1].length
-      var gap = Math.max(HLINE_GAP, n_channels + 5)
+      var gap = Math.max(HLINE_GAP, n_channels > 1 ? 2 * n_channels + 3 : n_channels + 5)
       layer_x.push(layer_x[i - 1] + layer_width[i - 1] + gap)
     }
   }
@@ -599,11 +599,12 @@ export function layout(topology, options) {
     row_pair_h_channels[rk].push({ conn: null, back_edge: back_edges[i], from_gap: 0, to_gap: 0 })
   }
 
-  // Row heights: base + horizontal channel space below each row
+  // Row heights: base + horizontal channel space below each row (stride 2 for spacing)
   var row_h_count = {}
   for (var rk in row_pair_h_channels) {
     var r = parseInt(rk)
-    row_h_count[r] = (row_h_count[r] || 0) + row_pair_h_channels[rk].length
+    var n = row_pair_h_channels[rk].length
+    row_h_count[r] = (row_h_count[r] || 0) + (n > 0 ? 2 * n - 1 : 0)
   }
 
   var row_y_offset = []
@@ -624,9 +625,9 @@ export function layout(topology, options) {
     var channels = row_pair_h_channels[rk]
     for (var j = 0; j < channels.length; j++) {
       if (channels[j].conn)
-        h_channel_y[channels[j].conn.id] = base_y + j
+        h_channel_y[channels[j].conn.id] = base_y + j * 2
       else if (channels[j].back_edge)
-        h_channel_y['be_' + channels[j].back_edge[0] + '_' + channels[j].back_edge[1]] = base_y + j
+        h_channel_y['be_' + channels[j].back_edge[0] + '_' + channels[j].back_edge[1]] = base_y + j * 2
     }
   }
 
@@ -906,7 +907,7 @@ export function layout(topology, options) {
     while (left_margin_reserved[next_left_margin]) next_left_margin++
     var be_id = 'be_' + be_left_margin[i][0] + '_' + be_left_margin[i][1]
     be_left_margin_x[be_id] = next_left_margin
-    next_left_margin++
+    next_left_margin += 2  // leave space between parallel vlines
   }
   // Ensure width accommodates right-edge jog vlines + port column
   if (next_right_edge + 3 > width) width = next_right_edge + 3
