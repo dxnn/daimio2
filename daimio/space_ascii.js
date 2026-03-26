@@ -788,7 +788,7 @@ export function layout(topology, options) {
       } else if (layer_of[cid] > 0) {
         // First port but multi-layer target: jog below
         var row_hc = row_h_count[row_of[cid]] || 0
-        var jog_wy = wy + 3 + row_hc
+        var jog_wy = wy + 3 + row_hc + (row_hc > 0 ? 1 : 0)
         if (jog_wy > max_fan_y) max_fan_y = jog_wy
         var first_gap_x = PORT_COL - 2
         add_hline_range(wy, 1, first_gap_x + 1)
@@ -928,7 +928,7 @@ export function layout(topology, options) {
       }
     } else if (layer_of[dr.comp_id] < layers.length - 1) {
       // Non-last-layer: jog below to avoid crossing intermediate stations
-      var right_jog_y = wy + 3 + (row_h_count[row] || 0)
+      var right_jog_y = wy + 3 + (row_h_count[row] || 0) + (row_h_count[row] > 0 ? 1 : 0)
       if (right_jog_y > max_fan_y) max_fan_y = right_jog_y
       var right_gap_x = v_channel_x['rp_' + dr.comp_id + 'rp_src'] || (rx + 2)
       var right_edge_x = right_edge_positions[dr.comp_id] || (width - 3)
