@@ -232,12 +232,12 @@ Part III — Blocks (inner language):
 
 ## Test status
 
-- **d2_spec_test**: 425/427 pass (2 failures: effectful-unwired-sploot, parse-command — pre-existing)
-- **daimio_test**: 828/843 pass (15 known failures)
+- **d2_spec_test**: 424/427 pass (3 known failures — pre-existing WRONG poke tests)
+- **daimio_test**: 829/843 pass (14 known failures)
 - **node_code**: 83/83 pass
 - **security_test**: 179/179 pass
 - **space_test**: 124/148 pass (24 known failures for unimplemented spec behaviors)
-- **space_ascii_test**: 147/147 pass (99 programmatic + 48 fixture-based)
+- **space_ascii_test**: 149/149 pass
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
 - **editor_test**: 84/84 pass
@@ -256,6 +256,26 @@ Tests wrong per spec are marked `[WRONG:assertion-id]`.
 instead of splooting (spec says `[poke-key-unkeyed-fail]`), and svar-path poke coerces
 scalars before poking instead of using the scalar rule. Root cause: two implementation
 bugs in poke. See the test-spec sweep report in memory.
+
+## Recent: D2-spec.md deep edit session (2026-03-23/24)
+
+41 spec edits across multiple feedback rounds. Major changes:
+- Formal `finalize` function (Block eval, List coercion, passthrough) with `fin_elem` helper
+- EffCmd request payload encoded as keyed list `[effcmd-request-val]`
+- Ship type corrected to FinalVal; process.asynced removed
+- P-blockscope corrected for sub-process shadowing
+- Poke Key/Pos rewritten with explicit recursion
+- Station finalization subsection; process lifecycle updated (6 phases)
+- `[routing-no-process]` assertion: port routing doesn't hold the space
+- §14: Alias-level capability attenuation (three levels of restriction)
+- Grammar split into three subsections; `command_call` noted as post-expansion
+- ~15 smaller fixes (cross-references, variable names, assertion labels, etc.)
+
+5 exploration topics parked for future work (see memory/project_explore_topics.md):
+enhanced alias restrictions, sender/identity model, p-spaces, composed contract chains,
+UI/App integration tiers.
+
+Agent stable populated: academic-reviewer + consistency-checker registered.
 
 ## Current work: space-ascii topology renderer (2026-03-23)
 

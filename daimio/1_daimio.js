@@ -1224,8 +1224,16 @@ D.poke = function(base, path, value) {
   if(!path.length)
     return value
 
-  if(typeof base != 'object')
-    base = []
+  if(typeof base != 'object') {
+    // [poke-key-scalar-affine] Key on scalar (affine): replace with {key: ...}
+    // [poke-pos-scalar] Pos on scalar: return scalar unchanged
+    // [poke-star-scalar] Star on scalar: return scalar unchanged
+    var first = path[0]
+    if(Array.isArray(first)) return D.poke(base, first.concat(path.slice(1)), value) // Par: recurse
+    if(first === '*') return base
+    if(typeof first === 'string' && /^#-?\d/.test(first)) return base
+    base = {}  // Key on scalar (affine): replace with object
+  }
 
   var todo = [base]
     , parents = [null]
@@ -1272,10 +1280,13 @@ D.poke = function(base, path, value) {
       var new_todo = [], new_parents = [], new_pkeys = []
 
       for(var j=0, k=todo.length; j < k; j++) {
-        // array-to-object conversion at intermediate step (for string keys on arrays)
-        if(Array.isArray(todo[j]) && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key)) {
+        // [poke-key-unkeyed-fail] non-numeric string key on non-empty unkeyed array: sploot (skip)
+        if(Array.isArray(todo[j]) && todo[j].length && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key) && !/^\d+$/.test(key)) {
+          continue
+        }
+        // [poke-key-empty] empty array + string key: convert to object (empty ≡ Empty)
+        if(Array.isArray(todo[j]) && !todo[j].length && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key)) {
           var obj = {}
-          for(var m=0; m < todo[j].length; m++) obj[m] = todo[j][m]
           if(parents[j]) parents[j][pkeys[j]] = obj
           if(todo[j] === base) base = obj
           todo[j] = obj
@@ -1317,10 +1328,13 @@ D.poke = function(base, path, value) {
     else {
       // --- last step: set value ---
       for(var j=0, k=todo.length; j < k; j++) {
-        // array-to-object conversion (propagates to parent)
-        if(Array.isArray(todo[j]) && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key)) {
+        // [poke-key-unkeyed-fail] non-numeric string key on non-empty unkeyed array: sploot (skip)
+        if(Array.isArray(todo[j]) && todo[j].length && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key) && !/^\d+$/.test(key)) {
+          continue
+        }
+        // [poke-key-empty] empty array + string key: convert to object
+        if(Array.isArray(todo[j]) && !todo[j].length && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key)) {
           var obj = {}
-          for(var m=0; m < todo[j].length; m++) obj[m] = todo[j][m]
           if(parents[j]) parents[j][pkeys[j]] = obj
           if(todo[j] === base) base = obj
           todo[j] = obj
@@ -1462,9 +1476,7 @@ D.Parser.get_next_thing = function(string, ignore_begin) {
 
   var block_name = string.match(/^\{begin (\w+)/)
   if(!block_name) {
-    // FIXME: handle this situation better
-    D.on_error(string, 'Something weird happened')
-    return string
+    return string.slice(0, next_closed)  // not a valid block name; treat as regular command
   }
   block_name = block_name[1];
 

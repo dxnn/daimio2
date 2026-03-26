@@ -933,15 +933,15 @@ test(
 )
 
 test(
-  'poke Name: key on array converts to object [WRONG:poke-key-unkeyed-fail] [sploot-passthru-poke]',
+  'poke Name: key on array sploots, returns unchanged [poke-key-unkeyed-fail] [sploot-passthru-poke]',
   '{(1 2 3) | list poke path :x value 99}',
-  '{"0":1,"1":2,"2":3,"x":99}'
+  '[1,2,3]'
 )
 
 test(
-  'poke Name: key on array mid-path converts to object [WRONG:poke-key-unkeyed-fail] [sploot-passthru-poke]',
+  'poke Name: key on array mid-path sploots, returns unchanged [poke-key-unkeyed-fail] [sploot-passthru-poke]',
   '{(10 20) | list poke path (:x :y) value 99}',
-  '{"0":10,"1":20,"x":{"y":99}}'
+  '[10,20]'
 )
 
 test(
@@ -1122,17 +1122,17 @@ test(
 // The scalar-destroy behavior applies when D.poke receives a raw scalar (e.g. >$x.path).
 // Through list poke, the string is wrapped as ["hello"], so poke operates on an array.
 test(
-  'poke: scalar base via list poke (coerced to array) [WRONG:poke-key-unkeyed-fail] [sploot-passthru-poke]',
+  'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
   '{:hello | list poke path :a value 99}',
-  '{"0":"hello","a":99}'
+  '{"a":99}'
 )
 
 // >$x.path desugars to list poke, which coerces string to [string].
 // So string scalars are preserved (wrapped), unlike blocks which coerce to [].
 test(
-  'poke: string base via >$x.path (coerced to array) [WRONG:poke-key-scalar-affine]',
+  'poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
   '{:hello | >$sp1 || 99 | >$sp1.a || $sp1}',
-  '{"0":"hello","a":99}'
+  '{"a":99}'
 )
 
 // Block base is destroyed because list type coerces Block to []
@@ -3212,15 +3212,15 @@ test(
 // =====================================================
 
 test(
-  'poke key on unkeyed promotes to keyed [WRONG:poke-key-unkeyed-coerce]',
+  'poke numeric key on unkeyed coerces to index [poke-key-unkeyed-coerce]',
   '{(10 20 30) | poke 99 path :1}',
-  '{"0":10,"1":99,"2":30}'
+  '[10,99,30]'
 )
 
 test(
-  'poke non-numeric key on unkeyed creates entry [WRONG:poke-key-unkeyed-fail]',
+  'poke non-numeric key on unkeyed sploots [poke-key-unkeyed-fail]',
   '{(1 2 3) | poke 99 path :abc}',
-  '{"0":1,"1":2,"2":3,"abc":99}'
+  '[1,2,3]'
 )
 
 test(

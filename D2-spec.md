@@ -782,7 +782,7 @@ state and queue, but the topology definition is shared.
 ```
 x in PVar      -- pipeline variable names (_foo, _bar)
 s in SVar      -- space variable names ($foo, $bar)
-c in Cmd       -- command names (math.add, time.now)
+c in Cmd       -- command identifiers: c.handler (e.g. math) and c.method (e.g. add)
 p in PortId    -- port identifiers, generated at runtime
 ```
 
@@ -816,8 +816,9 @@ These all refer to the same command.
 
 ```
 A command definition is either:
-  Pure(c, params, fun)                             -- a pure command
-  Effectful(c, params, portType)                   -- an effectful command
+  Pure(name, params, fun)                           -- a pure command
+  Effectful(name, params, portType)                 -- an effectful command
+  -- name is a Cmd (has .handler, .method fields)
 
 A command execution produces one of two results:
   Value(Val)         -- the command completed, here is the result
@@ -1207,7 +1208,7 @@ The outer application creates an outer space by:
      default of 10000ms)
 
 The outermost ports get their behavior from their **port
-flavours** (see "Port flavours" above). An in-port with
+flavours** (see "Port flavours" below). An in-port with
 flavour `dom-on-click` binds to a DOM element; an out-port
 with flavour `dom-set-text` updates the DOM. The space
 definition declares which flavours it needs, and the
@@ -1692,7 +1693,8 @@ When a process invokes an effectful command:
   1. The runtime matches the command's port type against the
      **parent's** wiring rules [demandport-wire]
   2. No match (and no `cmd:*:*` catch-all) → the command sploots
-     immediately. No port is created.
+     immediately. The port is created to check wiring, then
+     discarded (see §7 formal rule).
   3. Match → a transient port is created, the request is sent
      through it, and the process waits.
   4. Response arrives → delivered to the process, port destroyed.
@@ -2010,10 +2012,10 @@ mechanics" for the full round-trip lifecycle.
 **Effectful command execution:**
 ```
   c in effective_dialect.commands
-  c is Effectful(c, params, portType)
+  c is Effectful(name, params, portType)
   args' = fillImplicit(args, process.v)       -- same filling as PureCmd
   p = resolveOrCreatePort(space, portType)    -- see section 6
-  payload = merge({handler: c.handler, method: c.method}, args')  -- keyed list [effcmd-request-val]
+  payload = merge({handler: name.handler, method: name.method}, args')  -- keyed list [effcmd-request-val]
   request = ship(payload, process.sender)     -- a proper ship(FinalVal, sender)
   ---
   send request through p                      -- dispatch to handler/sibling/parent
@@ -2103,7 +2105,7 @@ and no `cmd:*:*` catch-all), the command sploots -- no async boundary, no
 timeout:
 
 ```
-  c is Effectful(c, params, portType)
+  c is Effectful(name, params, portType)
   p = resolveOrCreatePort(space, portType)
   p has no wiring
   ---
@@ -2296,7 +2298,9 @@ svar_read  ::= '$' name path?           -- e.g. $count, $user.name
 
 port_send  ::= '>@' name                -- send to a named station port
 
-path       ::= ('.' selector)*          -- paths can also be expressed as lists
+path       ::= ('.' selector)*          -- paths can also be expressed as lists:
+                                        --   "#N" → Pos(N), "*" → Star,
+                                        --   (list) → Par, else → Key
 selector   ::= name                     -- Key: a literal key: .foo, .12
              | '#' '-'? integer         -- Pos: 1-based index (.#1), negative from end (.#-1)
              | '*'                      -- Star: all children
@@ -2481,7 +2485,7 @@ Examples:
 Two values are equal if they have the same type and content:
   - Numbers: numeric equality (0.0 == -0.0; NaN never equals anything,
     though vacuously — NaN is coerced to 0 before reaching equality)
-  - Strings: byte-for-byte equality
+  - Strings: code-unit-for-code-unit equality (UTF-16)
   - Lists: same keyed/unkeyed status, same length, same entries
     in the same order. For keyed lists, keys must match pairwise.
     `{a:1, b:2}` ≠ `{b:2, a:1}` (different order).
@@ -2747,7 +2751,7 @@ map(v, Par(ps) :: rest, block) =                                    [map-par-seq
   return v
 ```
 
-**When path is omitted, default is `("*")`** [map-default-star] -- this matches current
+**When path is omitted, default is `[Star]`** [map-default-star] -- this matches current
 `list map` behavior (map over all children).
 
 **Block receives:** [map-block-scope]
@@ -3325,7 +3329,7 @@ directly (by skipping implicit filling).
 **Pure command:**
 ```
   c in effective_dialect.commands   (command is in the effective dialect)
-  c is Pure(c, params, fun)
+  c is Pure(name, params, fun)
   args' = fillImplicit(args, process.v)     -- see below for absent handling
   v' = fun(args')
   ---
@@ -3390,11 +3394,12 @@ coerced to its source text. The block itself is not modified
 within the pipeline — the string context just reads the source
 text. [block-to-string]
 
-**Other-typed contexts** (number, list, etc.): a block arriving
-at a number-typed param is coerced to its source text, then to
-a number (typically 0). A block at a list-typed param is wrapped
-in a single-element list. These follow the standard coercion
-chain: block → string (source text) → target type.
+**Other-typed contexts** (number, list, etc.): these follow the
+standard coercion chain: block → string (source text) → target
+type. A block at a number-typed param becomes its source text,
+then coerces to a number (typically 0). A block at a list-typed
+param becomes its source text, then wraps in a single-element
+list (i.e., `["source text"]`, not `[block]`).
 
 **Implicit contexts** where block evaluation or coercion occurs:
 
@@ -3627,6 +3632,11 @@ depth-first **sub-process** (P-uniformeval).
      - **`process run` without value**: `__in` = empty
      - **Finalization** (block at end of pipeline or in
        PortSend): `__in` = empty [dunderin-finalize]
+     - **Default**: for any other command that evaluates a
+       block param (e.g., `list filter`, `list sort`,
+       `logic if then/else`), `__in` = the value injected
+       as `_value` if present, otherwise empty
+       [dunderin-default]
      At the start of any pipeline, `__ = __in`.
   4. The sub-process executes in the same space as the parent, under
      the same effective dialect, with the same sender, and with
@@ -3667,7 +3677,9 @@ Ships carry only final values (`[ship-final-only]`). The
 `finalize` function converts a Val to a FinalVal:
 
 ```
-finalize(Block(b))  = evaluate b as a sub-process; return result  [finalize-block]
+finalize(Block(b))  = finalize(evaluate b as a sub-process)       [finalize-block]
+                      -- recurse: the sub-process may produce a Block
+                      -- terminates: nesting depth bounded by finite source
 finalize(List(xs))  = List([fin_elem(x) for x in xs])             [finalize-list]
 finalize(v)         = v                  -- Number, String, Empty  [finalize-passthru]
 
