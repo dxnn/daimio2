@@ -995,6 +995,14 @@ export function layout(topology, options) {
 
   // Emit fan-in vlines for right ports connecting from multiple station rows
   var right_fan_x = width - 3  // space between fan vline and box border/port
+  // Find which wire_y each right port's 'o' will be emitted at (first station in deferred_right order)
+  var right_port_wy = {}  // port_id → wire_y of the port element
+  for (var i = 0; i < deferred_right.length; i++) {
+    var dr_pre2 = deferred_right[i]
+    if (!right_port_wy[dr_pre2.port.id])
+      right_port_wy[dr_pre2.port.id] = wire_y_v3(row_of[dr_pre2.comp_id])
+  }
+
   for (var pid in right_port_stations) {
     var sids = right_port_stations[pid]
     if (sids.length <= 1) continue
@@ -1006,7 +1014,10 @@ export function layout(topology, options) {
     if (fan_wys.length <= 1) continue
     fan_wys.sort(function(a, b) { return a - b })
     var fan_min = fan_wys[0], fan_max = fan_wys[fan_wys.length - 1]
-    elements.push({ type: 'vline', x: right_fan_x, y: fan_min, length: fan_max - fan_min + 1, dir: 'down' })
+    // Direction: toward the port's row
+    var port_wy = right_port_wy[pid] || fan_min
+    var fan_dir = port_wy <= fan_min ? 'up' : 'down'
+    elements.push({ type: 'vline', x: right_fan_x, y: fan_min, length: fan_max - fan_min + 1, dir: fan_dir })
     if (fan_max > max_fan_y) max_fan_y = fan_max
   }
 
