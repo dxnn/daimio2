@@ -237,7 +237,7 @@ Part III — Blocks (inner language):
 - **node_code**: 83/83 pass
 - **security_test**: 179/179 pass
 - **space_test**: 124/148 pass (24 known failures for unimplemented spec behaviors)
-- **space_ascii_test**: 149/149 pass
+- **space_ascii_test**: 157/157 pass (27 fixture dirs)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
 - **editor_test**: 84/84 pass
@@ -287,40 +287,35 @@ Agent stable populated: academic-reviewer + consistency-checker registered.
   - `render(laid_out)` → ASCII string
   - `render_space(name, seedlike, options)` / `render_all(seedlikes, options)`
 - **`bin/space-ascii.mjs`**: CLI (-e, -f, interactive with double-blank-line trigger)
-- **`tests/space_ascii_test.mjs`**: 147 tests (99 programmatic + 48 from 24 fixture dirs)
-- **`tests/space_ascii/`**: 24 fixture directories with source.dm, extract.json, render.txt
+- **`tests/space_ascii_test.mjs`**: 157 tests (programmatic + fixture-based + invariant checks)
+- **`tests/space_ascii/`**: 27 fixture directories with source.dm, extract.json, render.txt
 - **`tests/regen_renders.mjs`**: regenerates render.txt fixtures after layout/render changes
 
-### Layout features implemented
-- Topo sort with longest-path layering
-- Barycentric crossing minimization (4 sweep iterations)
-- Fan-in/fan-out with offset ports and vline junctions
-- Cycle detection (back-edges excluded from sort, routed below stations)
-- Source truncation (`max_source` option, default 20 chars)
-- Station/space names in top border
-- Dynamic gap widths based on cross-row connection count
-- Same-row multi-layer jog routing (around intermediate stations)
-- Directional junction markers: `v` `^` `<` `>` for T-junctions, `O` for crossings, `+` for corners
-- Connection id tracking (cids) for junction vs crossing detection
+### Layout v3: trunk-and-channel routing (2026-03-25/26) — IMPLEMENTED
 
-### What's next: layout v3 — invariant-based routing
-The current layout violates two important invariants:
-1. **Wires route through stations** — same-row hlines pass through intermediate station bodies
-2. **Wires overlap** — multiple hlines/vlines share the same grid cells
+Invariants (see comment block at top of space_ascii.js for full list):
+1. No wire passes through a station or subspace body
+2. No two parallel wires share a grid cell
+3. At least one empty space between parallel wires
+4. Junction chars computed in layout, not renderer (intersection elements)
 
-The fix is a **trunk-and-channel** routing model:
-- **Trunks**: one shared hline per wire row per gap (branches at T-junctions)
-- **Vertical channels**: dedicated columns in each gap, one per cross-row connection
-- **Horizontal channels**: dedicated rows between station rows, for jog routing
-- No wire-through-station, no wire overlap, by construction
+Routing model:
+- **Trunks**: merged hlines per (gap, row) pair — no parallel overlap
+- **Vertical channels**: allocated per gap via `gap_v_channels` system
+- **Horizontal channels**: stride-2 rows between station rows for multi-layer jogs
+- **Back-edges**: source on _out side (right margin for last-layer), dest on _in side (left margin for layer 0)
+- **Port fan**: single `o` per port, fan vlines (segmented) connect to multiple station rows
+- **Intersections**: layout emits `{ type: 'intersection', char }` — renderer just stamps
 
-With these invariants, the renderer becomes trivial:
-- hline meets vline where neither ends → `O` (crossing)
-- vline terminates at an hline → directional char (`v`/`^`/`<`/`>`)
-- No cid tracking needed
+Connection classification: `direct` / `adjacent_cross` / `multi` (replaces old direct/cross/jog).
+Topo sort prioritizes port-connected stations for lower layers.
 
-Design doc: `docs/superpowers/specs/2026-03-22-layout-v2-design.md`
-Plans: `docs/superpowers/plans/2026-03-22-space-ascii.md`, `2026-03-22-layout-v2.md`
+### What's next
+- Contract port rendering (up/down ports — noted in contract fixture)
+- Back-edge visual clarity could improve for complex topologies (k5)
+- Possible: Dijkstra-based edge routing for more general wire paths
+
+Design doc: `docs/superpowers/plans/2026-03-23-layout-v3-trunk-channel.md`
 
 ## Fuzzer
 
