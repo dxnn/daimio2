@@ -1092,7 +1092,7 @@ export function layout(topology, options) {
 
   // ── Route back-edges ───────────────────────────────────────────────
 
-  var back_edge_rows = back_edges.length
+  var back_edge_rows = 0
   for (var i = 0; i < back_edges.length; i++) {
     var be_from = back_edges[i][0]
     var be_to = back_edges[i][1]
