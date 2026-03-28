@@ -698,16 +698,15 @@ export function layout(topology, options) {
     if (!dir) dir = 'right'
     if (!hline_ranges[y]) hline_ranges[y] = []
     var ranges = hline_ranges[y]
-    // Try to merge with existing range
+    // Merge strictly overlapping ranges (not merely adjacent)
     for (var k = 0; k < ranges.length; k++) {
-      if (x_left <= ranges[k].max_x + 1 && x_right >= ranges[k].min_x - 1) {
-        // Overlapping or adjacent — merge
+      if (x_left < ranges[k].max_x && x_right > ranges[k].min_x) {
         if (x_left < ranges[k].min_x) ranges[k].min_x = x_left
         if (x_right > ranges[k].max_x) ranges[k].max_x = x_right
-        // Check if this merge now overlaps with other ranges
+        // Cascade: check if expanded range now overlaps others
         for (var m = ranges.length - 1; m >= 0; m--) {
           if (m === k) continue
-          if (ranges[k].min_x <= ranges[m].max_x + 1 && ranges[k].max_x >= ranges[m].min_x - 1) {
+          if (ranges[k].min_x < ranges[m].max_x && ranges[k].max_x > ranges[m].min_x) {
             if (ranges[m].min_x < ranges[k].min_x) ranges[k].min_x = ranges[m].min_x
             if (ranges[m].max_x > ranges[k].max_x) ranges[k].max_x = ranges[m].max_x
             ranges.splice(m, 1)
@@ -717,7 +716,6 @@ export function layout(topology, options) {
         return
       }
     }
-    // No overlap — add new range
     ranges.push({ min_x: x_left, max_x: x_right, dir: dir })
   }
 
@@ -776,6 +774,15 @@ export function layout(topology, options) {
   function jog_y_below(row) {
     var row_hc = row_hc_only[row] || 0
     return comp_y_v3(row) + ROW_HEIGHT + row_hc + (row_hc > 0 ? 1 : 0)
+  }
+
+  // Check if any component in a later layer occupies the same row as cid
+  function has_later_comp_at_row(cid) {
+    var cl = layer_of[cid], cr = row_of[cid]
+    for (var li = cl + 1; li < layers.length; li++)
+      for (var j = 0; j < layers[li].length; j++)
+        if (row_of[layers[li][j]] === cr) return true
+    return false
   }
 
   // Direct connections: trunk spans entire gap
@@ -874,21 +881,8 @@ export function layout(topology, options) {
         if (wy > max_left_wy) max_left_wy = wy
       } else if (is_fan_out && emitted_ports[group[j].id].y !== wy) {
         // Fan-out: this station shares a port on a different row
-        // Hline from fan vline (left_mid_x) to station (direct or jog)
-        if (layer_of[cid] > 0) {
-          // Jog from left_mid_x to non-layer-0 station
-          var jog_wy = jog_y_below(row_of[cid])
-          var first_gap_x = left_mid_x + 2  // space between fan vline and jog vline
-          add_hline_range(wy, left_mid_x, first_gap_x + 1)
-          add_port_jog_vline(first_gap_x, wy, jog_wy, 'down')
-          var target_gap_x = v_channel_x['lp_' + cid + 'lp_tgt'] || (layer_x[layer_of[cid]] - 3)
-          add_hline_range(jog_wy, first_gap_x, target_gap_x + 1)
-          add_port_jog_vline(target_gap_x, wy, jog_wy, 'up')
-          add_hline_range(wy, target_gap_x, lx)
-        } else {
-          // Direct from fan vline to layer-0 station
-          add_hline_range(wy, left_mid_x, lx)
-        }
+        // The fan vline already reaches this wire row; extend hline to target
+        add_hline_range(wy, left_mid_x, lx)
       } else if (layer_of[cid] > 0) {
         // First port occurrence, multi-layer target: jog below
         var jog_wy = jog_y_below(row_of[cid])
@@ -1039,8 +1033,8 @@ export function layout(topology, options) {
       if (!right_vline_max[dr.comp_id] || wy > right_vline_max[dr.comp_id].max_wy) {
         right_vline_max[dr.comp_id] = { mid_x: mid_x, base_wy: base_wy, max_wy: wy }
       }
-    } else if (layer_of[dr.comp_id] < layers.length - 1) {
-      // Non-last-layer: jog below to avoid crossing intermediate stations
+    } else if (layer_of[dr.comp_id] < layers.length - 1 && has_later_comp_at_row(dr.comp_id)) {
+      // Non-last-layer with station(s) blocking the path: jog below
       var right_jog_y = jog_y_below(row)
       var right_gap_x = v_channel_x['rp_' + dr.comp_id + 'rp_src'] || (rx + 2)
       var right_edge_x = right_edge_positions[dr.comp_id] || (width - 3)
@@ -1048,7 +1042,12 @@ export function layout(topology, options) {
       elements.push({ type: 'vline', x: right_gap_x, y: wy, length: right_jog_y - wy + 1, dir: 'down' })
       add_hline_range(right_jog_y, right_gap_x, right_edge_x + 1)
       elements.push({ type: 'vline', x: right_edge_x, y: wy, length: right_jog_y - wy + 1, dir: 'up' })
-      add_hline_range(wy, right_edge_x, width - 1)
+      var is_right_fan = right_port_stations[dr.port.id] && right_port_stations[dr.port.id].length > 1
+      if (is_right_fan && emitted_ports[dr.port.id]) {
+        add_hline_range(wy, right_edge_x, right_fan_x + 1)
+      } else {
+        add_hline_range(wy, right_edge_x, width - 1)
+      }
     } else {
       // Last layer: direct hline to right edge
       var is_right_fan = right_port_stations[dr.port.id] && right_port_stations[dr.port.id].length > 1
