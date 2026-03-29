@@ -1,5 +1,5 @@
 import D from '../daimio/daimio.js'
-import { render_space, render_all } from '../daimio/space_ascii.js'
+import { render_space, render_all } from '../site/js/space_ascii.js'
 import { readdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
 
 var dir = 'tests/space_ascii'

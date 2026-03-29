@@ -1,0 +1,138 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Simple Mandelbrot</title>
+  <script type="module" src="../../../daimio/daimio.js"></script>
+</head>
+<body>
+
+  <h1>Simple Mandelbrot</h1>
+
+  <button id="foo">push me</button>
+
+  <p>
+    This system draws the mandelbrot set. Notice that we're using the same technique as for creating a binary string, with each point considered as an individual ship.
+  </p>
+
+
+  <canvas id="display" width="600px" height="480px"></canvas>
+
+  <script type="text/daimio" class="spaceseeds">
+    outer
+      $solved []
+
+      // OUTPUT
+      @display canvas-draw-rect
+
+      // SOLVER
+      solver
+        { __ | mandelbrot iterate | >ship
+        | _ship.#6
+        | then "{_ship | >@again}"
+        | run }
+
+      solver.again -> solver
+      solver.again -> @display
+
+      // INIT
+      @init from-js
+      @init -> solver
+
+  </script>
+
+  <script type="module">
+    var debug_count = 0, debug_startdate = 0
+    var OuterSpace
+
+    D.import_port_flavour('canvas-draw-rect', {
+      dir: 'out',
+      outside_add: function() {
+        debug_count = 0
+        this.element = document.getElementById(this.settings.thing)
+        this.ctx = this.element && this.element.getContext && this.element.getContext('2d')
+        this.ctx.fillStyle = "rgba(0,0,0,0.1)"
+      },
+      outside_exit: function(ship) {
+        debug_count++
+
+        if(!this.ctx)
+          return D.set_error('No canvas found')                   // THINK: this requires a constant canvas --
+                                                                  // consider changing it to work dynamically
+        var x = ship[2] || 0                                      // by looking for a new copy if it can't find it.
+        var y = ship[3] || 0
+        var width  = 3
+        var height = 3
+
+        x = (x + 2) * 240
+        y = (y - 1) * -240
+
+        this.ctx.fillRect(x, y, width, height)
+
+        if(debug_count == 242042)
+          document.getElementById('foo').innerHTML = Date.now() - debug_startdate
+      }
+    })
+
+    document.addEventListener('DOMContentLoaded', function() {
+      OuterSpace = window.OuterSpace = D.make_me_a_space_as_fast_as_you_can()
+
+      document.getElementById('foo').addEventListener('click', supersend)
+    })
+
+
+    function send() {
+      [].slice.call(arguments).forEach(function(arg) {
+        D.send_value_to_js_port(OuterSpace, 'init', arg) }) }
+
+    function supersend() {
+      debug_count = 0
+      debug_startdate = Date.now()
+      for(var x=-2;x<0.5;x+=0.0125) {for(var y=-1;y<1;y+=0.0125) {send([0,0,x,y,0,1])}}
+    }
+
+
+    D.import_models({
+      mandelbrot: {
+        desc: 'Fake commands for making fractals',
+        methods: {
+
+          iterate: {
+            desc: 'Run Daimio for each item, returning a list',
+            injects: ['value', 'key'],
+            params: [
+              {
+                key: 'data',
+                desc: 'An array of data: zx, zy, cx, cy, iterations, valid',
+                type: 'list',
+                required: true
+              },
+            ],
+            fun: function(data) {
+              // z => a + bi
+              // c => x + yi
+              // z^2+c => a*a + bi*bi + x + i*(2*a*b + y)
+              // ship  => (a b x y t)
+
+              var a = data[0]
+              var b = data[1]
+              var x = data[2]
+              var y = data[3]
+
+              var newa = data[0] = a*a + -1*b*b + x
+              var newb = data[1] = 2*a*b + y
+              data[4]++
+
+              data[5] = (newa*newa + newb*newb) < 7 && data[4] <= 13
+
+              return data
+            }
+          }
+
+        }
+      }
+    })
+  </script>
+
+</body>
+</html>

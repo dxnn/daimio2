@@ -1,5 +1,5 @@
 import D from '../daimio/daimio.js'
-import '../daimio/editor.js'
+import '../site/js/editor.js'
 
 var pass = 0, fail = 0
 

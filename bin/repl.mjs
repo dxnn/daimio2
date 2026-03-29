@@ -1,5 +1,5 @@
 import D from '../daimio/daimio.js'
-import '../daimio/editor.js'
+import '../site/js/editor.js'
 import { readFileSync, appendFileSync, existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'

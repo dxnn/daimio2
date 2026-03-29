@@ -1,5 +1,5 @@
 import D from '../daimio/daimio.js'
-import { render_all } from '../daimio/space_ascii.js'
+import { render_all } from '../site/js/space_ascii.js'
 import { readFileSync } from 'fs'
 
 var eIdx = process.argv.indexOf('-e')

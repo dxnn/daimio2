@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Sequences</title>
+  <script type="module" src="../../../daimio/daimio.js"></script>
+</head>
+<body>
+
+  <h2>Let's make a sequence</h2>
+
+  <form id="add1">
+    <p><input type="submit" value="Add 1"></p>
+  </form>
+
+  <p>Your sequence</p>
+  <div id="seq"> &nbsp; </div>
+
+
+  <p>The code</p>
+  <pre>
+&lt;html&gt;
+&lt;head&gt;
+  &lt;script type=&quot;text/javascript&quot; src=&quot;../../daimio_composite.js&quot;&gt;&lt;/script&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+  &lt;form id=&quot;add1&quot;&gt;
+    &lt;p&gt;&lt;input type=&quot;submit&quot; value=&quot;Add 1&quot;&gt;&lt;/p&gt;
+  &lt;/form&gt;
+
+  &lt;p&gt;Your sequence:&lt;/p&gt;
+  &lt;div id=&quot;seq&quot;&gt;&lt;/div&gt;
+
+  &lt;script type=&quot;text/daimio&quot; id=&quot;spaceseeds&quot;&gt;
+    outer
+      $seq []
+
+      // INIT
+      changed {__}
+
+      // ADD 1
+      @add1 dom-on-submit
+      @add1 -&gt; {$seq.#-1 | add 1 | list poke data $seq | $&gt;seq} -&gt; changed
+
+      // SHOW
+      @seq dom-set-text
+      changed -&gt; {$seq | join on &quot; &quot;} -&gt; @seq
+  &lt;/script&gt;
+
+  &lt;script type=&quot;text/javascript&quot;&gt;
+    document.addEventListener(&#x27;DOMContentLoaded&#x27;, function() {
+      var seedlikes = document.getElementById(&#x27;spaceseeds&#x27;).text
+      var outerseed = D.make_some_space(seedlikes)
+      OuterSpace = new D.Space(outerseed) // published for debug
+    })
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+  </pre>
+
+
+
+  <script type="text/daimio" class="spaceseeds">
+    outer
+      $seq []
+
+      // INIT
+      changed {__}
+
+      // ADD 1
+      @add1 dom-on-submit
+      @add1 -> {$seq.#-1 | add 1 | list poke data $seq | >$seq} -> changed
+
+      // SHOW
+      @seq dom-set-text
+      changed -> {$seq | join on " "} -> @seq
+
+  </script>
+
+
+  <script type="module">
+    document.addEventListener('DOMContentLoaded', function() {
+      window.OuterSpace = D.make_me_a_space_as_fast_as_you_can() // published for debug
+    })
+  </script>
+
+</body>
+</html>

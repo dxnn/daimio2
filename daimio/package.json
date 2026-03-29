@@ -1,9 +1,9 @@
 {
   "name": "daimio",
-  "version": "0.1.0",
-  "homepage": "http://daimio.in/",
-  "author": "dann <dann@bentobox.net>",
-  "description": "a Daimio parser",
+  "version": "2.0.0.-1",
+  "homepage": "http://daimio.org/",
+  "author": "a human <daimio@mrmuster.com>",
+  "description": "Oh, No! It's Daimio",
   "type": "module",
   "main": "./daimio.js",
   "repository": {

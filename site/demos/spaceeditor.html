@@ -1,0 +1,237 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Space Editor</title>
+  <script type="module" src="../../daimio/daimio.js"></script>
+  <script type="module" src="../js/editor.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
+  <script src="../editor/daimio-mode.js"></script>
+  <script src="../editor/daimio-hint.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; height: 100vh; display: flex; flex-direction: column; }
+    #output { flex: 1; padding: 12px; border-bottom: 2px solid #999; overflow: auto; }
+    #bottom { flex: 1; display: flex; min-height: 0; }
+    #editor-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border-right: 2px solid #999; }
+    #editor-panel .CodeMirror { flex: 1; font-size: 13px; }
+    #controls { padding: 4px 8px; border-top: 1px solid #ccc; }
+    #controls button, #controls select { font-family: monospace; font-size: 13px; }
+    #status { display: inline; margin-left: 8px; font-size: 12px; }
+    #ascii-panel { flex: 1 1 0; min-width: 0; overflow: auto; padding: 12px; }
+    pre { font-size: 13px; margin: 0; }
+    #output .port-el { margin: 4px 0; }
+    #output label { margin-right: 8px; }
+    #output form { display: inline; }
+    #output input[type="text"] { font-family: monospace; font-size: 13px; }
+
+    /* Dark mode — follows user's system setting */
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #ccc; }
+      #output { border-color: #555; }
+      #bottom { }
+      #editor-panel { border-color: #555; }
+      #controls { border-color: #444; background: #222; }
+      #controls button, #controls select { background: #333; color: #ccc; border: 1px solid #555; }
+      #ascii-panel { background: #1a1a1a; }
+
+      .CodeMirror { background: #1e1e1e !important; color: #ccc !important; }
+      .CodeMirror-gutters { background: #252525; border-color: #444; }
+      .CodeMirror-cursor { border-color: #ccc; }
+      .CodeMirror-selected { background: #3a3a5c; }
+      .CodeMirror-focused .CodeMirror-selected { background: #3a3a5c; }
+      .cm-s-default .cm-keyword { color: #e0a0e0; }
+      .cm-s-default .cm-atom { color: #b0e0ff; }
+      .cm-s-default .cm-number { color: #d0e8b0; }
+      .cm-s-default .cm-def { color: #f0d080; }
+      .cm-s-default .cm-variable-2 { color: #b0e0ff; }
+      .cm-s-default .cm-variable-3 { color: #e0a0e0; }
+      .cm-s-default .cm-comment { color: #88c070; }
+      .cm-s-default .cm-string { color: #e8b090; }
+      .cm-s-default .cm-bracket { color: #ffe050; }
+      .cm-s-default .cm-attribute { color: #b0e0ff; }
+      .cm-s-default .cm-builtin { color: #70e8c0; }
+      .cm-s-default .cm-hr { color: #80b8f0; }
+      .cm-s-default .cm-error { color: #ff6060; }
+
+      .CodeMirror-hints { background: #252525; border-color: #444; box-shadow: 0 4px 12px rgba(0,0,0,.5); }
+      .CodeMirror-hint { color: #ccc; }
+      li.CodeMirror-hint-active { background: #3a3a5c; color: #fff; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top: live space output (auto-generated from port declarations) -->
+  <div id="output"></div>
+
+  <!-- Bottom: editor + ASCII topology -->
+  <div id="bottom">
+    <div id="editor-panel">
+      <textarea id="code">outer
+  @counter dom-set-text
+  @button  dom-on-submit
+
+  @button -> {1 | add $count | >$count} -> @counter</textarea>
+      <div id="controls">
+        <button onclick="run()">Run</button>
+        <select id="examples"><option value="">examples...</option></select>
+        <span id="status"></span>
+      </div>
+    </div>
+    <div id="ascii-panel">
+      <pre id="ascii"></pre>
+    </div>
+  </div>
+
+  <script type="module">
+    import { render_all } from '../js/space_ascii.js'
+
+    var outputEl = document.getElementById('output')
+
+    // CodeMirror setup
+    var cm = CodeMirror.fromTextArea(document.getElementById('code'), {
+      matchBrackets: true
+    })
+
+    CodeMirror.commands.autocomplete = function(instance) {
+      CodeMirror.showHint(instance, CodeMirror.hint.daimio, {
+        extraKeys: {'Space': function(instance, hint) {hint.pick()}}
+      , completeSingle: false
+      , closeCharacters: /[\n|"]/
+      })
+    }
+
+    var asciiEl = document.getElementById('ascii')
+    var statusEl = document.getElementById('status')
+    var debounceTimer = null
+
+    function updateAscii() {
+      try {
+        var seedlikes = D.seedlikes_from_string(cm.getValue())
+        asciiEl.textContent = render_all(seedlikes)
+      } catch(e) {
+        asciiEl.textContent = e.message
+      }
+    }
+
+    cm.on("change", function(instance, change) {
+      if(cm.getValue() && change.origin != 'setValue')
+        CodeMirror.commands.autocomplete(instance)
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(updateAscii, 150)
+    })
+
+    function generateDOM(seedlikes) {
+      outputEl.innerHTML = ''
+      var name = seedlikes.outer ? 'outer' : Object.keys(seedlikes).pop()
+      if (!name || !seedlikes[name]) return
+      var seed = seedlikes[name]
+
+      for (var key in seed.ports) {
+        var arr = seed.ports[key]
+        var flavour = arr[0]
+        var thing = arr[1] || key
+        if (thing[0] === '.') continue  // class selectors need existing DOM
+
+        var wrap = document.createElement('div')
+        wrap.className = 'port-el'
+
+        if (flavour === 'dom-on-submit') {
+          var form = document.createElement('form')
+          form.id = thing
+          var submit = document.createElement('input')
+          submit.type = 'submit'; submit.value = key
+          form.appendChild(submit)
+          wrap.appendChild(form)
+        }
+        else if (flavour === 'dom-on-click') {
+          var btn = document.createElement('button')
+          btn.id = thing; btn.textContent = key
+          wrap.appendChild(btn)
+        }
+        else if (flavour === 'dom-on-change' || flavour === 'dom-on-blur'
+              || flavour === 'dom-on-keypress' || flavour === 'dom-on-arrow') {
+          var inp = document.createElement('input')
+          inp.id = thing; inp.type = 'text'; inp.placeholder = key
+          wrap.appendChild(inp)
+        }
+        else if (flavour === 'dom-set-text') {
+          var lbl = document.createElement('strong')
+          lbl.textContent = key + ': '
+          var span = document.createElement('span')
+          span.id = thing
+          wrap.appendChild(lbl)
+          wrap.appendChild(span)
+        }
+        else if (flavour === 'dom-set-value') {
+          var lbl2 = document.createElement('strong')
+          lbl2.textContent = key + ': '
+          var inp2 = document.createElement('input')
+          inp2.id = thing; inp2.type = 'text'; inp2.readOnly = true
+          wrap.appendChild(lbl2)
+          wrap.appendChild(inp2)
+        }
+        else if (flavour === 'dom-set-raw-html') {
+          var div = document.createElement('div')
+          div.id = thing
+          wrap.appendChild(div)
+        }
+        else continue  // from-js, to-js, etc — skip
+
+        outputEl.appendChild(wrap)
+      }
+    }
+
+    window.run = function() {
+      try {
+        var seedlikes = D.seedlikes_from_string(cm.getValue())
+        asciiEl.textContent = render_all(seedlikes)
+        generateDOM(seedlikes)
+        var outerseed = D.make_spaceseeds(seedlikes)
+        window.OuterSpace = new D.Space(outerseed)
+        statusEl.textContent = 'OK'
+        statusEl.style.color = '#090'
+      } catch(e) {
+        statusEl.textContent = e.message
+        statusEl.style.color = '#c00'
+      }
+    }
+
+    // --- Examples ---
+
+    var examples = {
+      'Counter': 'outer\n  @counter dom-set-text\n  @button  dom-on-submit\n\n  @button -> {1 | add $count | >$count} -> @counter',
+
+      'Two Buttons': 'outer\n  @counter dom-set-text\n  @add1 dom-on-submit\n  @add2 dom-on-submit\n\n  inc {__ | add $count | >$count}\n\n  @add1 -> {1} -> inc -> @counter\n  @add2 -> {2} -> inc',
+
+      'Greeter': 'outer\n  @greeting dom-set-text\n  @name dom-on-change\n\n  @name -> {"Hello, {__}!" | run} -> @greeting',
+
+      'Toggle': 'outer\n  @display dom-set-text\n  @toggle dom-on-click\n\n  @toggle -> {$on | not | >$on | if $on then :ON else :OFF} -> @display',
+
+      'Up/Down': 'outer\n  @counter dom-set-text\n  @up dom-on-click\n  @down dom-on-click\n\n  @up -> {1 | add $n | >$n} -> @counter\n  @down -> {$n | add -1 | >$n} -> @counter',
+    }
+
+    var exSelect = document.getElementById('examples')
+    for (var name in examples) {
+      var opt = document.createElement('option')
+      opt.value = name; opt.textContent = name
+      exSelect.appendChild(opt)
+    }
+    exSelect.addEventListener('change', function() {
+      if (!this.value) return
+      cm.setValue(examples[this.value])
+      this.value = ''
+      run()
+    })
+
+    // auto-run on load
+    document.addEventListener('DOMContentLoaded', function() { run() })
+  </script>
+
+</body>
+</html>
