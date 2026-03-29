@@ -1,21 +1,21 @@
 {
   "id": "k5",
   "name": "k5",
-  "width": 68,
-  "height": 30,
+  "width": 70,
+  "height": 25,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 68,
-      "height": 30,
+      "width": 70,
+      "height": 25,
       "name": "k5"
     },
     {
       "type": "station",
       "id": "s0",
-      "x": 5,
+      "x": 7,
       "y": 3,
       "width": 9,
       "height": 4,
@@ -25,8 +25,8 @@
     {
       "type": "station",
       "id": "s1",
-      "x": 5,
-      "y": 19,
+      "x": 7,
+      "y": 18,
       "width": 9,
       "height": 4,
       "source": "{B}",
@@ -35,7 +35,7 @@
     {
       "type": "station",
       "id": "s2",
-      "x": 27,
+      "x": 29,
       "y": 3,
       "width": 9,
       "height": 4,
@@ -45,8 +45,8 @@
     {
       "type": "station",
       "id": "s3",
-      "x": 27,
-      "y": 19,
+      "x": 29,
+      "y": 18,
       "width": 9,
       "height": 4,
       "source": "{D}",
@@ -55,76 +55,12 @@
     {
       "type": "station",
       "id": "s4",
-      "x": 49,
+      "x": 51,
       "y": 3,
       "width": 9,
       "height": 4,
       "source": "{E}",
       "name": "E"
-    },
-    {
-      "type": "vline",
-      "x": 20,
-      "y": 5,
-      "length": 17,
-      "dir": "down",
-      "conns": [
-        "c6"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 16,
-      "y": 5,
-      "length": 5,
-      "dir": "down",
-      "conns": [
-        "c7"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 38,
-      "y": 5,
-      "length": 5,
-      "dir": "up",
-      "conns": [
-        "c7"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 22,
-      "y": 11,
-      "length": 11,
-      "dir": "up",
-      "conns": [
-        "c9"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 40,
-      "y": 5,
-      "length": 7,
-      "dir": "up",
-      "conns": [
-        "c9"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 2,
-      "y": 5,
-      "length": 17,
-      "dir": "down",
-      "conns": [
-        "c0",
-        "c1",
-        "c2",
-        "c3",
-        "c4"
-      ]
     },
     {
       "type": "port",
@@ -135,412 +71,308 @@
       "id": "p0"
     },
     {
-      "type": "vline",
-      "x": 3,
-      "y": 5,
-      "length": 9,
-      "dir": "down",
-      "conns": [
-        "c2",
-        "c4"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 18,
-      "y": 5,
-      "length": 9,
-      "dir": "up",
-      "conns": [
-        "c2"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 2,
-      "y": 21,
-      "length": 5,
-      "dir": "down",
-      "conns": [
-        "c3"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 24,
-      "y": 21,
-      "length": 5,
-      "dir": "up",
-      "conns": [
-        "c3"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 44,
-      "y": 5,
-      "length": 9,
-      "dir": "up",
-      "conns": [
-        "c4"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 65,
-      "y": 5,
-      "length": 17,
-      "dir": "up",
-      "conns": [
-        "c11",
-        "c12",
-        "c13"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 42,
-      "y": 5,
-      "length": 9,
-      "dir": "down",
-      "conns": [
-        "c11"
-      ]
-    },
-    {
-      "type": "vline",
-      "x": 61,
-      "y": 5,
-      "length": 9,
-      "dir": "up",
-      "conns": [
-        "c11"
-      ]
-    },
-    {
       "type": "port",
-      "x": 67,
+      "x": 69,
       "y": 5,
       "dir": "right",
       "key": "out",
       "id": "p1"
-    },
+    }
+  ],
+  "paths": [
     {
-      "type": "hline",
-      "x": 14,
-      "y": 5,
-      "length": 13,
-      "dir": "right",
-      "conns": [
-        "c5",
-        "c6",
-        "c7",
-        "c2"
+      "conn": "c5",
+      "path": [
+        {
+          "x": 16,
+          "y": 5
+        },
+        {
+          "x": 29,
+          "y": 5
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 36,
-      "y": 5,
-      "length": 13,
-      "dir": "right",
-      "conns": [
-        "c10",
-        "c7",
-        "c9",
-        "c4",
-        "c11"
+      "conn": "c8",
+      "path": [
+        {
+          "x": 16,
+          "y": 20
+        },
+        {
+          "x": 29,
+          "y": 20
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 1,
-      "y": 5,
-      "length": 4,
-      "dir": "right",
-      "conns": [
-        "c0",
-        "c2",
-        "c4"
+      "conn": "c10",
+      "path": [
+        {
+          "x": 38,
+          "y": 5
+        },
+        {
+          "x": 51,
+          "y": 5
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 58,
-      "y": 5,
-      "length": 9,
-      "dir": "right",
-      "conns": [
-        "c11",
-        "c13"
+      "conn": "c6",
+      "path": [
+        {
+          "x": 16,
+          "y": 5
+        },
+        {
+          "x": 22,
+          "y": 5
+        },
+        {
+          "x": 22,
+          "y": 20
+        },
+        {
+          "x": 29,
+          "y": 20
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 16,
-      "y": 9,
-      "length": 23,
-      "dir": "right",
-      "conns": [
-        "c7"
+      "conn": "c7",
+      "path": [
+        {
+          "x": 16,
+          "y": 5
+        },
+        {
+          "x": 18,
+          "y": 5
+        },
+        {
+          "x": 18,
+          "y": 8
+        },
+        {
+          "x": 40,
+          "y": 8
+        },
+        {
+          "x": 40,
+          "y": 5
+        },
+        {
+          "x": 51,
+          "y": 5
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 22,
-      "y": 11,
-      "length": 19,
-      "dir": "right",
-      "conns": [
-        "c9"
+      "conn": "c9",
+      "path": [
+        {
+          "x": 16,
+          "y": 20
+        },
+        {
+          "x": 24,
+          "y": 20
+        },
+        {
+          "x": 24,
+          "y": 10
+        },
+        {
+          "x": 42,
+          "y": 10
+        },
+        {
+          "x": 42,
+          "y": 5
+        },
+        {
+          "x": 51,
+          "y": 5
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 3,
-      "y": 13,
-      "length": 59,
-      "dir": "right",
-      "conns": [
-        "c2",
-        "c4",
-        "c11"
+      "conn": "c0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 7,
+          "y": 5
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 14,
-      "y": 21,
-      "length": 13,
-      "dir": "right",
-      "conns": [
-        "c8",
-        "c6",
-        "c9",
-        "c3"
+      "conn": "c1",
+      "path": [
+        {
+          "x": 3,
+          "y": 5
+        },
+        {
+          "x": 3,
+          "y": 20
+        },
+        {
+          "x": 7,
+          "y": 20
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 2,
-      "y": 21,
-      "length": 3,
-      "dir": "right",
-      "conns": [
-        "c1"
+      "conn": "c2",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 12
+        },
+        {
+          "x": 20,
+          "y": 12
+        },
+        {
+          "x": 20,
+          "y": 5
+        },
+        {
+          "x": 29,
+          "y": 5
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 36,
-      "y": 21,
-      "length": 30,
-      "dir": "right",
-      "conns": [
-        "c12"
+      "conn": "c3",
+      "path": [
+        {
+          "x": 3,
+          "y": 5
+        },
+        {
+          "x": 3,
+          "y": 23
+        },
+        {
+          "x": 26,
+          "y": 23
+        },
+        {
+          "x": 26,
+          "y": 20
+        },
+        {
+          "x": 29,
+          "y": 20
+        }
       ]
     },
     {
-      "type": "hline",
-      "x": 2,
-      "y": 25,
-      "length": 23,
-      "dir": "right",
-      "conns": [
-        "c3"
+      "conn": "c4",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 12
+        },
+        {
+          "x": 46,
+          "y": 12
+        },
+        {
+          "x": 46,
+          "y": 5
+        },
+        {
+          "x": 51,
+          "y": 5
+        }
       ]
     },
     {
-      "type": "intersection",
-      "x": 20,
-      "y": 5,
-      "char": "v"
+      "conn": "c11",
+      "path": [
+        {
+          "x": 38,
+          "y": 5
+        },
+        {
+          "x": 44,
+          "y": 5
+        },
+        {
+          "x": 44,
+          "y": 12
+        },
+        {
+          "x": 63,
+          "y": 12
+        },
+        {
+          "x": 63,
+          "y": 5
+        },
+        {
+          "x": 68,
+          "y": 5
+        }
+      ]
     },
     {
-      "type": "intersection",
-      "x": 16,
-      "y": 5,
-      "char": "v"
+      "conn": "c12",
+      "path": [
+        {
+          "x": 38,
+          "y": 20
+        },
+        {
+          "x": 67,
+          "y": 20
+        },
+        {
+          "x": 67,
+          "y": 5
+        },
+        {
+          "x": 68,
+          "y": 5
+        }
+      ]
     },
     {
-      "type": "intersection",
-      "x": 18,
-      "y": 5,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 38,
-      "y": 5,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 40,
-      "y": 5,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 44,
-      "y": 5,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 42,
-      "y": 5,
-      "char": "v"
-    },
-    {
-      "type": "intersection",
-      "x": 2,
-      "y": 5,
-      "char": "v"
-    },
-    {
-      "type": "intersection",
-      "x": 3,
-      "y": 5,
-      "char": "v"
-    },
-    {
-      "type": "intersection",
-      "x": 65,
-      "y": 5,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 61,
-      "y": 5,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 20,
-      "y": 9,
-      "char": "O"
-    },
-    {
-      "type": "intersection",
-      "x": 16,
-      "y": 9,
-      "char": "v"
-    },
-    {
-      "type": "intersection",
-      "x": 38,
-      "y": 9,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 18,
-      "y": 9,
-      "char": "O"
-    },
-    {
-      "type": "intersection",
-      "x": 22,
-      "y": 11,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 40,
-      "y": 11,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 20,
-      "y": 13,
-      "char": "O"
-    },
-    {
-      "type": "intersection",
-      "x": 22,
-      "y": 13,
-      "char": "O"
-    },
-    {
-      "type": "intersection",
-      "x": 3,
-      "y": 13,
-      "char": "v"
-    },
-    {
-      "type": "intersection",
-      "x": 18,
-      "y": 13,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 44,
-      "y": 13,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 42,
-      "y": 13,
-      "char": "v"
-    },
-    {
-      "type": "intersection",
-      "x": 61,
-      "y": 13,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 20,
-      "y": 21,
-      "char": "v"
-    },
-    {
-      "type": "intersection",
-      "x": 22,
-      "y": 21,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 24,
-      "y": 21,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 2,
-      "y": 21,
-      "char": ">"
-    },
-    {
-      "type": "intersection",
-      "x": 2,
-      "y": 21,
-      "char": ">"
-    },
-    {
-      "type": "intersection",
-      "x": 65,
-      "y": 21,
-      "char": "^"
-    },
-    {
-      "type": "intersection",
-      "x": 2,
-      "y": 25,
-      "char": "v"
-    },
-    {
-      "type": "intersection",
-      "x": 24,
-      "y": 25,
-      "char": "^"
+      "conn": "c13",
+      "path": [
+        {
+          "x": 60,
+          "y": 5
+        },
+        {
+          "x": 68,
+          "y": 5
+        }
+      ]
     }
   ]
 }

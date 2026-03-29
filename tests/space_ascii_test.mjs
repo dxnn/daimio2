@@ -103,7 +103,7 @@ var sl_chain = D.seedlikes_from_string(def_chain)
 var topo_chain = extract('counter', sl_chain.counter)
 var laid_chain = layout(topo_chain, { max_source: 0 })
 test('chain layout: has station', laid_chain.elements.some(function(e) { return e.type === 'station' }), true)
-test('chain layout: has hlines', laid_chain.elements.filter(function(e) { return e.type === 'hline' }).length >= 2, true)
+test('chain layout: has paths', laid_chain.paths.length >= 2, true)
 test('chain layout: has left port', laid_chain.elements.some(function(e) { return e.type === 'port' && e.dir === 'left' }), true)
 test('chain layout: has right port', laid_chain.elements.some(function(e) { return e.type === 'port' && e.dir === 'right' }), true)
 test('chain layout: station has source', laid_chain.elements.some(function(e) { return e.type === 'station' && e.source }), true)
@@ -153,12 +153,14 @@ var ascii_a = render(laid_a)
 test('pipeline: render accepts layout output', typeof ascii_a, 'string')
 test('pipeline: render produces content', ascii_a.length > 0, true)
 
-// === Render: vline element ===
+// === Render: path-based vline ===
 var vline_layout = {
   id: 'v', name: 'v', width: 5, height: 5,
   elements: [
-    { type: 'box', x: 0, y: 0, width: 5, height: 5 },
-    { type: 'vline', x: 2, y: 1, length: 3 }
+    { type: 'box', x: 0, y: 0, width: 5, height: 5 }
+  ],
+  paths: [
+    { conn: 'test', path: [{x: 2, y: 1}, {x: 2, y: 3}] }
   ]
 }
 var r_vline = render(vline_layout)

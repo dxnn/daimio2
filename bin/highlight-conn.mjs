@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Usage: node bin/highlight-conn.mjs <layout.json> <render.txt> <conn_id>
-// Overwrites hline/vline cells for the given connection with 'x' in the render.
+// Overwrites wire cells for the given connection with 'x' in the render.
 
 import { readFileSync } from 'fs'
 
@@ -17,15 +17,21 @@ var conn_id = args[2]
 var lines = render.split('\n')
 var grid = lines.map(function(l) { return l.split('') })
 
-for (var i = 0; i < laid.elements.length; i++) {
-  var el = laid.elements[i]
-  if (!el.conns || el.conns.indexOf(conn_id) < 0) continue
-  if (el.type === 'hline') {
-    for (var x = el.x; x < el.x + el.length; x++)
-      if (grid[el.y] && grid[el.y][x]) grid[el.y][x] = 'x'
-  } else if (el.type === 'vline') {
-    for (var y = el.y; y < el.y + el.length; y++)
-      if (grid[y] && grid[y][el.x]) grid[y][el.x] = 'x'
+var paths = laid.paths || []
+for (var i = 0; i < paths.length; i++) {
+  if (paths[i].conn !== conn_id) continue
+  var pts = paths[i].path
+  for (var j = 0; j < pts.length - 1; j++) {
+    var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
+    if (y0 === y1) {
+      var xmin = Math.min(x0, x1), xmax = Math.max(x0, x1)
+      for (var x = xmin; x <= xmax; x++)
+        if (grid[y0] && grid[y0][x]) grid[y0][x] = 'x'
+    } else if (x0 === x1) {
+      var ymin = Math.min(y0, y1), ymax = Math.max(y0, y1)
+      for (var y = ymin; y <= ymax; y++)
+        if (grid[y] && grid[y][x0]) grid[y][x0] = 'x'
+    }
   }
 }
 
