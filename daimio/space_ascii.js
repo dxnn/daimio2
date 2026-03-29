@@ -266,7 +266,7 @@ export function topo_sort(topology) {
 
 export function layout(topology, options) {
   var HLINE_GAP = 5
-  var ROW_HEIGHT = 7
+  var ROW_HEIGHT = 6
   var HEADER_HEIGHT = 2
   var PORT_COL = 5   // 1 (port 'o') + 3 (visible wire '---') + 1 (paren '(' push-out)
   var max_source = (options && options.max_source !== undefined) ? options.max_source : 20
@@ -1120,20 +1120,6 @@ export function layout(topology, options) {
     emit_fan_vline(rmid_x, rfan_ys, 'down', rfan_conns)
   }
 
-  // ── Compute content_y ──────────────────────────────────────────────
-
-  // Compute max_fan_y from all emitted elements (ports, wires, jog vlines)
-  var max_fan_y = 0
-  for (var i = 0; i < elements.length; i++) {
-    var el = elements[i]
-    var bottom = el.type === 'vline' ? el.y + el.length - 1
-               : el.type === 'hline' ? el.y
-               : el.type === 'port' ? el.y : 0
-    if (bottom > max_fan_y) max_fan_y = bottom
-  }
-  var base_content_y = cum_y
-  var content_y = max_fan_y > 0 ? Math.max(base_content_y, max_fan_y + 2) : base_content_y
-
   // ── Route back-edges ───────────────────────────────────────────────
 
   var back_edge_rows = 0
@@ -1202,6 +1188,24 @@ export function layout(topology, options) {
       }
     }
   }
+
+  // ── Compute content_y from all emitted elements ────────────────────
+
+  var max_fan_y = 0
+  for (var i = 0; i < elements.length; i++) {
+    var el = elements[i]
+    var bottom = el.type === 'vline' ? el.y + el.length - 1
+               : el.type === 'hline' ? el.y
+               : el.type === 'port' ? el.y
+               : (el.type === 'station' || el.type === 'subspace_box') ? el.y + el.height - 1 : 0
+    if (bottom > max_fan_y) max_fan_y = bottom
+  }
+  // Also check deferred hline_ranges (not yet emitted as elements)
+  for (var hy in hline_ranges) {
+    var hy_int = parseInt(hy)
+    if (hy_int > max_fan_y) max_fan_y = hy_int
+  }
+  var content_y = max_fan_y > 0 ? max_fan_y + 1 : cum_y
 
   // ── Emit all accumulated hlines ─────────────────────────────────────
 

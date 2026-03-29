@@ -108,7 +108,7 @@ test('chain layout: has left port', laid_chain.elements.some(function(e) { retur
 test('chain layout: has right port', laid_chain.elements.some(function(e) { return e.type === 'port' && e.dir === 'right' }), true)
 test('chain layout: station has source', laid_chain.elements.some(function(e) { return e.type === 'station' && e.source }), true)
 test('chain layout: width accommodates chain', laid_chain.width >= 40, true)
-test('chain layout: height accommodates chain', laid_chain.height >= 8, true)
+test('chain layout: height accommodates chain', laid_chain.height >= 7, true)
 
 // === Layout: two chains stacked ===
 var def_two = 's\n  @in:a\n  @out:a\n  @in:b\n  @out:b\n  @in:a -> {1} -> @out:a\n  @in:b -> {2} -> @out:b'
