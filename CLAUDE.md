@@ -237,7 +237,7 @@ Part III — Blocks (inner language):
 - **node_code**: 83/83 pass
 - **security_test**: 179/179 pass
 - **space_test**: 124/148 pass (24 known failures for unimplemented spec behaviors)
-- **space_ascii_test**: 157/157 pass (27 fixture dirs)
+- **space_ascii_test**: 215/217 pass (27 fixture dirs, 2 known invariant failures)
 - **example_test**: 104/104 pass
 - **perf_test**: 21/21 benchmarks pass
 - **editor_test**: 84/84 pass
@@ -259,17 +259,36 @@ bugs in poke. See the test-spec sweep report in memory.
 
 ## Recent: D2-spec.md deep edit session (2026-03-23/24)
 
-41 spec edits across multiple feedback rounds. Major changes:
-- Formal `finalize` function (Block eval, List coercion, passthrough) with `fin_elem` helper
-- EffCmd request payload encoded as keyed list `[effcmd-request-val]`
-- Ship type corrected to FinalVal; process.asynced removed
-- P-blockscope corrected for sub-process shadowing
-- Poke Key/Pos rewritten with explicit recursion
-- Station finalization subsection; process lifecycle updated (6 phases)
+56 spec edits across multiple feedback rounds + academic-reviewer/consistency-checker passes.
+
+**Formal model fixes:**
+- `finalize` function: Block eval (recursive), List coercion via `fin_elem` (source text, not eval)
+- EffCmd request payload → keyed list with `merge()` `[effcmd-request-val]`
+- Ship type → FinalVal; `process.asynced` removed; Cmd formalized with `.handler`/`.method` fields
+- Command tuple destructuring: `c is Pure(name, ...)` (was self-shadowing `c is Pure(c, ...)`)
+- P-blockscope corrected for sub-process shadowing; `>x` after read qualified
+- Poke Key/Pos rewritten with explicit recursion; Map Par rule formalized
+- Station finalization subsection; process lifecycle → 6 phases `[lifecycle-finalize]`
+- Space definition: queue → `[(Ship, StationId)]`; `active : bool` added
+- WriteSVar unbound clause; `__in` default rule `[dunderin-default]`
+- `__` compilation: pipeline-start resolves to `__in`; after `||` keeps flow edge (not `__in`)
+
+**Structural additions:**
 - `[routing-no-process]` assertion: port routing doesn't hold the space
 - §14: Alias-level capability attenuation (three levels of restriction)
 - Grammar split into three subsections; `command_call` noted as post-expansion
-- ~15 smaller fixes (cross-references, variable names, assertion labels, etc.)
+- `either:A,B` "matches" defined as native type check
+- Block tuple: `source` field added; `implicit_ref` added to `value` production
+- `[wiring-first-match]` → `[wiring-most-specific]`; endpoint dir keywords reserved
+
+**Presentation fixes:**
+- ~20 smaller fixes (cross-references, variable names, assertion labels, notation, etc.)
+
+**Exploration topics** (5, see memory/project_explore_topics.md):
+enhanced alias restrictions, sender/identity model, p-spaces, composed contract chains,
+UI/App integration tiers
+
+**Agent stable** populated: academic-reviewer + consistency-checker
 
 5 exploration topics parked for future work (see memory/project_explore_topics.md):
 enhanced alias restrictions, sender/identity model, p-spaces, composed contract chains,
@@ -291,31 +310,63 @@ Agent stable populated: academic-reviewer + consistency-checker registered.
 - **`tests/space_ascii/`**: 27 fixture directories with source.dm, extract.json, render.txt
 - **`tests/regen_renders.mjs`**: regenerates render.txt fixtures after layout/render changes
 
-### Layout v3: trunk-and-channel routing (2026-03-25/26) — IMPLEMENTED
+### Layout v4: connection paths (2026-03-26 through 2026-03-29)
 
-Invariants (see comment block at top of space_ascii.js for full list):
-1. No wire passes through a station or subspace body
-2. No two parallel wires share a grid cell
-3. At least one empty space between parallel wires
-4. Junction chars computed in layout, not renderer (intersection elements)
+Major refactor from element-based to path-based layout model. Each connection is now
+a first-class visual object with a `path` (array of `{x,y}` waypoints).
 
-Routing model:
-- **Trunks**: merged hlines per (gap, row) pair — no parallel overlap
-- **Vertical channels**: allocated per gap via `gap_v_channels` system
-- **Horizontal channels**: stride-2 rows between station rows for multi-layer jogs
-- **Back-edges**: source on _out side (right margin for last-layer), dest on _in side (left margin for layer 0)
-- **Port fan**: single `o` per port, fan vlines (segmented) connect to multiple station rows
-- **Intersections**: layout emits `{ type: 'intersection', char }` — renderer just stamps
+**Data model**: layout returns `{ elements, paths }`. Elements = stations, ports, box, text.
+Paths = one per connection, each with `conn` (id) and `path` (waypoints). The ASCII
+renderer converts paths to grid stamps and computes intersections from h/v overlap.
 
-Connection classification: `direct` / `adjacent_cross` / `multi` (replaces old direct/cross/jog).
-Topo sort prioritizes port-connected stations for lower layers.
+**Station metadata**: each station element has `in: {x,y}` and `out: {x,y}` connection points.
+Ports have `wire_x` (the connection point offset from the `o`).
+
+**Invariants** (checked via `options.check_invariants`, run on every fixture):
+1. No wire segment enters a station body interior (excluding the in/out edge cells)
+2. Every path starts at FROM's `out` and ends at TO's `in` (endpoint invariant)
+3. No duplicate port elements
+
+**Simplifications done** (2026-03-26/27):
+- Removed dead code: `v_channel_idx`, old `comp_y`/`wire_y`, `back_edge_rows`, dead initial `layer_x`
+- Fixed forward references: `left_mid_x`, `port_jog_vlines` defined before use
+- Post-hoc `max_fan_y`: single computation replaces ~10 scattered bump sites
+- Helpers: `emit_port_fans`, `build_port_station_map`, `jog_y_below`, `has_later_comp_at_row`
+- Replaced inline hline merge with post-process `merge_hline_ranges` (sort+sweep)
+- Eliminated `row_hc_only`, unused `gap` param from `add_trunk`, O(n^3) fan check
+- Merged connection classification into single pass, unified right port fan with `emit_port_fans`
+- Built `be_ids` array once (was reconstructed in 6 loops)
+
+**Bug fixes** (2026-03-27/28):
+- `add_hline_range` changed from adjacent-merge to strict-overlap-merge (fixes cycle visual)
+- Right-port fan-in: non-last-layer jog now routes to fan vline instead of box wall
+- Fan-out jog uses fan vline position (avoids station paren collision)
+- Direct routing when no station blocks the path (skip unnecessary jog)
+- Tighter vertical spacing: ROW_HEIGHT 7→6, content_y from actual element extent
+- Dynamic PORT_COL (5 base, 7 when fan+jog both needed)
+
+**Path model conversion** (2026-03-29):
+- Removed: `hline_ranges`, `add_hline_range`, `merge_hline_ranges`, `add_trunk`,
+  `port_jog_vlines`, `add_port_jog_vline`, `emit_fan_vline`, `emit_port_fans`,
+  intersection computation, hline emission — ~130 lines removed
+- Added: `conn_paths` + `add_path` helper, path rendering in `render()` — ~40 lines added
+- Net: ~200 lines removed from space_ascii.js (1424 → ~1220)
+
+**Tools**:
+- `bin/highlight-conn.mjs <layout.json> <render.txt> <conn_id>` — marks connection path with 'x'
+- Layout fixtures: every fixture dir now has `layout.json` tested alongside extract/render
+
+### Known invariant failures (2 total)
+1. **contract/cs c1**: station→left-port contract connection routes rightward but dest
+   port is on the left. Connection classifier puts all station→port in `right_port_groups`
+   without checking port direction.
+2. **k5/k5 c6**: back-edge B→C dest hline at wire row traverses C's body interior.
+   Dest vline is in gap 0 (C's right side); needs left-side routing to avoid C's body.
 
 ### What's next
-- Contract port rendering (up/down ports — noted in contract fixture)
-- Back-edge visual clarity could improve for complex topologies (k5)
+- Fix the 2 invariant failures above
+- Contract port rendering (up/down ports)
 - Possible: Dijkstra-based edge routing for more general wire paths
-
-Design doc: `docs/superpowers/plans/2026-03-23-layout-v3-trunk-channel.md`
 
 ## Fuzzer
 
