@@ -3,12 +3,12 @@
 <head>
   <title>Daimio Tests</title>
   <!--
-  <script type="module" src="../../daimio/daimio.js"></script>
+  <script type="module" src="../daimio/daimio.js"></script>
   -->
-    <script type="module" src="../../daimio/daimio.js"></script>
-    <script type="module" src="../js/editor.js"></script>
+    <script type="module" src="../daimio/daimio.js"></script>
+    <script type="module" src="js/editor.js"></script>
 
-  <link rel="stylesheet" href="../css/daimio.css" type="text/css" media="screen">
+  <link rel="stylesheet" href="css/daimio.css" type="text/css" media="screen">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
 
@@ -28,7 +28,7 @@
     // these globals are kind of a hack...
     var lines, starttime, win, lose, html, mode, block_name, code_value, code_string
 
-    xhr_get('daimio.dm', function(data) {
+    xhr_get('../tests/daimio.dm', function(data) {
       lines = data.split(/\n/).reverse()
       starttime = new Date().getTime()
       win=0; lose=0; html=''; mode='text'
@@ -262,7 +262,7 @@
 
         <!-- INTRO -->
         <div id="intro">
-          <img src="../images/daimio_logo.png" alt="" />
+          <img src="images/daimio_logo.png" alt="" />
           <h3>A system for building programmable applications.</h3>
           <p class="lead">Web applications are rarely customizable&#8212;you can&#8217;t tailor interfaces, extend functionality, or publish your modifications. Daimio makes bottom-up change possible by expressing every action your application can perform in a dialect of a language, and making execution contexts that speak different subsets of that dialect accessible.</p>
           <p>That means you can send raw code to the server. It means you can build extensions and share them. It means you can send code to other users for direct execution on their machines. <strong>And that means the server is merely one of potentially many trusted resources.</strong> Welcome to the world of programmable applications. Welcome to the world of universal computing. Welcome to Daimio.</p>
@@ -288,8 +288,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/display/placeholder.min.js"></script>
-  <script src="../editor/daimio-mode.js"></script>
-  <script src="../editor/daimio-hint.js"></script>
+  <script src="editor/daimio-mode.js"></script>
+  <script src="editor/daimio-hint.js"></script>
 
   <script type="module">
     var ge = document.getElementById.bind(document)
