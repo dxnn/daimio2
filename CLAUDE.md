@@ -4,21 +4,17 @@ Daimio is a language for making programmable web applications where users can ex
 applications in non-trivial ways. It provides a safe, sandboxed execution environment
 with a total (crash-free) execution model.
 
-## Quick start
+## Tools
 
 ```bash
-node tests/d2_spec_test.mjs       # 342 spec alignment tests
-node tests/daimio_test.mjs         # 843 legacy tests (0 known failures)
-node tests/node_code.mjs           # 83 internal tests
-node tests/security_test.mjs      # 179 security tests (dialect, pollution, regex, senders)
-node tests/space_test.mjs         # 130 space/topology tests (23 known failures)
-node tests/space_ascii_test.mjs   # 147 ASCII topology renderer tests (+ 24 fixture tests)
-node tests/example_test.mjs       # 104 command example tests
-node tests/perf_test.mjs          # 21 performance regression benchmarks
-node tests/editor_test.mjs       # 84 editor module tests (tokens, context, completions)
+node tests/run_all.mjs                       # run all 9 test suites
+node bin/repl.mjs                            # interactive REPL  (alias: depl)
+node bin/repl.mjs -e "{...}"                 # evaluate expression  (alias: daml)
+node bin/repl.mjs -f file.dm                 # run a .dm file
+node bin/fuzzer.mjs                          # fuzz 1000 expressions, random seed
+node bin/fuzzer.mjs 5000 myseed 200 100      # count seed concurrency timeout_ms
+bin/highlight-conn.mjs <layout> <render> <id> # visualize a connection path
 ```
-
-All nine test suites must pass before any change is considered complete.
 
 ## Local server
 
@@ -33,6 +29,9 @@ failing test already exists for the behavior being changed. Red test first, then
 Tests should be labelled with the spec assertion, property, or invariant they test for,
 whenever possible (usually an assertion ID). See the "Test-spec traceability" section
 below for the labelling format.
+
+All test suites must pass before any change is considered complete.
+
 
 ## Language overview
 
@@ -59,7 +58,8 @@ Key syntax elements:
 - `"{...}"` — block (quoted pipeline as a value)
 - `(:a :b :c)` — list literal
 - `:foo` — name literal (produces string "foo")
-- `{begin name}...{end name}` — named block (template)
+- `{begin name}...{end name}` — named block (pipe goes on `{begin}`, not `{end}`:
+  `{begin foo | >$foo ||}{body}{end foo}`)
 
 ## Architecture
 
@@ -82,8 +82,27 @@ Key syntax elements:
 - Serial execution per space — one ship at a time, process holds space exclusively.
 - Space variable reads are always fresh (trivially, under serial execution).
 - Pipeline vars survive async boundaries within the same process.
-- Soft errors route to space error port; pipeline continues with empty value.
+- Soft errors: `D.Etc.active_space` set in `Process.run`, `on_error` routes via `port.enter()`.
+  `D.on_error` is a silent no-op when no `@err` port. Stations have only `_in`/`_out` (no `_error`).
 - Every down-port request has a timeout (default 10s). Liveness guaranteed.
+- Runtime code eval: only `process unquote` + `process run` (exec port removed).
+
+### Ports
+
+- `space.ports` holds INSIDE ports; OUTSIDE is at `port.pair`.
+- Down ports use `sync` (not `exit`): `port_standard_sync` → `pair.outside_exit(ship, callback)`.
+- Command portType naming: `cmd:handler:method` (e.g., `cmd:time:now`, `cmd:var:read-out`).
+
+### Sender / dialect
+
+- `D.Sender(id, {dialect})` → `process.effective_dialect = intersect(sender, space)`.
+- Sender propagates through: block eval, port pairs ({sender} carrier), outside_exit, error, queue.
+- Subspaces inherit parent dialect (I2); only outer space uses `seed.dialect_instance`.
+- Optimizers (`OPT_simple_math`, `OPT_simple_peek`) must check dialect before executing.
+
+### Other internals
+
+- Per-space PRNG: `D.Space(seed_id, parent, prng_seed)` → `space.rng` via seedrandom; subspaces share parent's rng.
 
 ### Scope inheritance (blocks)
 
@@ -93,68 +112,6 @@ Three-layer lookup when a block reads a pipeline variable:
 3. Caller's scope (inherited from parent pipeline)
 
 Vars bound inside a block do NOT propagate back to the parent.
-
-## Project structure
-
-```
-daimio/
-  1_daimio.js          — core: D object, helpers, Space, Process, Port, Dialect
-  daimio.js            — entry point, imports everything, creates top-level dialect
-  editor.js            — shared editor support: tokenizer + cursor context (opt-in import)
-  space_ascii.js       — ASCII topology renderer: extract → layout → render pipeline
-                         extract: seedlike → topology (ports, stations, connections, subspaces)
-                         layout: topology → positioned elements (layered graph, topo sort, barycentric)
-                         render: elements → ASCII string (character grid stamping)
-  2_segtypes/          — segment types (lexer priority order: a-n)
-    a_terminator.js    — terminators
-    b_number.js        — number literals
-    c_string.js        — string literals
-    d_block.js         — block segments (per-segment original_string for quote)
-    e_blockjoin.js     — block joins
-    f_pipeline.js      — pipeline segments
-    g_list.js          — list literals
-    h_fancy.js         — fancy handlers (__, __in, etc.)
-    i_variableset.js   — pipeline var writes (keeps vars in pipeline + pipeline_vars)
-    j_portsend.js      — port sends (>@name)
-    k_variable.js      — space var reads/writes
-    l_pipevar.js       — pipeline var reads
-    m_command.js        — command invocation (effectful routing, timeout, orphan detection)
-    n_alias.js         — alias expansion
-  commands/builtin/    — built-in command handlers
-    list.js            — list manipulation (map, reduce, each, filter, sort, etc.)
-    logic.js           — boolean logic, conditionals
-    math.js            — arithmetic
-    process.js         — process control (run, etc.)
-    string.js          — string manipulation
-    time.js            — time commands (effectful)
-    var.js             — cross-boundary state access (effectful read/write)
-  datatypes/           — type coercion (block, string, number, list, etc.)
-  pathfinders/         — path resolution (list keys, positions, star, zkey)
-  optimizations/       — compile-time optimizations
-  pflavs/              — port flavours (DOM, socket, SSE, XHR, from-js, to-js)
-  aliases/             — built-in alias definitions
-  lib/                 — third-party: murmurhash, seedrandom, setimmediate
-tests/
-  d2_spec_test.mjs     — spec alignment tests (342 tests)
-  daimio_test.mjs      — legacy test suite from daimio.dm (~843 tests)
-  node_code.mjs        — internal JS-level tests (83 tests)
-  editor_test.mjs      — editor module tests (84 tests: tokens, context, completions)
-  space_ascii_test.mjs — ASCII topology renderer tests (147 tests, 24 fixture dirs)
-  space_ascii/         — fixture directories (source.dm, extract.json, render.txt per test)
-  example_test.mjs     — command example tests (104 tests, auto-discovered)
-  daimio.dm            — test definitions (text format)
-  daimio.html          — browser REPL + test runner
-bin/
-  repl.mjs             — Node REPL (interactive, -e, -f modes)
-  fuzzer.mjs           — DAML fuzzer (seeded PRNG, parallel, auto-minimizer)
-css/
-  daimio.css           — standalone styles for daimio.html (no Bootstrap)
-  todo.css             — TodoMVC demo styles
-D2-spec.md             — formal execution model specification
-extra/
-  D2-spec-commentary.md — spec discussion/commentary
-demos/                 — demo applications (automata, todomvc, mandelbrot, etc.)
-```
 
 ## Naming conventions
 
@@ -205,275 +162,13 @@ auto-discovers all examples from `D.Commands` — no registration needed.
 `D.is_nice(value)` returns `value || value == false` — this means `""` is "nice"
 (because `"" == false` is true in JS). Be careful with empty string checks.
 
-## Spec reference
-
-The formal execution model is in `D2-spec.md`. Structure:
-
-Part I — Orientation:
-- §0: Prelude (motivation, six core ideas)
-- §1: Properties + Invariants (totality, isolation, duality, liveness, I1-I15)
-- §2: Design decisions
-
-Part II — Spaces (outer topology):
-- §3: Space syntax (spaceseed grammar sketch)
-- §4: Space domains (dialects, commands, programs, ships, senders, stations, ports, spaces, outer space)
-- §5: Space execution (scheduling, queue, process lifecycle, deferred routing)
-- §6: Ports and wiring (demand-creation, pattern matching, OTHER fallback)
-- §7: Async boundaries (effectful commands, timeouts)
-- §8: Sockets and serialization
-
-Part III — Blocks (inner language):
-- §9: Block syntax (DAML grammar, parsing algorithm)
-- §10: Block domains (values, collections, paths, splooting, blocks, processes)
-- §11: Block execution (transition relations, pipes, scope, sub-processes)
-- §12: Errors (soft errors, splooting)
-- §13: Security analysis (privilege escalation, TOCTOU, DoS, spoofing)
-- §14: Future work (concurrent scheduling, editor, auth, TODA, apps)
-
-## Test status
-
-- **d2_spec_test**: 424/427 pass (3 known failures — pre-existing WRONG poke tests)
-- **daimio_test**: 829/843 pass (14 known failures)
-- **node_code**: 83/83 pass
-- **security_test**: 179/179 pass
-- **space_test**: 124/148 pass (24 known failures for unimplemented spec behaviors)
-- **space_ascii_test**: 215/217 pass (27 fixture dirs, 2 known invariant failures)
-- **example_test**: 104/104 pass
-- **perf_test**: 21/21 benchmarks pass
-- **editor_test**: 84/84 pass
-- **fuzz_test**: seed-dependent; stack overflows from self-referential blocks are the main finding
-
-## Test-spec traceability
-
-Every spec-supported test is annotated with assertion IDs from D2-spec.md. The format
-is `[assertion-id]` in test labels or section comments. ~400 annotations across 5 files.
-
-**Assertion ID format**: Properties are `[P-total]`, invariants are `[I1]`–`[I15]`,
-fine-grained assertions are `[poke-key-update]`, `[parse-brace-structural]`, etc.
-Tests wrong per spec are marked `[WRONG:assertion-id]`.
-
-**6 wrong tests** (all in d2_spec_test.mjs): Key poke on unkeyed promotes to keyed
-instead of splooting (spec says `[poke-key-unkeyed-fail]`), and svar-path poke coerces
-scalars before poking instead of using the scalar rule. Root cause: two implementation
-bugs in poke. See the test-spec sweep report in memory.
-
-## Recent: D2-spec.md deep edit session (2026-03-23/24)
-
-56 spec edits across multiple feedback rounds + academic-reviewer/consistency-checker passes.
-
-**Formal model fixes:**
-- `finalize` function: Block eval (recursive), List coercion via `fin_elem` (source text, not eval)
-- EffCmd request payload → keyed list with `merge()` `[effcmd-request-val]`
-- Ship type → FinalVal; `process.asynced` removed; Cmd formalized with `.handler`/`.method` fields
-- Command tuple destructuring: `c is Pure(name, ...)` (was self-shadowing `c is Pure(c, ...)`)
-- P-blockscope corrected for sub-process shadowing; `>x` after read qualified
-- Poke Key/Pos rewritten with explicit recursion; Map Par rule formalized
-- Station finalization subsection; process lifecycle → 6 phases `[lifecycle-finalize]`
-- Space definition: queue → `[(Ship, StationId)]`; `active : bool` added
-- WriteSVar unbound clause; `__in` default rule `[dunderin-default]`
-- `__` compilation: pipeline-start resolves to `__in`; after `||` keeps flow edge (not `__in`)
-
-**Structural additions:**
-- `[routing-no-process]` assertion: port routing doesn't hold the space
-- §14: Alias-level capability attenuation (three levels of restriction)
-- Grammar split into three subsections; `command_call` noted as post-expansion
-- `either:A,B` "matches" defined as native type check
-- Block tuple: `source` field added; `implicit_ref` added to `value` production
-- `[wiring-first-match]` → `[wiring-most-specific]`; endpoint dir keywords reserved
-
-**Presentation fixes:**
-- ~20 smaller fixes (cross-references, variable names, assertion labels, notation, etc.)
-
-**Exploration topics** (5, see memory/project_explore_topics.md):
-enhanced alias restrictions, sender/identity model, p-spaces, composed contract chains,
-UI/App integration tiers
-
-**Agent stable** populated: academic-reviewer + consistency-checker
-
-5 exploration topics parked for future work (see memory/project_explore_topics.md):
-enhanced alias restrictions, sender/identity model, p-spaces, composed contract chains,
-UI/App integration tiers.
-
-Agent stable populated: academic-reviewer + consistency-checker registered.
-
-## Current work: space-ascii topology renderer (2026-03-23)
-
-### What exists
-- **`daimio/space_ascii.js`**: three-phase pipeline (extract → layout → render)
-  - `extract(name, seedlike)` → topology graph (stable, won't change)
-  - `topo_sort(topology)` → layered component ordering with cycle detection
-  - `layout(topology, options)` → positioned elements with x/y coordinates
-  - `render(laid_out)` → ASCII string
-  - `render_space(name, seedlike, options)` / `render_all(seedlikes, options)`
-- **`bin/space-ascii.mjs`**: CLI (-e, -f, interactive with double-blank-line trigger)
-- **`tests/space_ascii_test.mjs`**: 157 tests (programmatic + fixture-based + invariant checks)
-- **`tests/space_ascii/`**: 27 fixture directories with source.dm, extract.json, render.txt
-- **`tests/regen_renders.mjs`**: regenerates render.txt fixtures after layout/render changes
-
-### Layout v4: connection paths (2026-03-26 through 2026-03-29)
-
-Major refactor from element-based to path-based layout model. Each connection is now
-a first-class visual object with a `path` (array of `{x,y}` waypoints).
-
-**Data model**: layout returns `{ elements, paths }`. Elements = stations, ports, box, text.
-Paths = one per connection, each with `conn` (id) and `path` (waypoints). The ASCII
-renderer converts paths to grid stamps and computes intersections from h/v overlap.
-
-**Station metadata**: each station element has `in: {x,y}` and `out: {x,y}` connection points.
-Ports have `wire_x` (the connection point offset from the `o`).
-
-**Invariants** (checked via `options.check_invariants`, run on every fixture):
-1. No wire segment enters a station body interior (excluding the in/out edge cells)
-2. Every path starts at FROM's `out` and ends at TO's `in` (endpoint invariant)
-3. No duplicate port elements
-
-**Simplifications done** (2026-03-26/27):
-- Removed dead code: `v_channel_idx`, old `comp_y`/`wire_y`, `back_edge_rows`, dead initial `layer_x`
-- Fixed forward references: `left_mid_x`, `port_jog_vlines` defined before use
-- Post-hoc `max_fan_y`: single computation replaces ~10 scattered bump sites
-- Helpers: `emit_port_fans`, `build_port_station_map`, `jog_y_below`, `has_later_comp_at_row`
-- Replaced inline hline merge with post-process `merge_hline_ranges` (sort+sweep)
-- Eliminated `row_hc_only`, unused `gap` param from `add_trunk`, O(n^3) fan check
-- Merged connection classification into single pass, unified right port fan with `emit_port_fans`
-- Built `be_ids` array once (was reconstructed in 6 loops)
-
-**Bug fixes** (2026-03-27/28):
-- `add_hline_range` changed from adjacent-merge to strict-overlap-merge (fixes cycle visual)
-- Right-port fan-in: non-last-layer jog now routes to fan vline instead of box wall
-- Fan-out jog uses fan vline position (avoids station paren collision)
-- Direct routing when no station blocks the path (skip unnecessary jog)
-- Tighter vertical spacing: ROW_HEIGHT 7→6, content_y from actual element extent
-- Dynamic PORT_COL (5 base, 7 when fan+jog both needed)
-
-**Path model conversion** (2026-03-29):
-- Removed: `hline_ranges`, `add_hline_range`, `merge_hline_ranges`, `add_trunk`,
-  `port_jog_vlines`, `add_port_jog_vline`, `emit_fan_vline`, `emit_port_fans`,
-  intersection computation, hline emission — ~130 lines removed
-- Added: `conn_paths` + `add_path` helper, path rendering in `render()` — ~40 lines added
-- Net: ~200 lines removed from space_ascii.js (1424 → ~1220)
-
-**Tools**:
-- `bin/highlight-conn.mjs <layout.json> <render.txt> <conn_id>` — marks connection path with 'x'
-- Layout fixtures: every fixture dir now has `layout.json` tested alongside extract/render
-
-### Known invariant failures (2 total)
-1. **contract/cs c1**: station→left-port contract connection routes rightward but dest
-   port is on the left. Connection classifier puts all station→port in `right_port_groups`
-   without checking port direction.
-2. **k5/k5 c6**: back-edge B→C dest hline at wire row traverses C's body interior.
-   Dest vline is in gap 0 (C's right side); needs left-side routing to avoid C's body.
-
-### What's next
-- Fix the 2 invariant failures above
-- Contract port rendering (up/down ports)
-- Possible: Dijkstra-based edge routing for more general wire paths
-
-## Fuzzer
-
-The fuzzer at `bin/fuzzer.mjs` generates random DAML and runs it, looking for crashes,
-hangs, prototype pollution, and async errors. Generators cover: commands with type-confused
-params, meta-evaluation (process run/quote/unquote chains), complex pathfinder paths,
-coercion stress chains, port sends, named blocks (nested/multiple), and random garbage.
-
-```bash
-node bin/fuzzer.mjs                          # 1000 expressions, random seed
-node bin/fuzzer.mjs 50000 myseed             # 50k, reproducible seed
-node bin/fuzzer.mjs 5000 myseed 200 100      # count seed concurrency timeout_ms
-node bin/fuzzer.mjs 5000 myseed -v            # verbose (full expressions to stderr)
-node bin/fuzzer.mjs 5000 myseed --skip 3000   # skip first 3000 (for OOM bisection)
-```
-
-Crashes are auto-minimized to shortest reproducing expression (preserves `||` barrier pipes).
-Self-referential named blocks (`{begin foo | >$foo}{$foo}{end foo}`) are detected statically
-and skipped — the engine needs a recursion depth limit to handle these (TODO).
-
-Known issue: `D.BLOCKS` caches every compiled block forever. Over long fuzzer runs this
-causes linear memory growth and eventual OOM. Not a fuzzer bug — it's the engine's global
-block cache with no eviction.
-
-### Engine bugs found by fuzzer
-
-- **NaN-as-async signal**: `number` type coercion returned `NaN` for non-numeric strings
-  (e.g. `+"baz"`), which the runtime misinterpreted as "went async." Fixed in `datatypes/number.js`.
-- **Trig on infinity**: `Math.sin(Infinity)` = `NaN`, same async misinterpretation.
-  Fixed with `|| 0` guard on sin/cos output.
-- **Math solver NaN**: `0 * -Infinity` = `NaN` in multiply/add/subtract/divide.
-  Fixed with `|| 0` on all `fun()` return sites in `naryanArray`, `singleArray`, `doubleArray`.
-- **Math round overflow**: `Math.pow(10, 999999)` = `Infinity`, then `round(5 * Infinity) / Infinity` = `NaN`.
-  Fixed with `|| 0` on the rounding path.
-- **execute_then_stringify space leak**: `D.run`'s `prior_starter` called `execute_then_stringify`
-  without a process context, so `datatypes/block.js` fell back to `D.ExecutionSpace` instead of
-  the space that `D.run` was called with. Fixed by passing `{space, station_id: false}` as
-  minimal context in `1_daimio.js`.
-
-## Demo status
-
-Most demos have been updated to work with the current codebase:
-
-**Completed:**
-- Removed all `with` param usage from DAML (replaced with scope inheritance / pipeline vars)
-- Fixed strict-mode errors in all `<script type="module">` blocks (`var`/`window.` declarations)
-- CodeMirror updated to CM5 from CDN (cdnjs 5.65.18) — custom daimio mode + hint stay local
-- Working: button_local, button_two, button_timer, turtle_solo, seqs/*, coderetreat, todomvc
-- tests/daimio.html: REPL converted to module script, var scoping fixed, Bootstrap removed
-  (replaced with css/daimio.css + vanilla JS for navbar dropdowns)
-
-**Needs investigation:**
-- sans-collatz.html: same pattern, plus missing `collate` station type
-- mandelbrot demos: `mandelbrot iterate` command only defined in canvas_ships_faster.html, not the other two
-- turtle_net, turtle_net_temp: load daimio from remote `http://daimio.org/`, need socket.io (exec port replaced with unquote+run)
-- server demos: need socket.io backend
-
-**Pattern reference for `with` removal:**
-- `run with _var` → blocks reference `_var` directly (scope inheritance)
-- `map with {* (:name val)}` → set pipeline var before map: `val | >name || ... | map block "..."`
-- Named blocks can't set pipeline vars before `{begin}` → use `{_key | >$row || ""}` with space var
-
-## Optimization opportunities
-
-### setImmediate overhead in port routing
-
-Port routing (`port_standard_exit`, `port_standard_sync`, `Space.execute` via `run_queue`)
-uses `D.setImmediate` to defer each step to the next tick. This keeps browser UIs responsive
-during heavy computation but costs ~11µs per call in Node.js. In the space_ship_routing
-benchmark, 1100 hops generate 3301 setImmediate calls — the scheduling overhead accounts
-for nearly the entire 36ms runtime. The actual command dispatch and block evaluation is
-negligible by comparison.
-
-A synchronous mode (skip setImmediate when no UI is present, or when the space opts in)
-could give 10-50× speedup for pure computation workloads like the mandelbrot solver.
-
-Relevant code:
-- `daimio/1_daimio.js` line 804: `D.setImmediate` in `port_standard_exit`
-- `daimio/1_daimio.js` line 838: `D.setImmediate` in `port_standard_sync`
-- `daimio/1_daimio.js` line 2611: `D.setImmediate` in `run_queue`
-
 ### Pay attention to aliases
 
 The `poke` alias is `list poke value`, which fills the `value` param from the pipe.
-This means `{$d | poke (:a :x) value 99}` puts `(:a :x)` into the value param, not the path param. (The 99 is skipped as a duplicate param.) 
-Instead do `{$d | poke 99 path (:a :x)}`. 
+This means `{$d | poke (:a :x) value 99}` puts `(:a :x)` into the value param, not the path param. (The 99 is skipped as a duplicate param.)
+Instead do `{$d | poke 99 path (:a :x)}`.
 Many aliases fill a parameter spot this same way, but not all, so pay attention.
 
-## REPL
+See `extra/notes.md` for spec reference, test-spec traceability, current work status,
+demo status, and optimization opportunities.
 
-The REPL is at `bin/repl.mjs`:
-```bash
-node bin/repl.mjs              # interactive mode  (alias: depl)
-node bin/repl.mjs -e "{...}"   # evaluate expression, print result, exit  (alias: daml)
-node bin/repl.mjs -f file.dm   # run a .dm file as DAML, print result, exit
-```
-- Use `node bin/repl.mjs -e "<expression>"` to quickly test DAML expressions
-- Use `node bin/repl.mjs -f <file>` to run a .dm file
-- Type Daimio expressions at the `>` prompt, hit Enter on a blank line to execute
-- Supports multiline paste (buffered until blank line)
-- Soft errors display in red; `-e` and `-f` modes print errors to stderr
-- Syntax highlighting: warm colors for command structure (handler/method/alias/params),
-  cool colors for data (strings, numbers, variables, ports, braces, pipes)
-- Live autocomplete: completions + desc + help shown below prompt as you type
-- Tab cycles through completions with inverse-video highlight, space confirms selection
-- Single tab match inserts directly with trailing space
-- Uses `D.editor_context` from shared `daimio/editor.js` module
-- History persists across sessions in `~/.daimio_history` (up-arrow to recall)
-- Named blocks use pipe on `{begin}`, not `{end}`:
-  `{begin foo | >$foo ||}{body}{end foo}`
