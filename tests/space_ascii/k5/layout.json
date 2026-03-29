@@ -1,0 +1,614 @@
+{
+  "id": "k5",
+  "name": "k5",
+  "width": 70,
+  "height": 18,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 70,
+      "height": 18,
+      "name": "k5"
+    },
+    {
+      "type": "station",
+      "id": "s2",
+      "x": 5,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{C}",
+      "name": "C"
+    },
+    {
+      "type": "station",
+      "id": "s1",
+      "x": 27,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{B}",
+      "name": "B"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 47,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{A}",
+      "name": "A"
+    },
+    {
+      "type": "vline",
+      "x": 16,
+      "y": 5,
+      "length": 4,
+      "dir": "down",
+      "conns": [
+        "c7"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 38,
+      "y": 5,
+      "length": 4,
+      "dir": "up",
+      "conns": [
+        "c7"
+      ]
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "in",
+      "id": "p0"
+    },
+    {
+      "type": "vline",
+      "x": 3,
+      "y": 5,
+      "length": 12,
+      "dir": "down",
+      "conns": [
+        "c0",
+        "c1"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 44,
+      "y": 5,
+      "length": 12,
+      "dir": "up",
+      "conns": [
+        "c0"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 24,
+      "y": 5,
+      "length": 12,
+      "dir": "up",
+      "conns": [
+        "c1"
+      ]
+    },
+    {
+      "type": "port",
+      "x": 69,
+      "y": 5,
+      "dir": "right",
+      "key": "out",
+      "id": "p1"
+    },
+    {
+      "type": "vline",
+      "x": 42,
+      "y": 5,
+      "length": 12,
+      "dir": "down",
+      "conns": [
+        "c10"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 63,
+      "y": 5,
+      "length": 12,
+      "dir": "up",
+      "conns": [
+        "c10"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 22,
+      "y": 5,
+      "length": 12,
+      "dir": "down",
+      "conns": [
+        "c11"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 65,
+      "y": 5,
+      "length": 12,
+      "dir": "up",
+      "conns": [
+        "c11"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 59,
+      "y": 5,
+      "length": 6,
+      "dir": "down",
+      "conns": [
+        "c3"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 18,
+      "y": 5,
+      "length": 6,
+      "dir": "up",
+      "conns": [
+        "c3"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 61,
+      "y": 5,
+      "length": 8,
+      "dir": "down",
+      "conns": [
+        "c4"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 2,
+      "y": 5,
+      "length": 8,
+      "dir": "up",
+      "conns": [
+        "c4"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 40,
+      "y": 5,
+      "length": 10,
+      "dir": "down",
+      "conns": [
+        "c6"
+      ]
+    },
+    {
+      "type": "vline",
+      "x": 20,
+      "y": 5,
+      "length": 10,
+      "dir": "up",
+      "conns": [
+        "c6"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 36,
+      "y": 5,
+      "length": 11,
+      "dir": "right",
+      "conns": [
+        "c5",
+        "c7",
+        "c0",
+        "c10",
+        "c6"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 14,
+      "y": 5,
+      "length": 13,
+      "dir": "right",
+      "conns": [
+        "c8",
+        "c7",
+        "c1",
+        "c11"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 1,
+      "y": 5,
+      "length": 4,
+      "dir": "right",
+      "conns": [
+        "c0",
+        "c1",
+        "c2",
+        "c4"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 56,
+      "y": 5,
+      "length": 13,
+      "dir": "right",
+      "conns": [
+        "c9",
+        "c10",
+        "c11",
+        "c3",
+        "c4"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 16,
+      "y": 8,
+      "length": 23,
+      "dir": "right",
+      "conns": [
+        "c7"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 18,
+      "y": 10,
+      "length": 42,
+      "dir": "left",
+      "conns": [
+        "c3"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 2,
+      "y": 12,
+      "length": 60,
+      "dir": "left",
+      "conns": [
+        "c4"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 20,
+      "y": 14,
+      "length": 21,
+      "dir": "left",
+      "conns": [
+        "c6"
+      ]
+    },
+    {
+      "type": "hline",
+      "x": 2,
+      "y": 16,
+      "length": 64,
+      "dir": "right",
+      "conns": [
+        "c0",
+        "c1",
+        "c10",
+        "c11"
+      ]
+    },
+    {
+      "type": "intersection",
+      "x": 38,
+      "y": 5,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 44,
+      "y": 5,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 42,
+      "y": 5,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 40,
+      "y": 5,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 16,
+      "y": 5,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 24,
+      "y": 5,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 22,
+      "y": 5,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 18,
+      "y": 5,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 20,
+      "y": 5,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 3,
+      "y": 5,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 2,
+      "y": 5,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 63,
+      "y": 5,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 65,
+      "y": 5,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 59,
+      "y": 5,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 61,
+      "y": 5,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 16,
+      "y": 8,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 38,
+      "y": 8,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 24,
+      "y": 8,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 22,
+      "y": 8,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 18,
+      "y": 8,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 20,
+      "y": 8,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 44,
+      "y": 10,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 24,
+      "y": 10,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 42,
+      "y": 10,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 22,
+      "y": 10,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 59,
+      "y": 10,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 18,
+      "y": 10,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 40,
+      "y": 10,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 20,
+      "y": 10,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 3,
+      "y": 12,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 44,
+      "y": 12,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 24,
+      "y": 12,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 42,
+      "y": 12,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 22,
+      "y": 12,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 61,
+      "y": 12,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 2,
+      "y": 12,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 40,
+      "y": 12,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 20,
+      "y": 12,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 24,
+      "y": 14,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 22,
+      "y": 14,
+      "char": "O"
+    },
+    {
+      "type": "intersection",
+      "x": 40,
+      "y": 14,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 20,
+      "y": 14,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 3,
+      "y": 16,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 44,
+      "y": 16,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 24,
+      "y": 16,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 42,
+      "y": 16,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 63,
+      "y": 16,
+      "char": "^"
+    },
+    {
+      "type": "intersection",
+      "x": 22,
+      "y": 16,
+      "char": "v"
+    },
+    {
+      "type": "intersection",
+      "x": 65,
+      "y": 16,
+      "char": "^"
+    }
+  ]
+}

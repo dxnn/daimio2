@@ -268,7 +268,7 @@ export function layout(topology, options) {
   var HLINE_GAP = 5
   var ROW_HEIGHT = 6
   var HEADER_HEIGHT = 2
-  var PORT_COL = 5   // 1 (port 'o') + 3 (visible wire '---') + 1 (paren '(' push-out)
+  var PORT_COL = 5   // base: 1 (port 'o') + 3 (wire) + 1 (paren '(' push-out); widened to 7 when fan+jog needed
   var max_source = (options && options.max_source !== undefined) ? options.max_source : 20
 
   var name = topology.name
@@ -477,6 +477,25 @@ export function layout(topology, options) {
     else if (dl - sl === 1) adjacent_cross.push(c)
     else multi_conns.push(c)  // dl - sl > 1, any row combination
   }
+
+  // Widen PORT_COL if both fan vlines and jog vlines are needed in the left margin.
+  // Fan vlines exist when a left port connects to stations at different rows.
+  // Jog vlines exist when a left port connects to a station at layer > 0.
+  var has_left_fan = false, has_left_jog = false
+  for (var cid in left_port_groups) {
+    if (layer_of[cid] > 0) has_left_jog = true
+    var group = left_port_groups[cid]
+    for (var j = 0; j < group.length; j++) {
+      // Check if this port also connects to a station at a different row
+      for (var cid2 in left_port_groups) {
+        if (cid2 !== cid && row_of[cid2] !== row_of[cid]) {
+          for (var k = 0; k < left_port_groups[cid2].length; k++)
+            if (left_port_groups[cid2][k].id === group[j].id) has_left_fan = true
+        }
+      }
+    }
+  }
+  if (has_left_fan && has_left_jog) PORT_COL = 7
 
   // ── Channel allocation ───────────────────────────────────────────
 
@@ -702,6 +721,7 @@ export function layout(topology, options) {
   function add_hline_range(y, x_left, x_right, dir, conns) {
     if (!dir) dir = 'right'
     if (!conns) conns = []
+
     if (!hline_ranges[y]) hline_ranges[y] = []
     var ranges = hline_ranges[y]
     // Merge strictly overlapping ranges (not merely adjacent)
