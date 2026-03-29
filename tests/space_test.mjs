@@ -15,6 +15,7 @@ var failures = []
 var pending = 0
 var all_registered = false
 var timeout_ms = 5000
+var known_timeout_ms = 200  // known failures: fail fast
 
 // Known failures — tests for spec behaviors not yet implemented.
 // If a failure's label is in this set, it's expected; otherwise it's a regression.
@@ -143,12 +144,14 @@ function run_dm_tests(filename) {
       if(/assert/.test(line)) assert_count++
     })
 
+    var dm_label = chunk.label || ('dm test #' + test_id)
+    var dm_timeout = known_failures.has(dm_label) ? known_timeout_ms : timeout_ms
     pending_spaces[test_id] = {
-      label: chunk.label || ('dm test #' + test_id),
+      label: dm_label,
       remaining: assert_count,
       collected: {},
       done: false,
-      timer: setTimeout(function() { timeout_space(test_id) }, timeout_ms)
+      timer: setTimeout(function() { timeout_space(test_id) }, dm_timeout)
     }
 
     try {
@@ -247,7 +250,7 @@ function space_test(label, seedlike, sends, expect_count, check, per_test_timeou
     collected: {},
     check: check,
     done: false,
-    timer: setTimeout(function() { timeout_space(test_id) }, per_test_timeout || timeout_ms)
+    timer: setTimeout(function() { timeout_space(test_id) }, per_test_timeout || (known_failures.has(label) ? known_timeout_ms : timeout_ms))
   }
 
   try {
@@ -527,7 +530,7 @@ function multi_space_test(label, spaces_def, orchestrate, per_test_timeout) {
     failures.push({ label: label, expected: 'completion', actual: 'TIMEOUT' })
     pending--
     maybe_report()
-  }, per_test_timeout || timeout_ms)
+  }, per_test_timeout || (known_failures.has(label) ? known_timeout_ms : timeout_ms))
 
   try {
     spaces_def.forEach(function(def) {
