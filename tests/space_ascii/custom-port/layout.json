@@ -1,0 +1,58 @@
+{
+  "id": "test3",
+  "name": "test3",
+  "width": 32,
+  "height": 8,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 32,
+      "height": 8,
+      "name": "test3"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 3,
+      "width": 21,
+      "height": 4,
+      "source": "{__ | >$change}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 26,
+        "y": 5
+      },
+      "name": "save-change"
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "touched",
+      "id": "p0",
+      "wire_x": 1
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

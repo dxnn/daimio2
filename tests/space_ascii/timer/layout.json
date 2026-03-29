@@ -1,0 +1,157 @@
+{
+  "id": "timer",
+  "name": "timer",
+  "width": 37,
+  "height": 17,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 37,
+      "height": 17,
+      "name": "timer"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 3,
+      "width": 26,
+      "height": 4,
+      "source": "{__ | add $count | …",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 31,
+        "y": 5
+      }
+    },
+    {
+      "type": "station",
+      "id": "s1",
+      "x": 5,
+      "y": 9,
+      "width": 19,
+      "height": 4,
+      "source": "{__ | >$time}",
+      "in": {
+        "x": 5,
+        "y": 11
+      },
+      "out": {
+        "x": 24,
+        "y": 11
+      }
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "in:step",
+      "id": "p0",
+      "wire_x": 1
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 11,
+      "dir": "left",
+      "key": "in:speed",
+      "id": "p1",
+      "wire_x": 1
+    },
+    {
+      "type": "port",
+      "x": 36,
+      "y": 5,
+      "dir": "right",
+      "key": "out:display",
+      "id": "p2",
+      "wire_x": 35
+    },
+    {
+      "type": "text",
+      "x": 2,
+      "y": 13,
+      "text": "$count: 0"
+    },
+    {
+      "type": "text",
+      "x": 2,
+      "y": 14,
+      "text": "$step: 1"
+    },
+    {
+      "type": "text",
+      "x": 2,
+      "y": 15,
+      "text": "$time: 500"
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c2",
+      "path": [
+        {
+          "x": 1,
+          "y": 11
+        },
+        {
+          "x": 5,
+          "y": 11
+        }
+      ]
+    },
+    {
+      "conn": "c1",
+      "path": [
+        {
+          "x": 31,
+          "y": 5
+        },
+        {
+          "x": 35,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c3",
+      "path": [
+        {
+          "x": 24,
+          "y": 11
+        },
+        {
+          "x": 34,
+          "y": 11
+        },
+        {
+          "x": 34,
+          "y": 5
+        },
+        {
+          "x": 35,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

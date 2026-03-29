@@ -303,6 +303,21 @@ for (var fi = 0; fi < fixtures.length; fi++) {
     }
   }
 
+  // Check layout.json
+  if (existsSync(fdir + '/layout.json')) {
+    var expected_layout = readFileSync(fdir + '/layout.json', 'utf8')
+    if (names.length === 1) {
+      var actual_layout = JSON.stringify(layout(extract(names[0], sl[names[0]], options)), null, 2)
+      test(fname + ': layout', actual_layout, expected_layout)
+    } else {
+      var layouts = {}
+      for (var ni = 0; ni < names.length; ni++)
+        layouts[names[ni]] = layout(extract(names[ni], sl[names[ni]]), options)
+      var actual_layout = JSON.stringify(layouts, null, 2)
+      test(fname + ': layout', actual_layout, expected_layout)
+    }
+  }
+
   // Check render.txt
   if (existsSync(fdir + '/render.txt')) {
     var expected_render = readFileSync(fdir + '/render.txt', 'utf8')
@@ -327,102 +342,30 @@ function normalize_extract(json_str) {
   })
 }
 
-// === Invariant: no wire through station body ===
-// For every fixture, check that no hline element overlaps with any station body
+// === Invariants: run check_invariants on EVERY fixture ===
 
-function check_no_wire_through_stations(label, laid) {
-  var stations = []
-  var hlines = []
-  var vlines = []
-  for (var i = 0; i < laid.elements.length; i++) {
-    var el = laid.elements[i]
-    if (el.type === 'station') stations.push(el)
-    if (el.type === 'subspace_box') stations.push(el)
-    if (el.type === 'hline') hlines.push(el)
-    if (el.type === 'vline') vlines.push(el)
-  }
-  for (var i = 0; i < hlines.length; i++) {
-    var h = hlines[i]
-    for (var j = 0; j < stations.length; j++) {
-      var s = stations[j]
-      if (h.y >= s.y && h.y <= s.y + 3) {
-        var h_left = h.x, h_right = h.x + h.length - 1
-        var s_left = s.x, s_right = s.x + s.width - 1
-        if (h_left < s_left && h_right > s_right) {
-          test(label + ': hline passes through ' + (s.name || s.source), 'wire_through', 'no_wire_through')
-        }
-      }
-    }
-  }
-  for (var i = 0; i < vlines.length; i++) {
-    var v = vlines[i]
-    for (var j = 0; j < stations.length; j++) {
-      var s = stations[j]
-      if (v.x >= s.x && v.x <= s.x + s.width - 1) {
-        var v_bottom = v.y + v.length - 1
-        if (v.y < s.y && v_bottom > s.y + 3) {
-          test(label + ': vline passes through ' + (s.name || s.source), 'wire_through', 'no_wire_through')
-        }
-      }
+for (var fi2 = 0; fi2 < fixtures.length; fi2++) {
+  var inv_fname = fixtures[fi2]
+  var inv_fdir = fixture_dir + '/' + inv_fname
+  var inv_source = readFileSync(inv_fdir + '/source.dm', 'utf8')
+  var inv_sl = D.seedlikes_from_string(inv_source)
+  var inv_names = Object.keys(inv_sl)
+  for (var ni = 0; ni < inv_names.length; ni++) {
+    var inv_topo = extract(inv_names[ni], inv_sl[inv_names[ni]])
+    try {
+      layout(inv_topo, { check_invariants: true })
+      test(inv_fname + '/' + inv_names[ni] + ': invariants', 'pass', 'pass')
+    } catch(e) {
+      test(inv_fname + '/' + inv_names[ni] + ': ' + e.message, 'FAIL', 'pass')
     }
   }
 }
 
-// === Invariant: no parallel wire overlap ===
-
-function check_no_parallel_overlap(label, laid) {
-  var wire_cells = {}
-  for (var i = 0; i < laid.elements.length; i++) {
-    var el = laid.elements[i]
-    if (el.type === 'hline') {
-      for (var x = el.x; x < el.x + el.length; x++) {
-        var k = x + ',' + el.y
-        if (!wire_cells[k]) wire_cells[k] = { h: 0, v: 0 }
-        wire_cells[k].h++
-      }
-    } else if (el.type === 'vline') {
-      for (var y = el.y; y < el.y + el.length; y++) {
-        var k = el.x + ',' + y
-        if (!wire_cells[k]) wire_cells[k] = { h: 0, v: 0 }
-        wire_cells[k].v++
-      }
-    }
-  }
-  for (var k in wire_cells) {
-    var c = wire_cells[k]
-    if (c.h > 1)
-      test(label + ': cell ' + k + ' has ' + c.h + ' hlines', c.h, 1)
-    if (c.v > 1)
-      test(label + ': cell ' + k + ' has ' + c.v + ' vlines', c.v, 1)
-  }
-}
-
-// Apply invariants to specific topologies known to have multi-layer routing
-var inv_defs = [
+// Also check inline tricky topologies
+var tricky_defs = [
   'inv1\n  A {A}\n  B {B}\n  C {C}\n  A -> B\n  A -> C\n  B -> C',
   'inv2\n  @in\n  @out\n  A {A}\n  B {B}\n  X {X}\n  Y {Y}\n  @in -> A\n  @in -> B\n  A -> X\n  A -> Y\n  B -> X\n  B -> Y\n  X -> @out\n  Y -> @out',
-]
-for (var i = 0; i < inv_defs.length; i++) {
-  var name = inv_defs[i].split('\n')[0].trim()
-  var sl = D.seedlikes_from_string(inv_defs[i])
-  var topo = extract(name, sl[name])
-  var laid = layout(topo)
-  check_no_wire_through_stations('invariant[no-wire-through] ' + name, laid)
-  check_no_parallel_overlap('invariant[no-overlap] ' + name, laid)
-}
-
-// === Junction geometry: no raw '+' in output, O for crossings ===
-// Use a multi-layer topology with cross-row connections to force hline/vline crossings
-
-var junc_def = 'junc\n  A {A}\n  B {B}\n  C {C}\n  X {X}\n  Y {Y}\n  Z {Z}\n  A -> X\n  A -> Y\n  A -> Z\n  B -> X\n  B -> Y\n  B -> Z\n  C -> X\n  C -> Y\n  C -> Z'
-var sl_junc = D.seedlikes_from_string(junc_def)
-var r_junc = render(layout(extract('junc', sl_junc.junc)))
-test('junction: no raw + chars', r_junc.indexOf('+') < 0, true)
-test('junction: crossing produces O', r_junc.indexOf('O') >= 0, true)
-
-// === Tricky topologies: invariants checked on inline definitions ===
-
-var tricky_defs = [
+  'junc\n  A {A}\n  B {B}\n  C {C}\n  X {X}\n  Y {Y}\n  Z {Z}\n  A -> X\n  A -> Y\n  A -> Z\n  B -> X\n  B -> Y\n  B -> Z\n  C -> X\n  C -> Y\n  C -> Z',
   'deep\n  A {A}\n  B {B}\n  C {C}\n  D {D}\n  A -> B\n  B -> C\n  C -> D\n  D -> A',
   'wide\n  @in\n  @out\n  A {A}\n  B {B}\n  C {C}\n  D {D}\n  E {E}\n  Z {Z}\n  @in -> A\n  @in -> B\n  @in -> C\n  @in -> D\n  @in -> E\n  A -> Z\n  B -> Z\n  C -> Z\n  D -> Z\n  E -> Z\n  Z -> @out',
 ]
@@ -430,12 +373,19 @@ for (var i = 0; i < tricky_defs.length; i++) {
   var tname = tricky_defs[i].split('\n')[0].trim()
   var tsl = D.seedlikes_from_string(tricky_defs[i])
   var ttopo = extract(tname, tsl[tname])
-  var tlaid = layout(ttopo)
-  var trendered = render(tlaid)
-  check_no_wire_through_stations('invariant[no-wire-through] ' + tname, tlaid)
-  check_no_parallel_overlap('invariant[no-overlap] ' + tname, tlaid)
-  test(tname + ': no raw + chars', trendered.indexOf('+') < 0, true)
+  try {
+    layout(ttopo, { check_invariants: true })
+    test('inline/' + tname + ': invariants', 'pass', 'pass')
+  } catch(e) {
+    test('inline/' + tname + ': ' + e.message, 'FAIL', 'pass')
+  }
 }
+
+// Junction geometry: no raw '+' in output
+var sl_junc2 = D.seedlikes_from_string(tricky_defs[2])
+var r_junc = render(layout(extract('junc', sl_junc2.junc)))
+test('junction: no raw + chars', r_junc.indexOf('+') < 0, true)
+test('junction: crossing produces O', r_junc.indexOf('O') >= 0, true)
 
 // Report
 console.log('space_ascii_test: ' + pass + '/' + (pass + fail) + ' passed')

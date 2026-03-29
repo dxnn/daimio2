@@ -669,13 +669,17 @@ export function layout(topology, options) {
       var cx = layer_x[i]
       var cy = comp_y(row) + 1
       var cw = comp_w(cid)
+      var wy = cy + 2  // wire row = station y + 2
       if (station_by_id[cid]) {
         var sname = station_by_id[cid].name
-        var el = { type: 'station', id: cid, x: cx, y: cy, width: cw, height: 4, source: trunc(station_by_id[cid].source) }
+        var el = { type: 'station', id: cid, x: cx, y: cy, width: cw, height: 4,
+                   source: trunc(station_by_id[cid].source),
+                   in: { x: cx, y: wy }, out: { x: cx + cw, y: wy } }
         if (sname && sname.indexOf('station-') !== 0) el.name = sname
         elements.push(el)
       } else {
-        elements.push({ type: 'subspace_box', id: cid, x: cx, y: cy, width: cw, height: 4, name: cid })
+        elements.push({ type: 'subspace_box', id: cid, x: cx, y: cy, width: cw, height: 4,
+                         name: cid, in: { x: cx, y: wy }, out: { x: cx + cw, y: wy } })
       }
     }
   }
@@ -778,7 +782,7 @@ export function layout(topology, options) {
       var is_fan_out = left_port_stations[group[j].id] && left_port_stations[group[j].id].length > 1
       var pc = conn_for_pair[group[j].id + '|' + cid]
       if (!emitted_ports[group[j].id]) {
-        elements.push({ type: 'port', x: 0, y: wy, dir: 'left', key: group[j].key, id: group[j].id })
+        elements.push({ type: 'port', x: 0, y: wy, dir: 'left', key: group[j].key, id: group[j].id, wire_x: 1 })
         emitted_ports[group[j].id] = { y: wy }
       }
       if (!pc) continue
@@ -794,6 +798,7 @@ export function layout(topology, options) {
         if (layer_of[cid] > 0) {
           // Jog below via the fan vline
           var jog_wy = jog_y_below(row_of[cid])
+          add_path(pc, 1, port_y)
           add_path(pc, left_mid_x, port_y)
           add_path(pc, left_mid_x, jog_wy)
           var target_gap_x = v_channel_x['lp_' + cid + 'lp_tgt'] || (layer_x[layer_of[cid]] - 3)
@@ -802,6 +807,7 @@ export function layout(topology, options) {
           add_path(pc, lx, wy)
         } else {
           // Layer 0: fan vline down, then direct to station
+          add_path(pc, 1, port_y)
           add_path(pc, left_mid_x, port_y)
           add_path(pc, left_mid_x, wy)
           add_path(pc, lx, wy)
@@ -906,7 +912,7 @@ export function layout(topology, options) {
     var rx = comp_right(dr.comp_id)
     var rpc = conn_for_pair[dr.comp_id + '|' + dr.port.id]
     if (!emitted_ports[dr.port.id]) {
-      elements.push({ type: 'port', x: width - 1, y: wy, dir: 'right', key: dr.port.key, id: dr.port.id })
+      elements.push({ type: 'port', x: width - 1, y: wy, dir: 'right', key: dr.port.key, id: dr.port.id, wire_x: width - 2 })
       emitted_ports[dr.port.id] = { y: wy }
     }
     if (!rpc) continue
@@ -959,10 +965,13 @@ export function layout(topology, options) {
     if (from_x === undefined && be_right_margin_x[be_ids[i]] !== undefined)
       from_x = be_right_margin_x[be_ids[i]]
     var to_x = v_channel_x[be_ids[i] + 'be_to']
-    if (to_x === undefined && be_left_margin_x[be_ids[i]] !== undefined)
+    var to_is_left_margin = false
+    if (to_x === undefined && be_left_margin_x[be_ids[i]] !== undefined) {
       to_x = be_left_margin_x[be_ids[i]]
+      to_is_left_margin = true
+    }
     var from_wy = wire_y(row_of[be_from]), to_wy = wire_y(row_of[be_to])
-    // Path: source station → source vline → h-channel → dest vline → dest station
+    // Path: source station → source vline → h-channel → dest vline → (dest station if left margin)
     if (from_x !== undefined) {
       add_path(be_conn, comp_right(be_from), from_wy)
       add_path(be_conn, from_x, from_wy)
@@ -999,11 +1008,11 @@ export function layout(topology, options) {
   var li = 0, ri = 0
   while (li < left_ports.length || ri < right_ports.length) {
     if (li < left_ports.length) {
-      elements.push({ type: 'port', x: 0, y: sy, dir: 'left', key: left_ports[li].key })
+      elements.push({ type: 'port', x: 0, y: sy, dir: 'left', key: left_ports[li].key, wire_x: 1 })
       li++
     }
     if (ri < right_ports.length) {
-      elements.push({ type: 'port', x: width - 1, y: sy, dir: 'right', key: right_ports[ri].key })
+      elements.push({ type: 'port', x: width - 1, y: sy, dir: 'right', key: right_ports[ri].key, wire_x: width - 2 })
       ri++
     }
     sy++
@@ -1033,74 +1042,95 @@ export function layout(topology, options) {
   for (var cid in conn_paths) paths.push({ conn: cid, path: conn_paths[cid] })
 
   var result = { id: topology.id, name: name, width: width, height: height, elements: elements, paths: paths }
-  if (options && options.check_invariants) check_layout_invariants(result)
+  if (options && options.check_invariants) {
+    result.topology = topology
+    check_layout_invariants(result)
+    delete result.topology
+  }
   return result
 }
 
 // Verify layout invariants (opt-in via options.check_invariants)
 function check_layout_invariants(laid) {
+  // Build component lookup: id → element (for endpoint checking)
+  var comp_by_id = {}
   var stations = [], port_ids = {}
   for (var i = 0; i < laid.elements.length; i++) {
     var el = laid.elements[i]
-    if (el.type === 'station' || el.type === 'subspace_box') stations.push(el)
+    if (el.type === 'station' || el.type === 'subspace_box') { stations.push(el); comp_by_id[el.id] = el }
     if (el.type === 'port') {
       if (port_ids[el.key + ',' + el.dir]) throw new Error('Invariant 9: duplicate port ' + el.key)
       port_ids[el.key + ',' + el.dir] = true
+      comp_by_id[el.id] = el
     }
   }
-  // Extract h/v segments from paths
+
+  // Build connection lookup for endpoint awareness
+  var topo_conns = {}
+  if (laid.topology) {
+    for (var i = 0; i < laid.topology.connections.length; i++) {
+      var c = laid.topology.connections[i]
+      topo_conns[c.id] = c
+    }
+  }
+
   var paths = laid.paths || []
   for (var i = 0; i < paths.length; i++) {
     var pts = paths[i].path, conn = paths[i].conn
+    // Which stations does this connection touch? (allowed to reach their edge)
+    var tc = topo_conns[conn]
+    var conn_station_ids = {}
+    if (tc) { conn_station_ids[tc.from.id] = true; conn_station_ids[tc.to.id] = true }
+
+    // Invariant 1: no wire segment enters a station body interior
+    // A wire may touch a station's in.x or out.x at the wire row, but not interior cells
     for (var j = 0; j < pts.length - 1; j++) {
       var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
       if (y0 === y1) {
-        // Invariant 1: horizontal segment doesn't pass through a station body
         var xmin = Math.min(x0, x1), xmax = Math.max(x0, x1)
         for (var si = 0; si < stations.length; si++) {
           var s = stations[si]
-          if (y0 >= s.y && y0 <= s.y + 3)
-            if (xmin < s.x && xmax > s.x + s.width - 1)
-              throw new Error('Invariant 1: ' + conn + ' hline at y=' + y0 + ' passes through ' + (s.name || s.source))
+          if (y0 < s.y || y0 > s.y + 3) continue
+          // Interior: cells between in.x and out.x exclusive (s.x+1 to s.x+s.width-2)
+          if (xmax >= s.x + 1 && xmin <= s.x + s.width - 2)
+            throw new Error('Invariant 1: ' + conn + ' hline at y=' + y0 + ' enters interior of ' + (s.name || s.id || s.source))
         }
       } else if (x0 === x1) {
-        // Invariant 1: vertical segment doesn't pass through a station body
         var ymin = Math.min(y0, y1), ymax = Math.max(y0, y1)
         for (var si = 0; si < stations.length; si++) {
           var s = stations[si]
-          if (x0 >= s.x && x0 <= s.x + s.width - 1)
-            if (ymin < s.y && ymax > s.y + 3)
-              throw new Error('Invariant 1: ' + conn + ' vline at x=' + x0 + ' passes through ' + (s.name || s.source))
+          if (x0 < s.x || x0 > s.x + s.width - 1) continue
+          if (ymax >= s.y && ymin <= s.y + 3)
+            throw new Error('Invariant 1: ' + conn + ' vline at x=' + x0 + ' enters ' + (s.name || s.id || s.source))
         }
       }
     }
   }
-  // Invariant 2: all connections sharing a cell must go the same direction
-  var h_dirs = {}  // 'x,y' → direction
-  var v_dirs = {}
-  for (var i = 0; i < paths.length; i++) {
-    var pts = paths[i].path, conn = paths[i].conn
-    for (var j = 0; j < pts.length - 1; j++) {
-      var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
-      if (y0 === y1) {
-        var xmin = Math.min(x0, x1), xmax = Math.max(x0, x1)
-        var dir = x1 >= x0 ? 'right' : 'left'
-        for (var x = xmin; x <= xmax; x++) {
-          var k = x + ',' + y0
-          if (h_dirs[k] && h_dirs[k] !== dir)
-            throw new Error('Invariant 2: conflicting h-direction at ' + k + ' (' + h_dirs[k] + ' vs ' + dir + ' from ' + conn + ')')
-          h_dirs[k] = dir
-        }
-      } else if (x0 === x1) {
-        var ymin = Math.min(y0, y1), ymax = Math.max(y0, y1)
-        var dir = y1 >= y0 ? 'down' : 'up'
-        for (var y = ymin; y <= ymax; y++) {
-          var k = x0 + ',' + y
-          if (v_dirs[k] && v_dirs[k] !== dir)
-            throw new Error('Invariant 2: conflicting v-direction at ' + k + ' (' + v_dirs[k] + ' vs ' + dir + ' from ' + conn + ')')
-          v_dirs[k] = dir
-        }
-      }
+
+  // Invariant: every path reaches its FROM and TO
+  // Requires topology connections to check against
+  if (laid.topology) {
+    var topo_conns = {}
+    for (var i = 0; i < laid.topology.connections.length; i++) {
+      var c = laid.topology.connections[i]
+      topo_conns[c.id] = c
+    }
+    for (var i = 0; i < paths.length; i++) {
+      var pts = paths[i].path, conn = paths[i].conn
+      if (pts.length < 2) throw new Error('Invariant endpoint: ' + conn + ' has < 2 waypoints')
+      var tc = topo_conns[conn]
+      if (!tc) continue
+      var from_el = comp_by_id[tc.from.id], to_el = comp_by_id[tc.to.id]
+      if (!from_el || !to_el) continue
+      var first = pts[0], last = pts[pts.length - 1]
+      // FROM check: path starts at the component's outgoing point
+      var from_pt = from_el.out || { x: from_el.wire_x, y: from_el.y }
+      if (first.x !== from_pt.x || first.y !== from_pt.y)
+        throw new Error('Invariant endpoint: ' + conn + ' starts at (' + first.x + ',' + first.y + ') but FROM ' + tc.from.id + ' out is (' + from_pt.x + ',' + from_pt.y + ')')
+      // TO check: path ends at the component's incoming point
+      var to_pt = to_el.in || { x: to_el.wire_x, y: to_el.y }
+      if (last.x !== to_pt.x || last.y !== to_pt.y)
+        throw new Error('Invariant endpoint: ' + conn + ' ends at (' + last.x + ',' + last.y + ') but TO ' + tc.to.id + ' in is (' + to_pt.x + ',' + to_pt.y + ')')
     }
   }
 }

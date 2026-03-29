@@ -1,0 +1,126 @@
+{
+  "id": "test2",
+  "name": "test2",
+  "width": 83,
+  "height": 10,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 83,
+      "height": 10,
+      "name": "test2"
+    },
+    {
+      "type": "station",
+      "id": "s2",
+      "x": 5,
+      "y": 3,
+      "width": 18,
+      "height": 4,
+      "source": "{__ | sleep}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 23,
+        "y": 5
+      }
+    },
+    {
+      "type": "station",
+      "id": "s1",
+      "x": 28,
+      "y": 3,
+      "width": 21,
+      "height": 4,
+      "source": "{ __ | >cells }",
+      "in": {
+        "x": 28,
+        "y": 5
+      },
+      "out": {
+        "x": 49,
+        "y": 5
+      },
+      "name": "try-change"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 54,
+      "y": 3,
+      "width": 21,
+      "height": 4,
+      "source": "{ __ | >cells }",
+      "in": {
+        "x": 54,
+        "y": 5
+      },
+      "out": {
+        "x": 75,
+        "y": 5
+      },
+      "name": "process"
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c1",
+      "path": [
+        {
+          "x": 23,
+          "y": 5
+        },
+        {
+          "x": 28,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c2",
+      "path": [
+        {
+          "x": 49,
+          "y": 5
+        },
+        {
+          "x": 54,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c0",
+      "path": [
+        {
+          "x": 75,
+          "y": 5
+        },
+        {
+          "x": 78,
+          "y": 5
+        },
+        {
+          "x": 78,
+          "y": 8
+        },
+        {
+          "x": 2,
+          "y": 8
+        },
+        {
+          "x": 2,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

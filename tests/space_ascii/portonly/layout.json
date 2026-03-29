@@ -1,0 +1,25 @@
+{
+  "id": "portonly",
+  "name": "portonly",
+  "width": 15,
+  "height": 4,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 15,
+      "height": 4,
+      "name": "portonly"
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 2,
+      "dir": "left",
+      "key": "in",
+      "wire_x": 1
+    }
+  ],
+  "paths": []
+}

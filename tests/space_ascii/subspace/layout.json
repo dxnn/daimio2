@@ -1,0 +1,160 @@
+{
+  "inner": {
+    "id": "inner",
+    "name": "inner",
+    "width": 29,
+    "height": 8,
+    "elements": [
+      {
+        "type": "box",
+        "x": 0,
+        "y": 0,
+        "width": 29,
+        "height": 8,
+        "name": "inner"
+      },
+      {
+        "type": "station",
+        "id": "s0",
+        "x": 5,
+        "y": 3,
+        "width": 18,
+        "height": 4,
+        "source": "{__ | add 1}",
+        "in": {
+          "x": 5,
+          "y": 5
+        },
+        "out": {
+          "x": 23,
+          "y": 5
+        }
+      },
+      {
+        "type": "port",
+        "x": 0,
+        "y": 5,
+        "dir": "left",
+        "key": "in",
+        "id": "p0",
+        "wire_x": 1
+      },
+      {
+        "type": "port",
+        "x": 28,
+        "y": 5,
+        "dir": "right",
+        "key": "out",
+        "id": "p1",
+        "wire_x": 27
+      }
+    ],
+    "paths": [
+      {
+        "conn": "c0",
+        "path": [
+          {
+            "x": 1,
+            "y": 5
+          },
+          {
+            "x": 5,
+            "y": 5
+          }
+        ]
+      },
+      {
+        "conn": "c1",
+        "path": [
+          {
+            "x": 23,
+            "y": 5
+          },
+          {
+            "x": 27,
+            "y": 5
+          }
+        ]
+      }
+    ]
+  },
+  "outer": {
+    "id": "outer",
+    "name": "outer",
+    "width": 24,
+    "height": 8,
+    "elements": [
+      {
+        "type": "box",
+        "x": 0,
+        "y": 0,
+        "width": 24,
+        "height": 8,
+        "name": "outer"
+      },
+      {
+        "type": "subspace_box",
+        "id": "inner",
+        "x": 5,
+        "y": 3,
+        "width": 13,
+        "height": 4,
+        "name": "inner",
+        "in": {
+          "x": 5,
+          "y": 5
+        },
+        "out": {
+          "x": 18,
+          "y": 5
+        }
+      },
+      {
+        "type": "port",
+        "x": 0,
+        "y": 5,
+        "dir": "left",
+        "key": "in",
+        "id": "p0",
+        "wire_x": 1
+      },
+      {
+        "type": "port",
+        "x": 23,
+        "y": 5,
+        "dir": "right",
+        "key": "out",
+        "id": "p1",
+        "wire_x": 22
+      }
+    ],
+    "paths": [
+      {
+        "conn": "c0",
+        "path": [
+          {
+            "x": 1,
+            "y": 5
+          },
+          {
+            "x": 5,
+            "y": 5
+          }
+        ]
+      },
+      {
+        "conn": "c1",
+        "path": [
+          {
+            "x": 18,
+            "y": 5
+          },
+          {
+            "x": 22,
+            "y": 5
+          }
+        ]
+      }
+    ]
+  }
+}

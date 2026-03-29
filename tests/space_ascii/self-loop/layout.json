@@ -1,0 +1,80 @@
+{
+  "id": "self",
+  "name": "self",
+  "width": 22,
+  "height": 8,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 22,
+      "height": 8,
+      "name": "self"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 3,
+      "width": 11,
+      "height": 4,
+      "source": "{x}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 16,
+        "y": 5
+      },
+      "name": "proc"
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "in",
+      "id": "p0",
+      "wire_x": 1
+    },
+    {
+      "type": "port",
+      "x": 21,
+      "y": 5,
+      "dir": "right",
+      "key": "out",
+      "id": "p1",
+      "wire_x": 20
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c2",
+      "path": [
+        {
+          "x": 16,
+          "y": 5
+        },
+        {
+          "x": 20,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

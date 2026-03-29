@@ -1,0 +1,71 @@
+{
+  "id": "cs",
+  "name": "cs",
+  "width": 25,
+  "height": 8,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 25,
+      "height": 8,
+      "name": "cs"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 3,
+      "width": 14,
+      "height": 4,
+      "source": "{handle}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 19,
+        "y": 5
+      },
+      "name": "proc"
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "up:req",
+      "id": "p0",
+      "wire_x": 1
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c1",
+      "path": [
+        {
+          "x": 19,
+          "y": 5
+        },
+        {
+          "x": 23,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

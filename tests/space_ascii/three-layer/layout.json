@@ -1,0 +1,139 @@
+{
+  "id": "tl",
+  "name": "tl",
+  "width": 48,
+  "height": 8,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 48,
+      "height": 8,
+      "name": "tl"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{a}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 14,
+        "y": 5
+      }
+    },
+    {
+      "type": "station",
+      "id": "s1",
+      "x": 19,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{b}",
+      "in": {
+        "x": 19,
+        "y": 5
+      },
+      "out": {
+        "x": 28,
+        "y": 5
+      }
+    },
+    {
+      "type": "station",
+      "id": "s2",
+      "x": 33,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{c}",
+      "in": {
+        "x": 33,
+        "y": 5
+      },
+      "out": {
+        "x": 42,
+        "y": 5
+      }
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "in",
+      "id": "p0",
+      "wire_x": 1
+    },
+    {
+      "type": "port",
+      "x": 47,
+      "y": 5,
+      "dir": "right",
+      "key": "out",
+      "id": "p1",
+      "wire_x": 46
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c1",
+      "path": [
+        {
+          "x": 14,
+          "y": 5
+        },
+        {
+          "x": 19,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c2",
+      "path": [
+        {
+          "x": 28,
+          "y": 5
+        },
+        {
+          "x": 33,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c3",
+      "path": [
+        {
+          "x": 42,
+          "y": 5
+        },
+        {
+          "x": 46,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}
