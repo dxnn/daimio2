@@ -339,13 +339,6 @@ export function layout(topology, options) {
     layer_width.push(max_w)
   }
 
-  // Initial layer_x (will be recomputed after row assignment to widen gaps)
-  var layer_x = []
-  for (var i = 0; i < layers.length; i++) {
-    if (i === 0) layer_x.push(PORT_COL)
-    else layer_x.push(layer_x[i - 1] + layer_width[i - 1] + HLINE_GAP)
-  }
-
   // ── Row assignment with barycentric crossing minimization ───────────
   // 1. Initial assignment: definition order for layer 0, predecessor-based for others
   // 2. Barycentric sweep: reorder layers to minimize crossings
@@ -481,19 +474,15 @@ export function layout(topology, options) {
   // Widen PORT_COL if both fan vlines and jog vlines are needed in the left margin.
   // Fan vlines exist when a left port connects to stations at different rows.
   // Jog vlines exist when a left port connects to a station at layer > 0.
+  var left_port_stations = build_port_station_map(left_port_groups)
   var has_left_fan = false, has_left_jog = false
-  for (var cid in left_port_groups) {
+  for (var cid in left_port_groups)
     if (layer_of[cid] > 0) has_left_jog = true
-    var group = left_port_groups[cid]
-    for (var j = 0; j < group.length; j++) {
-      // Check if this port also connects to a station at a different row
-      for (var cid2 in left_port_groups) {
-        if (cid2 !== cid && row_of[cid2] !== row_of[cid]) {
-          for (var k = 0; k < left_port_groups[cid2].length; k++)
-            if (left_port_groups[cid2][k].id === group[j].id) has_left_fan = true
-        }
-      }
-    }
+  for (var pid in left_port_stations) {
+    var rows = {}
+    for (var j = 0; j < left_port_stations[pid].length; j++)
+      rows[row_of[left_port_stations[pid][j]]] = true
+    if (Object.keys(rows).length > 1) has_left_fan = true
   }
   if (has_left_fan && has_left_jog) PORT_COL = 7
 
@@ -586,9 +575,9 @@ export function layout(topology, options) {
     })
   }
 
-  // ── Recompute layer_x with gaps sized for channel counts ──────────
+  // ── Compute layer_x with gaps sized for channel counts ────────────
 
-  layer_x = []
+  var layer_x = []
   for (var i = 0; i < layers.length; i++) {
     if (i === 0) layer_x.push(PORT_COL)
     else {
@@ -666,14 +655,14 @@ export function layout(topology, options) {
     cum_y += ROW_HEIGHT + (row_h_count[r] || 0)
   }
 
-  function comp_y_v3(row) { return row_y_offset[row] !== undefined ? row_y_offset[row] : HEADER_HEIGHT }
-  function wire_y_v3(row) { return comp_y_v3(row) + 3 }
+  function comp_y(row) { return row_y_offset[row] !== undefined ? row_y_offset[row] : HEADER_HEIGHT }
+  function wire_y(row) { return comp_y(row) + 3 }
 
   // Assign h-channel y-positions
   var h_channel_y = {}
   for (var rk in row_pair_h_channels) {
     var r = parseInt(rk)
-    var base_y = comp_y_v3(r) + ROW_HEIGHT
+    var base_y = comp_y(r) + ROW_HEIGHT
     var channels = row_pair_h_channels[rk]
     for (var j = 0; j < channels.length; j++) {
       if (channels[j].conn)
@@ -691,7 +680,7 @@ export function layout(topology, options) {
       var cid = layers[i][j]
       var row = row_of[cid]
       var cx = layer_x[i]
-      var cy = comp_y_v3(row) + 1
+      var cy = comp_y(row) + 1
       var cw = comp_w(cid)
       if (station_by_id[cid]) {
         var sname = station_by_id[cid].name
@@ -719,40 +708,31 @@ export function layout(topology, options) {
   var hline_ranges = {}  // y → [{min_x, max_x, dir, conns}, ...]
 
   function add_hline_range(y, x_left, x_right, dir, conns) {
-    if (!dir) dir = 'right'
-    if (!conns) conns = []
-
     if (!hline_ranges[y]) hline_ranges[y] = []
-    var ranges = hline_ranges[y]
-    // Merge strictly overlapping ranges (not merely adjacent)
-    for (var k = 0; k < ranges.length; k++) {
-      if (x_left < ranges[k].max_x && x_right > ranges[k].min_x) {
-        if (x_left < ranges[k].min_x) ranges[k].min_x = x_left
-        if (x_right > ranges[k].max_x) ranges[k].max_x = x_right
-        // Union connection IDs
-        for (var ci = 0; ci < conns.length; ci++)
-          if (ranges[k].conns.indexOf(conns[ci]) < 0) ranges[k].conns.push(conns[ci])
-        // Cascade: check if expanded range now overlaps others
-        for (var m = ranges.length - 1; m >= 0; m--) {
-          if (m === k) continue
-          if (ranges[k].min_x < ranges[m].max_x && ranges[k].max_x > ranges[m].min_x) {
-            if (ranges[m].min_x < ranges[k].min_x) ranges[k].min_x = ranges[m].min_x
-            if (ranges[m].max_x > ranges[k].max_x) ranges[k].max_x = ranges[m].max_x
-            // Union connection IDs from merged range
-            for (var ci = 0; ci < ranges[m].conns.length; ci++)
-              if (ranges[k].conns.indexOf(ranges[m].conns[ci]) < 0) ranges[k].conns.push(ranges[m].conns[ci])
-            ranges.splice(m, 1)
-            if (m < k) k--
-          }
-        }
-        return
+    hline_ranges[y].push({ min_x: x_left, max_x: x_right, dir: dir || 'right', conns: conns ? conns.slice() : [] })
+  }
+
+  // Merge overlapping ranges at a single y: sort by min_x, sweep once
+  function merge_hline_ranges(ranges) {
+    if (ranges.length <= 1) return ranges
+    ranges.sort(function(a, b) { return a.min_x - b.min_x })
+    var merged = [ranges[0]]
+    for (var i = 1; i < ranges.length; i++) {
+      var top = merged[merged.length - 1]
+      if (ranges[i].min_x < top.max_x) {
+        // Strictly overlapping — merge
+        if (ranges[i].max_x > top.max_x) top.max_x = ranges[i].max_x
+        for (var ci = 0; ci < ranges[i].conns.length; ci++)
+          if (top.conns.indexOf(ranges[i].conns[ci]) < 0) top.conns.push(ranges[i].conns[ci])
+      } else {
+        merged.push(ranges[i])
       }
     }
-    ranges.push({ min_x: x_left, max_x: x_right, dir: dir, conns: conns.slice() })
+    return merged
   }
 
   function add_trunk(gap, row, x_left, x_right, conns) {
-    add_hline_range(wire_y_v3(row), x_left, x_right, 'right', conns)
+    add_hline_range(wire_y(row), x_left, x_right, 'right', conns)
   }
 
   // Accumulate a port jog vline at x, spanning from y_top to y_bot
@@ -783,7 +763,7 @@ export function layout(topology, options) {
       var fan_wys = []
       var fan_conns = []
       for (var j = 0; j < sids.length; j++) {
-        var fwy = wire_y_v3(row_of[sids[j]])
+        var fwy = wire_y(row_of[sids[j]])
         if (fan_wys.indexOf(fwy) < 0) fan_wys.push(fwy)
         var cid = is_left ? conn_for_pair[pid + '|' + sids[j]] : conn_for_pair[sids[j] + '|' + pid]
         if (cid && fan_conns.indexOf(cid) < 0) fan_conns.push(cid)
@@ -810,7 +790,7 @@ export function layout(topology, options) {
   // Compute the y below a station row, past h-channels (for jog routing)
   function jog_y_below(row) {
     var row_hc = row_hc_only[row] || 0
-    return comp_y_v3(row) + ROW_HEIGHT + row_hc + (row_hc > 0 ? 1 : 0)
+    return comp_y(row) + ROW_HEIGHT + row_hc + (row_hc > 0 ? 1 : 0)
   }
 
   // Check if any component in a later layer occupies the same row as cid
@@ -858,7 +838,7 @@ export function layout(topology, options) {
   for (var i = 0; i < adjacent_cross.length; i++) {
     var c = adjacent_cross[i]
     var sr = row_of[c.from.id], dr = row_of[c.to.id]
-    var src_wy = wire_y_v3(sr), dst_wy = wire_y_v3(dr)
+    var src_wy = wire_y(sr), dst_wy = wire_y(dr)
     var track_x = v_channel_x[c.id]
     var vdir = sr < dr ? 'down' : 'up'
     var min_wy = Math.min(src_wy, dst_wy)
@@ -870,7 +850,7 @@ export function layout(topology, options) {
   for (var i = 0; i < multi_conns.length; i++) {
     var c = multi_conns[i]
     var sr = row_of[c.from.id], dr = row_of[c.to.id]
-    var src_wy = wire_y_v3(sr), dst_wy = wire_y_v3(dr)
+    var src_wy = wire_y(sr), dst_wy = wire_y(dr)
     var src_vx = v_channel_x[c.id + 'source']
     var dst_vx = v_channel_x[c.id + 'dest']
     var jog_y = h_channel_y[c.id]
@@ -896,13 +876,11 @@ export function layout(topology, options) {
 
   var emitted_ports = {}  // port id → { y } (deduplicate port elements, track position)
 
-  var left_port_stations = build_port_station_map(left_port_groups)
-
   emit_port_fans(left_port_stations, left_mid_x, 'down', true)
 
   for (var cid in left_port_groups) {
     var group = left_port_groups[cid]
-    var base_wy = wire_y_v3(row_of[cid])
+    var base_wy = wire_y(row_of[cid])
     var lx = layer_x[layer_of[cid]]
     var max_left_wy = base_wy
     for (var j = 0; j < group.length; j++) {
@@ -1055,7 +1033,7 @@ export function layout(topology, options) {
   for (var i = 0; i < deferred_right.length; i++) {
     var dr_pre2 = deferred_right[i]
     if (!right_port_wy[dr_pre2.port.id])
-      right_port_wy[dr_pre2.port.id] = wire_y_v3(row_of[dr_pre2.comp_id])
+      right_port_wy[dr_pre2.port.id] = wire_y(row_of[dr_pre2.comp_id])
   }
 
   for (var pid in right_port_stations) {
@@ -1063,7 +1041,7 @@ export function layout(topology, options) {
     if (sids.length <= 1) continue
     var fan_wys = []
     for (var j = 0; j < sids.length; j++) {
-      var fwy = wire_y_v3(row_of[sids[j]])
+      var fwy = wire_y(row_of[sids[j]])
       if (fan_wys.indexOf(fwy) < 0) fan_wys.push(fwy)
     }
     if (fan_wys.length <= 1) continue
@@ -1083,7 +1061,7 @@ export function layout(topology, options) {
   for (var i = 0; i < deferred_right.length; i++) {
     var dr = deferred_right[i]
     var row = row_of[dr.comp_id]
-    var base_wy = wire_y_v3(row)
+    var base_wy = wire_y(row)
     var wy = base_wy + (dr.offset ? dr.offset * 2 : 0)
     var rx = comp_right(dr.comp_id)
     var mid_x = rx + Math.floor((width - 1 - rx) / 2)
@@ -1127,7 +1105,7 @@ export function layout(topology, options) {
   for (var cid in right_port_groups) {
     var rgroup = right_port_groups[cid]
     if (rgroup.length <= 1) continue
-    var rbase_wy = wire_y_v3(row_of[cid])
+    var rbase_wy = wire_y(row_of[cid])
     var rfan_ys = [rbase_wy]
     for (var j = 1; j < rgroup.length; j++) rfan_ys.push(rbase_wy + j * 2)
     var rmid_x = right_vline_max[cid] ? right_vline_max[cid].mid_x : 0
@@ -1142,7 +1120,6 @@ export function layout(topology, options) {
 
   // ── Route back-edges ───────────────────────────────────────────────
 
-  var back_edge_rows = 0
   for (var i = 0; i < back_edges.length; i++) {
     var be_from = back_edges[i][0]
     var be_to = back_edges[i][1]
@@ -1152,7 +1129,7 @@ export function layout(topology, options) {
     var back_y = h_channel_y[be_id]
     if (back_y === undefined) {
       var max_row = Math.max(row_of[be_from], row_of[be_to])
-      back_y = comp_y_v3(max_row) + ROW_HEIGHT - 1
+      back_y = comp_y(max_row) + ROW_HEIGHT - 1
     }
     // Use allocated vchannel positions or right-margin for last-layer sources
     var from_x = v_channel_x[be_id + 'be_from']
@@ -1167,8 +1144,8 @@ export function layout(topology, options) {
       to_x = be_left_margin_x[be_id]
       to_is_left_margin = true
     }
-    var from_wy = wire_y_v3(row_of[be_from])
-    var to_wy = wire_y_v3(row_of[be_to])
+    var from_wy = wire_y(row_of[be_from])
+    var to_wy = wire_y(row_of[be_to])
 
     // Source-side hline
     if (from_x !== undefined) {
@@ -1227,12 +1204,12 @@ export function layout(topology, options) {
   }
   var content_y = max_fan_y > 0 ? max_fan_y + 1 : cum_y
 
-  // ── Emit all accumulated hlines ─────────────────────────────────────
+  // ── Merge and emit all accumulated hlines ──────────────────────────
 
   for (var hy in hline_ranges) {
-    var ranges = hline_ranges[hy]
-    for (var ri2 = 0; ri2 < ranges.length; ri2++) {
-      var rng = ranges[ri2]
+    var merged = merge_hline_ranges(hline_ranges[hy])
+    for (var ri2 = 0; ri2 < merged.length; ri2++) {
+      var rng = merged[ri2]
       if (rng.max_x > rng.min_x)
         elements.push({ type: 'hline', x: rng.min_x, y: parseInt(hy), length: rng.max_x - rng.min_x, dir: rng.dir || 'right', conns: rng.conns || [] })
     }
@@ -1272,7 +1249,7 @@ export function layout(topology, options) {
   // ── Standalone port rows ───────────────────────────────────────────
 
   var port_rows = Math.max(left_ports.length, right_ports.length)
-  var sy = content_y + back_edge_rows
+  var sy = content_y
   var li = 0, ri = 0
   while (li < left_ports.length || ri < right_ports.length) {
     if (li < left_ports.length) {
@@ -1300,8 +1277,8 @@ export function layout(topology, options) {
 
   // ── Height and box ─────────────────────────────────────────────────
 
-  var height = content_y + back_edge_rows + port_rows + state_rows + 1
-  if (total_rows === 0 && port_rows === 0 && state_rows === 0 && back_edge_rows === 0 && max_fan_y === 0) height = 3
+  var height = content_y + port_rows + state_rows + 1
+  if (total_rows === 0 && port_rows === 0 && state_rows === 0 && max_fan_y === 0) height = 3
 
   elements.unshift({ type: 'box', x: 0, y: 0, width: width, height: height, name: name })
 
