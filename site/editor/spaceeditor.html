@@ -41,8 +41,10 @@
     #controls button, #controls select { font-family: monospace; font-size: 13px; }
     #status { display: inline; margin-left: 8px; font-size: 12px; }
 
-    /* Bottom-right: ASCII */
-    #ascii-panel { flex: 1 1 0; min-width: 0; overflow: auto; padding: 12px; }
+    /* Bottom-right: ASCII/SVG */
+    #ascii-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+    #viz-controls button { font-family: monospace; font-size: 13px; }
+    #viz-output { flex: 1; overflow: auto; padding: 12px; }
     pre { font-size: 13px; margin: 0; }
 
     /* Dark mode */
@@ -55,6 +57,8 @@
       #editor-panel { border-color: #555; }
       #controls { border-color: #444; background: #222; }
       #controls button, #controls select { background: #333; color: #ccc; border: 1px solid #555; }
+      #viz-controls { border-color: #444; background: #222; }
+      #viz-controls button { background: #333; color: #ccc; border: 1px solid #555; }
 
       .CodeMirror { background: #1e1e1e !important; color: #ccc !important; }
       .CodeMirror-gutters { background: #252525; border-color: #444; }
@@ -109,12 +113,23 @@
       </div>
     </div>
     <div id="ascii-panel">
-      <pre id="ascii"></pre>
+      <div id="viz-controls" style="padding: 4px 8px; border-bottom: 1px solid #ccc;">
+        <button id="viz-toggle" onclick="toggleViz()">SVG</button>
+      </div>
+      <div id="viz-output" style="flex: 1; overflow: auto; padding: 12px;">
+        <pre id="ascii"></pre>
+      </div>
     </div>
   </div>
 
   <script type="module">
-    import { render_all } from '../js/space_ascii.js'
+    import { render_all as render_all_ascii } from '../js/space_ascii.js'
+    import { render_all as render_all_svg } from '../js/space_svg.js'
+
+    var renderMode = 'ascii'
+    function render_all(seedlikes) {
+      return renderMode === 'svg' ? render_all_svg(seedlikes) : render_all_ascii(seedlikes)
+    }
 
     var outputEl = document.getElementById('output')
 
@@ -133,23 +148,43 @@
     }
 
     var asciiEl = document.getElementById('ascii')
+    var vizEl = document.getElementById('viz-output')
     var statusEl = document.getElementById('status')
     var debounceTimer = null
 
-    function updateAscii() {
+    function updateViz() {
       try {
         var seedlikes = D.seedlikes_from_string(cm.getValue())
-        asciiEl.textContent = render_all(seedlikes)
+        if (renderMode === 'svg') {
+          asciiEl.style.display = 'none'
+          var svgEl = vizEl.querySelector('svg')
+          if (svgEl) svgEl.remove()
+          vizEl.insertAdjacentHTML('beforeend', render_all(seedlikes))
+        } else {
+          asciiEl.style.display = ''
+          var svgEl = vizEl.querySelector('svg')
+          if (svgEl) svgEl.remove()
+          asciiEl.textContent = render_all(seedlikes)
+        }
       } catch(e) {
+        asciiEl.style.display = ''
+        var svgEl = vizEl.querySelector('svg')
+        if (svgEl) svgEl.remove()
         asciiEl.textContent = e.message
       }
+    }
+
+    window.toggleViz = function() {
+      renderMode = renderMode === 'ascii' ? 'svg' : 'ascii'
+      document.getElementById('viz-toggle').textContent = renderMode === 'ascii' ? 'SVG' : 'ASCII'
+      updateViz()
     }
 
     cm.on("change", function(instance, change) {
       if(cm.getValue() && change.origin != 'setValue')
         CodeMirror.commands.autocomplete(instance)
       clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(updateAscii, 150)
+      debounceTimer = setTimeout(updateViz, 150)
     })
 
     // --- DOM generator ---
@@ -313,7 +348,7 @@
     window.run = function() {
       try {
         var seedlikes = D.seedlikes_from_string(cm.getValue())
-        asciiEl.textContent = render_all(seedlikes)
+        updateViz()
         generateDOM(seedlikes)
         injectRepl(seedlikes)
         var spaceName = seedlikes.outer ? 'outer' : Object.keys(seedlikes).pop()
