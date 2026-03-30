@@ -19,7 +19,7 @@ bin/highlight-conn.mjs <layout> <render> <id> # visualize a connection path
 ## Local server
 
 HTML files are always available at `http://localhost:8080/new/daimio2/` — no need to
-launch a separate server. E.g. `http://localhost:8080/new/daimio2/demos/spaceeditor.html`.
+launch a separate server. E.g. `http://localhost:8080/new/daimio2/site/demos/spaceeditor.html`.
 
 ## Test-driven development
 

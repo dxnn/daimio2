@@ -28,6 +28,9 @@
     #output label { margin-right: 8px; }
     #output form { display: inline; }
     #output input[type="text"] { font-family: monospace; font-size: 13px; }
+    #repl { border-top: 1px solid #999; padding: 4px 8px; display: flex; gap: 4px; align-items: center; }
+    #repl input { flex: 1; font-family: monospace; font-size: 13px; border: 1px solid #ccc; padding: 2px 4px; }
+    #repl-result { font-size: 13px; color: #666; margin-left: 8px; }
 
     /* Dark mode — follows user's system setting */
     @media (prefers-color-scheme: dark) {
@@ -38,6 +41,9 @@
       #controls { border-color: #444; background: #222; }
       #controls button, #controls select { background: #333; color: #ccc; border: 1px solid #555; }
       #ascii-panel { background: #1a1a1a; }
+      #repl { border-color: #555; }
+      #repl input { background: #252525; color: #ccc; border-color: #555; }
+      #repl-result { color: #999; }
 
       .CodeMirror { background: #1e1e1e !important; color: #ccc !important; }
       .CodeMirror-gutters { background: #252525; border-color: #444; }
@@ -68,6 +74,13 @@
 
   <!-- Top: live space output (auto-generated from port declarations) -->
   <div id="output"></div>
+
+  <!-- REPL — sends DAML through a from-js port into the space -->
+  <div id="repl">
+    <span>&gt;</span>
+    <input id="repl-input" type="text" placeholder="DAML expression">
+    <span id="repl-result"></span>
+  </div>
 
   <!-- Bottom: editor + ASCII topology -->
   <div id="bottom">
@@ -187,11 +200,43 @@
       }
     }
 
+    // --- REPL ---
+
+    var replInput = document.getElementById('repl-input')
+    var replResult = document.getElementById('repl-result')
+
+    D.Etc.fun = D.Etc.fun || {}
+    D.Etc.fun['_repl_out'] = function(ship) {
+      replResult.textContent = D.stringify(ship)
+    }
+
+    function injectRepl(seedlikes) {
+      // Find the outer space (or last defined)
+      var name = seedlikes.outer ? 'outer' : Object.keys(seedlikes).pop()
+      if (!name || !seedlikes[name]) return
+      var seed = seedlikes[name]
+      seed.ports['_repl_in'] = ['from-js']
+      seed.ports['_repl_out'] = ['to-js']
+      seed.stations['_repl'] = {value: '{__ | unquote | run}'}
+      seed.routes.push(['_repl_in', '_repl.in'])
+      seed.routes.push(['_repl.out', '_repl_out'])
+    }
+
+    replInput.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return
+      var code = replInput.value
+      if (!code || !window.OuterSpace) return
+      replResult.textContent = ''
+      D.send_value_to_js_port(OuterSpace, '_repl_in', code)
+      replInput.value = ''
+    })
+
     window.run = function() {
       try {
         var seedlikes = D.seedlikes_from_string(cm.getValue())
         asciiEl.textContent = render_all(seedlikes)
         generateDOM(seedlikes)
+        injectRepl(seedlikes)
         var outerseed = D.make_spaceseeds(seedlikes)
         window.OuterSpace = new D.Space(outerseed)
         statusEl.textContent = 'OK'

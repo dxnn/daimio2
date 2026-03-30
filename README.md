@@ -9,9 +9,9 @@ Desktop applications still win for customizability and extensibility, however. S
 ## Getting started
 
 Clone this repo into a web-accessible directory. Then point your browser at
-- tests/daimio.html
-- demos/automata/excitebikes.html
-- demos/goodideas.html
+- site/index.html
+- site/demos/automata/excitebikes.html
+- site/demos/todomvc.html
 
 You'll need a copy of CodeMirror installed to prevent the test page from complaining. 
 

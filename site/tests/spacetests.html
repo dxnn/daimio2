@@ -31,7 +31,7 @@
       xhr.send(null)
     }
 
-    xhr_get('spacetests.dm', function(data) {
+    xhr_get('../../tests/spacetests.dm', function(data) {
       var chunks = chunker(data)
         , evaled = evaler(chunks)
         , output = decorater(evaled)
