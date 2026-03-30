@@ -1,5 +1,6 @@
 import D from '../daimio/daimio.js'
-import { extract, layout, render, render_space, render_all, topo_sort } from '../site/js/space_ascii.js'
+import { extract, layout, topo_sort } from '../site/js/space_layout.js'
+import { render, render_space, render_all } from '../site/js/space_ascii.js'
 import { readdirSync, readFileSync, existsSync } from 'fs'
 
 var pass = 0, fail = 0, failures = []

@@ -15,35 +15,46 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: monospace; height: 100vh; display: flex; flex-direction: column; }
-    #output { flex: 1; padding: 12px; border-bottom: 2px solid #999; overflow: auto; }
+    #top { flex: 1; display: flex; min-height: 0; border-bottom: 2px solid #999; }
     #bottom { flex: 1; display: flex; min-height: 0; }
+
+    /* Top-left: REPL */
+    #repl-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border-right: 2px solid #999; }
+    #repl-history { flex: 1; overflow: auto; padding: 8px; font-size: 13px; }
+    #repl-history .cmd { margin-bottom: 6px; }
+    #repl-history .input { color: #c44; margin: 0; }
+    #repl-history .result { margin: 0; padding-left: 8px; }
+    #repl-input-wrap { border-top: 1px solid #ccc; }
+    #repl-input-wrap .CodeMirror { height: auto; font-size: 13px; }
+
+    /* Top-right: live output */
+    #output { flex: 1 1 0; min-width: 0; padding: 12px; overflow: auto; }
+    #output .port-el { margin: 4px 0; }
+    #output label { margin-right: 8px; }
+    #output form { display: inline; }
+    #output input[type="text"] { font-family: monospace; font-size: 13px; }
+
+    /* Bottom-left: editor */
     #editor-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border-right: 2px solid #999; }
     #editor-panel .CodeMirror { flex: 1; font-size: 13px; }
     #controls { padding: 4px 8px; border-top: 1px solid #ccc; }
     #controls button, #controls select { font-family: monospace; font-size: 13px; }
     #status { display: inline; margin-left: 8px; font-size: 12px; }
+
+    /* Bottom-right: ASCII */
     #ascii-panel { flex: 1 1 0; min-width: 0; overflow: auto; padding: 12px; }
     pre { font-size: 13px; margin: 0; }
-    #output .port-el { margin: 4px 0; }
-    #output label { margin-right: 8px; }
-    #output form { display: inline; }
-    #output input[type="text"] { font-family: monospace; font-size: 13px; }
-    #repl { border-top: 1px solid #999; padding: 4px 8px; display: flex; gap: 4px; align-items: center; }
-    #repl input { flex: 1; font-family: monospace; font-size: 13px; border: 1px solid #ccc; padding: 2px 4px; }
-    #repl-result { font-size: 13px; color: #666; margin-left: 8px; }
 
-    /* Dark mode — follows user's system setting */
+    /* Dark mode */
     @media (prefers-color-scheme: dark) {
       body { background: #1a1a1a; color: #ccc; }
-      #output { border-color: #555; }
-      #bottom { }
+      #top { border-color: #555; }
+      #repl-panel { border-color: #555; }
+      #repl-input-wrap { border-color: #444; }
+      #repl-history .input { color: #f0a0a0; }
       #editor-panel { border-color: #555; }
       #controls { border-color: #444; background: #222; }
       #controls button, #controls select { background: #333; color: #ccc; border: 1px solid #555; }
-      #ascii-panel { background: #1a1a1a; }
-      #repl { border-color: #555; }
-      #repl input { background: #252525; color: #ccc; border-color: #555; }
-      #repl-result { color: #999; }
 
       .CodeMirror { background: #1e1e1e !important; color: #ccc !important; }
       .CodeMirror-gutters { background: #252525; border-color: #444; }
@@ -72,17 +83,18 @@
 </head>
 <body>
 
-  <!-- Top: live space output (auto-generated from port declarations) -->
-  <div id="output"></div>
-
-  <!-- REPL — sends DAML through a from-js port into the space -->
-  <div id="repl">
-    <span>&gt;</span>
-    <input id="repl-input" type="text" placeholder="DAML expression">
-    <span id="repl-result"></span>
+  <!-- Top row: REPL + live output -->
+  <div id="top">
+    <div id="repl-panel">
+      <div id="repl-history"></div>
+      <div id="repl-input-wrap">
+        <textarea id="repl-code" rows="1" placeholder="> DAML expression"></textarea>
+      </div>
+    </div>
+    <div id="output"></div>
   </div>
 
-  <!-- Bottom: editor + ASCII topology -->
+  <!-- Bottom row: editor + ASCII topology -->
   <div id="bottom">
     <div id="editor-panel">
       <textarea id="code">outer
@@ -106,7 +118,8 @@
 
     var outputEl = document.getElementById('output')
 
-    // CodeMirror setup
+    // --- Editor (bottom-left) ---
+
     var cm = CodeMirror.fromTextArea(document.getElementById('code'), {
       matchBrackets: true
     })
@@ -139,6 +152,8 @@
       debounceTimer = setTimeout(updateAscii, 150)
     })
 
+    // --- DOM generator ---
+
     function generateDOM(seedlikes) {
       outputEl.innerHTML = ''
       var name = seedlikes.outer ? 'outer' : Object.keys(seedlikes).pop()
@@ -149,7 +164,7 @@
         var arr = seed.ports[key]
         var flavour = arr[0]
         var thing = arr[1] || key
-        if (thing[0] === '.') continue  // class selectors need existing DOM
+        if (thing[0] === '.') continue
 
         var wrap = document.createElement('div')
         wrap.className = 'port-el'
@@ -194,24 +209,95 @@
           div.id = thing
           wrap.appendChild(div)
         }
-        else continue  // from-js, to-js, etc — skip
+        else continue
 
         outputEl.appendChild(wrap)
       }
     }
 
-    // --- REPL ---
+    // --- REPL (top-left) ---
 
-    var replInput = document.getElementById('repl-input')
-    var replResult = document.getElementById('repl-result')
+    var historyEl = document.getElementById('repl-history')
+    var historyList = JSON.parse(localStorage.getItem('space-repl-history')) || []
+    var historyBuffer = ''
+    var historyCursor = 0
+
+    var repl = CodeMirror.fromTextArea(document.getElementById('repl-code'), {
+      matchBrackets: true
+    })
+    repl.setOption('lineNumbers', false)
+    repl.setOption('extraKeys', {
+      "Enter": function(instance) {
+        var code = instance.getValue().trim()
+        if (!code || !window.OuterSpace) return
+        replEval(code)
+        instance.setValue('')
+        historyCursor = 0
+      },
+      "Up": function(instance) {
+        if (!historyCursor) historyBuffer = instance.getValue()
+        if (!historyList.length) return
+        historyCursor += historyCursor < historyList.length ? 1 : 0
+        instance.setValue(historyList[historyCursor - 1])
+      },
+      "Down": function(instance) {
+        if (!historyCursor) return false
+        historyCursor--
+        instance.setValue(historyCursor ? historyList[historyCursor - 1] : historyBuffer)
+      },
+    })
+
+    repl.on("change", function(instance, change) {
+      if (repl.getValue() && change.origin != 'setValue')
+        CodeMirror.commands.autocomplete(instance)
+    })
+
+    repl.on("beforeChange", function(instance, change) {
+      if (change.update && (/\n/.test(change.text) || change.text.length > 1)) {
+        change.update(change.from, change.to, [change.text.join("").replace(/\n/g, "")])
+        return true
+      }
+      if (change.from.constructor != CodeMirror.Pos && !change.origin) {
+        change.update(change.from, change.to, [change.text[0] + " "])
+        return true
+      }
+    })
+
+    // single-line height + hide scrollbars
+    repl.setSize("100%", repl.defaultTextHeight() + 8)
+    repl.getScrollerElement().style.overflow = 'hidden'
 
     D.Etc.fun = D.Etc.fun || {}
     D.Etc.fun['_repl_out'] = function(ship) {
-      replResult.textContent = D.stringify(ship)
+      // append result to the last .cmd in history
+      var cmds = historyEl.querySelectorAll('.cmd')
+      var last = cmds[cmds.length - 1]
+      if (last) {
+        var p = last.querySelector('.result')
+        if (p) p.textContent = D.stringify(ship)
+      }
+    }
+
+    function replEval(code) {
+      // update history
+      var idx = historyList.indexOf(code)
+      if (idx >= 0) historyList.splice(idx, 1)
+      historyList.unshift(code)
+      localStorage.setItem('space-repl-history', JSON.stringify(historyList))
+
+      // show in history panel
+      var div = document.createElement('div')
+      div.className = 'cmd'
+      div.innerHTML = '<p class="input">' + code.replace(/</g, '&lt;') + '</p>'
+                    + '<p class="result"></p>'
+      historyEl.appendChild(div)
+      historyEl.scrollTop = historyEl.scrollHeight
+
+      // send through space
+      D.send_value_to_js_port(OuterSpace, '_repl_in', code)
     }
 
     function injectRepl(seedlikes) {
-      // Find the outer space (or last defined)
       var name = seedlikes.outer ? 'outer' : Object.keys(seedlikes).pop()
       if (!name || !seedlikes[name]) return
       var seed = seedlikes[name]
@@ -222,14 +308,7 @@
       seed.routes.push(['_repl.out', '_repl_out'])
     }
 
-    replInput.addEventListener('keydown', function(e) {
-      if (e.key !== 'Enter') return
-      var code = replInput.value
-      if (!code || !window.OuterSpace) return
-      replResult.textContent = ''
-      D.send_value_to_js_port(OuterSpace, '_repl_in', code)
-      replInput.value = ''
-    })
+    // --- Run ---
 
     window.run = function() {
       try {
@@ -237,8 +316,17 @@
         asciiEl.textContent = render_all(seedlikes)
         generateDOM(seedlikes)
         injectRepl(seedlikes)
+        var spaceName = seedlikes.outer ? 'outer' : Object.keys(seedlikes).pop()
+        var fromJsPorts = []
+        if (spaceName && seedlikes[spaceName]) {
+          var ports = seedlikes[spaceName].ports
+          for (var k in ports)
+            if (ports[k][0] === 'from-js' && k[0] !== '_') fromJsPorts.push(k)
+        }
         var outerseed = D.make_spaceseeds(seedlikes)
         window.OuterSpace = new D.Space(outerseed)
+        for (var i = 0; i < fromJsPorts.length; i++)
+          D.send_value_to_js_port(OuterSpace, fromJsPorts[i], 1)
         statusEl.textContent = 'OK'
         statusEl.style.color = '#090'
       } catch(e) {
@@ -250,15 +338,123 @@
     // --- Examples ---
 
     var examples = {
-      'Counter': 'outer\n  @counter dom-set-text\n  @button  dom-on-submit\n\n  @button -> {1 | add $count | >$count} -> @counter',
+'Counter': `outer
+  @counter dom-set-text
+  @button  dom-on-submit
 
-      'Two Buttons': 'outer\n  @counter dom-set-text\n  @add1 dom-on-submit\n  @add2 dom-on-submit\n\n  inc {__ | add $count | >$count}\n\n  @add1 -> {1} -> inc -> @counter\n  @add2 -> {2} -> inc',
+  @button -> {1 | add $count | >$count} -> @counter`,
 
-      'Greeter': 'outer\n  @greeting dom-set-text\n  @name dom-on-change\n\n  @name -> {"Hello, {__}!" | run} -> @greeting',
+'Two Buttons': `outer
+  @counter dom-set-text
+  @add1 dom-on-submit
+  @add2 dom-on-submit
 
-      'Toggle': 'outer\n  @display dom-set-text\n  @toggle dom-on-click\n\n  @toggle -> {$on | not | >$on | if $on then :ON else :OFF} -> @display',
+  inc {__ | add $count | >$count}
 
-      'Up/Down': 'outer\n  @counter dom-set-text\n  @up dom-on-click\n  @down dom-on-click\n\n  @up -> {1 | add $n | >$n} -> @counter\n  @down -> {$n | add -1 | >$n} -> @counter',
+  @add1 -> {1} -> inc -> @counter
+  @add2 -> {2} -> inc`,
+
+'Greeter': `outer
+  @greeting dom-set-text
+  @name dom-on-change
+
+  @name -> {"Hello, {__}!" | run} -> @greeting`,
+
+'Toggle': `outer
+  @display dom-set-text
+  @toggle dom-on-click
+
+  @toggle -> {$on | not | >$on | if $on then :ON else :OFF} -> @display`,
+
+'Up/Down': `outer
+  @counter dom-set-text
+  @up dom-on-click
+  @down dom-on-click
+
+  @up -> {1 | add $n | >$n} -> @counter
+  @down -> {$n | add -1 | >$n} -> @counter`,
+
+'Sequences': `outer
+  $seq []
+
+  changed {__}
+
+  @add1 dom-on-submit
+  @add1 -> {$seq.#1 | add 1 | list union data $seq | >$seq} -> changed
+
+  @seq dom-set-text
+  changed -> {$seq | join on " "} -> @seq`,
+
+'Timer': `outer
+  $time 1000
+  $step 1
+
+  @time-in  dom-on-change
+  @time-out dom-set-text
+  @time-in -> {__ | >$time} -> @time-out
+
+  @step-in  dom-on-change
+  @step-out dom-set-text
+  @step-in -> {__ | >$step} -> @step-out
+
+  @counter dom-set-text
+  @button  dom-on-submit
+
+  inc    {__ | add $count | >$count}
+  block  {$count | then "" else "{1 | >@start}" | run}
+
+  @button -> block
+  block.start -> inc -> @counter
+  inc -> {process sleep for $time | $step} -> inc`,
+
+'Excitebikes': `outer
+  $colors ["#339", "#66B", "#66F", "#BBF", "#EEF"]
+  $time   1000
+  $cells  []
+
+  @init   from-js
+  changed {__}
+  show    {__}
+  initializer
+    {20 | range | map block "{20 | range | map block 0}" | >$cells}
+
+  @init -> initializer
+
+  process
+    { $cells | map block "{
+        _key | >row || __in | map block "{
+          __ | switch (
+            0 { $cells.{_row | add -1 | range 3}.{_key | add -1 | range 3}
+              | math max | >max | _max | less than 3 | then 0 else _max}
+            1 0
+            2 1
+            3 2
+            4 3)}"}"
+    | >$cells}
+
+  initializer -> process -> changed
+  process -> {process sleep for $time} -> process
+
+  @touched dom-on-click .touch
+  activate
+    {__ | split on "x" | >coords | $cells | list poke path (_coords.#1 _coords.#2) value 4 | >$cells}
+  @touched -> activate -> changed
+
+  @house dom-set-raw-html
+
+  show-cells
+    <table border="0" cellspacing="0" cellpadding="0">
+      {begin row | map data $cells | join}
+        <tr>
+          {_key | >$row || ""}{begin item | map data __in | join}
+            <td class="touch" data-value="{$row}x{_key}" style="width:20px;height:20px;background-color:{$colors.{__}}"></td>
+          {end item}
+        </tr>
+      {end row}
+    </table>
+
+  changed -> show
+  show -> show-cells -> @house`,
     }
 
     var exSelect = document.getElementById('examples')
