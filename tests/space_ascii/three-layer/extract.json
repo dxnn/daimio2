@@ -18,19 +18,19 @@
   "stations": [
     {
       "id": "s0",
-      "name": "station-3061810426547388",
+      "name": "station-31780596935905625",
       "source": "{a}",
       "ports": []
     },
     {
       "id": "s1",
-      "name": "station-21439512369075775",
+      "name": "station-3680272835825057",
       "source": "{b}",
       "ports": []
     },
     {
       "id": "s2",
-      "name": "station-4426007316452315",
+      "name": "station-6479413112170864",
       "source": "{c}",
       "ports": []
     }

@@ -1,14 +1,14 @@
 {
   "id": "counter",
   "name": "counter",
-  "width": 37,
+  "width": 45,
   "height": 8,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 37,
+      "width": 45,
       "height": 8,
       "name": "counter"
     },
@@ -17,15 +17,15 @@
       "id": "s0",
       "x": 5,
       "y": 3,
-      "width": 26,
+      "width": 32,
       "height": 4,
-      "source": "{1 | add $count | >…",
+      "source": "{1 | add $count | >$count}",
       "in": {
         "x": 5,
         "y": 5
       },
       "out": {
-        "x": 31,
+        "x": 37,
         "y": 5
       }
     },
@@ -40,17 +40,19 @@
     },
     {
       "type": "port",
-      "x": 36,
+      "x": 44,
       "y": 5,
       "dir": "right",
       "key": "out",
       "id": "p1",
-      "wire_x": 35
+      "wire_x": 43
     }
   ],
   "paths": [
     {
       "conn": "c0",
+      "from": "p0",
+      "to": "s0",
       "path": [
         {
           "x": 1,
@@ -64,13 +66,15 @@
     },
     {
       "conn": "c1",
+      "from": "s0",
+      "to": "p1",
       "path": [
         {
-          "x": 31,
+          "x": 37,
           "y": 5
         },
         {
-          "x": 35,
+          "x": 43,
           "y": 5
         }
       ]

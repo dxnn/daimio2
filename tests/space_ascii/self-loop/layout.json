@@ -1,15 +1,15 @@
 {
   "id": "self",
   "name": "self",
-  "width": 22,
-  "height": 8,
+  "width": 24,
+  "height": 10,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 22,
-      "height": 8,
+      "width": 24,
+      "height": 10,
       "name": "self"
     },
     {
@@ -41,17 +41,50 @@
     },
     {
       "type": "port",
-      "x": 21,
+      "x": 23,
       "y": 5,
       "dir": "right",
       "key": "out",
       "id": "p1",
-      "wire_x": 20
+      "wire_x": 22
     }
   ],
   "paths": [
     {
+      "conn": "c1",
+      "from": "s0",
+      "to": "s0",
+      "path": [
+        {
+          "x": 16,
+          "y": 5
+        },
+        {
+          "x": 18,
+          "y": 5
+        },
+        {
+          "x": 18,
+          "y": 8
+        },
+        {
+          "x": 3,
+          "y": 8
+        },
+        {
+          "x": 3,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    },
+    {
       "conn": "c0",
+      "from": "p0",
+      "to": "s0",
       "path": [
         {
           "x": 1,
@@ -65,13 +98,15 @@
     },
     {
       "conn": "c2",
+      "from": "s0",
+      "to": "p1",
       "path": [
         {
           "x": 16,
           "y": 5
         },
         {
-          "x": 20,
+          "x": 22,
           "y": 5
         }
       ]

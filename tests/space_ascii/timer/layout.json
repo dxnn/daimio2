@@ -1,14 +1,14 @@
 {
   "id": "timer",
   "name": "timer",
-  "width": 37,
+  "width": 39,
   "height": 17,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 37,
+      "width": 39,
       "height": 17,
       "name": "timer"
     },
@@ -66,12 +66,12 @@
     },
     {
       "type": "port",
-      "x": 36,
+      "x": 38,
       "y": 5,
       "dir": "right",
       "key": "out:display",
       "id": "p2",
-      "wire_x": 35
+      "wire_x": 37
     },
     {
       "type": "text",
@@ -95,6 +95,8 @@
   "paths": [
     {
       "conn": "c0",
+      "from": "p0",
+      "to": "s0",
       "path": [
         {
           "x": 1,
@@ -108,6 +110,8 @@
     },
     {
       "conn": "c2",
+      "from": "p1",
+      "to": "s1",
       "path": [
         {
           "x": 1,
@@ -121,34 +125,38 @@
     },
     {
       "conn": "c1",
+      "from": "s0",
+      "to": "p2",
       "path": [
         {
           "x": 31,
           "y": 5
         },
         {
-          "x": 35,
+          "x": 37,
           "y": 5
         }
       ]
     },
     {
       "conn": "c3",
+      "from": "s1",
+      "to": "p2",
       "path": [
         {
           "x": 24,
           "y": 11
         },
         {
-          "x": 34,
+          "x": 36,
           "y": 11
         },
         {
-          "x": 34,
+          "x": 36,
           "y": 5
         },
         {
-          "x": 35,
+          "x": 37,
           "y": 5
         }
       ]

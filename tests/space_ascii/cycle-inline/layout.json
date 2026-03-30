@@ -1,14 +1,14 @@
 {
   "id": "test2",
   "name": "test2",
-  "width": 83,
+  "width": 87,
   "height": 10,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 83,
+      "width": 87,
       "height": 10,
       "name": "test2"
     },
@@ -32,17 +32,17 @@
     {
       "type": "station",
       "id": "s1",
-      "x": 28,
+      "x": 30,
       "y": 3,
       "width": 21,
       "height": 4,
       "source": "{ __ | >cells }",
       "in": {
-        "x": 28,
+        "x": 30,
         "y": 5
       },
       "out": {
-        "x": 49,
+        "x": 51,
         "y": 5
       },
       "name": "try-change"
@@ -50,17 +50,17 @@
     {
       "type": "station",
       "id": "s0",
-      "x": 54,
+      "x": 58,
       "y": 3,
       "width": 21,
       "height": 4,
       "source": "{ __ | >cells }",
       "in": {
-        "x": 54,
+        "x": 58,
         "y": 5
       },
       "out": {
-        "x": 75,
+        "x": 79,
         "y": 5
       },
       "name": "process"
@@ -69,43 +69,49 @@
   "paths": [
     {
       "conn": "c1",
+      "from": "s2",
+      "to": "s1",
       "path": [
         {
           "x": 23,
           "y": 5
         },
         {
-          "x": 28,
+          "x": 30,
           "y": 5
         }
       ]
     },
     {
       "conn": "c2",
+      "from": "s1",
+      "to": "s0",
       "path": [
         {
-          "x": 49,
+          "x": 51,
           "y": 5
         },
         {
-          "x": 54,
+          "x": 58,
           "y": 5
         }
       ]
     },
     {
       "conn": "c0",
+      "from": "s0",
+      "to": "s2",
       "path": [
         {
-          "x": 75,
+          "x": 79,
           "y": 5
         },
         {
-          "x": 78,
+          "x": 82,
           "y": 5
         },
         {
-          "x": 78,
+          "x": 82,
           "y": 8
         },
         {

@@ -24,13 +24,13 @@
   "stations": [
     {
       "id": "s0",
-      "name": "station-18300112569111504",
+      "name": "station-32469375849029003",
       "source": "{__ | add $count | >$count}",
       "ports": []
     },
     {
       "id": "s1",
-      "name": "station-870438298399499",
+      "name": "station-45673328739275443",
       "source": "{__ | >$time}",
       "ports": []
     }

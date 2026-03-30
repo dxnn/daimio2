@@ -1,14 +1,14 @@
 {
   "id": "test1",
   "name": "test1",
-  "width": 48,
+  "width": 50,
   "height": 8,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 48,
+      "width": 50,
       "height": 8,
       "name": "test1"
     },
@@ -33,17 +33,17 @@
     {
       "type": "station",
       "id": "s1",
-      "x": 28,
+      "x": 30,
       "y": 3,
       "width": 14,
       "height": 4,
       "source": "{cells}",
       "in": {
-        "x": 28,
+        "x": 30,
         "y": 5
       },
       "out": {
-        "x": 42,
+        "x": 44,
         "y": 5
       },
       "name": "process"
@@ -61,19 +61,23 @@
   "paths": [
     {
       "conn": "c1",
+      "from": "s0",
+      "to": "s1",
       "path": [
         {
           "x": 23,
           "y": 5
         },
         {
-          "x": 28,
+          "x": 30,
           "y": 5
         }
       ]
     },
     {
       "conn": "c0",
+      "from": "p0",
+      "to": "s0",
       "path": [
         {
           "x": 1,

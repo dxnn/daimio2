@@ -2,14 +2,14 @@
   "alpha": {
     "id": "alpha",
     "name": "alpha",
-    "width": 20,
+    "width": 22,
     "height": 8,
     "elements": [
       {
         "type": "box",
         "x": 0,
         "y": 0,
-        "width": 20,
+        "width": 22,
         "height": 8,
         "name": "alpha"
       },
@@ -41,17 +41,19 @@
       },
       {
         "type": "port",
-        "x": 19,
+        "x": 21,
         "y": 5,
         "dir": "right",
         "key": "out",
         "id": "p1",
-        "wire_x": 18
+        "wire_x": 20
       }
     ],
     "paths": [
       {
         "conn": "c0",
+        "from": "p0",
+        "to": "s0",
         "path": [
           {
             "x": 1,
@@ -65,13 +67,15 @@
       },
       {
         "conn": "c1",
+        "from": "s0",
+        "to": "p1",
         "path": [
           {
             "x": 14,
             "y": 5
           },
           {
-            "x": 18,
+            "x": 20,
             "y": 5
           }
         ]
@@ -81,14 +85,14 @@
   "beta": {
     "id": "beta",
     "name": "beta",
-    "width": 20,
+    "width": 22,
     "height": 8,
     "elements": [
       {
         "type": "box",
         "x": 0,
         "y": 0,
-        "width": 20,
+        "width": 22,
         "height": 8,
         "name": "beta"
       },
@@ -120,17 +124,19 @@
       },
       {
         "type": "port",
-        "x": 19,
+        "x": 21,
         "y": 5,
         "dir": "right",
         "key": "out",
         "id": "p1",
-        "wire_x": 18
+        "wire_x": 20
       }
     ],
     "paths": [
       {
         "conn": "c0",
+        "from": "p0",
+        "to": "s0",
         "path": [
           {
             "x": 1,
@@ -144,13 +150,15 @@
       },
       {
         "conn": "c1",
+        "from": "s0",
+        "to": "p1",
         "path": [
           {
             "x": 14,
             "y": 5
           },
           {
-            "x": 18,
+            "x": 20,
             "y": 5
           }
         ]

@@ -265,7 +265,7 @@ export function topo_sort(topology) {
 }
 
 export function layout(topology, options) {
-  var HLINE_GAP = 5
+  var HLINE_GAP = 7
   var ROW_HEIGHT = 6
   var HEADER_HEIGHT = 2
   var PORT_COL = 5   // base: 1 (port 'o') + 3 (wire) + 1 (paren '(' push-out); widened to 7 when fan+jog needed
@@ -429,23 +429,16 @@ export function layout(topology, options) {
     if (layers[i].length > total_rows) total_rows = layers[i].length
   }
 
-  // ── Route connections ────────────────────────────────────────────────
-  // Trunk-and-channel model:
-  //   - One trunk hline per (gap, row) pair (shared by all connections at that gap-row)
-  //   - Vertical channels in inter-layer gaps for cross-row connections
-  //   - Horizontal channels between station rows for multi-layer jogs and back-edges
+  // ── Dummy nodes for multi-layer edges ────────────────────────────────
+  // For each forward comp→comp edge spanning 2+ layers, insert dummy nodes at
+  // intermediate layers. Back-edges are routed separately (not via dummies).
 
-  function comp_right(cid) {
-    return layer_x[layer_of[cid]] + comp_w(cid)
-  }
-
-  // ── Classify connections ───────────────────────────────────────────
-
-  var left_port_groups = {}  // comp_id → [port, ...]
-  var right_port_groups = {} // comp_id → [port, ...]
-  var direct_conns = []      // same row, adjacent layers → single trunk
-  var adjacent_cross = []    // different rows, adjacent layers → trunk + vchannel + trunk
-  var multi_conns = []       // spans 2+ gaps (any row) → per-gap routing with h-channel
+  // Classify connections: port↔comp vs comp→comp (forward) vs back-edge
+  var left_port_groups = {}   // comp_id → [port, ...]
+  var right_port_groups = {}  // comp_id → [port, ...]
+  var comp_edges = []         // forward comp→comp edges only
+  var be_conns = []           // back-edge connections (original direction)
+  var contract_returns = []   // station→left_port (contract return, routes backward)
 
   for (var i = 0; i < connections.length; i++) {
     var c = connections[i]
@@ -454,19 +447,48 @@ export function layout(topology, options) {
       if (!left_port_groups[tid]) left_port_groups[tid] = []
       left_port_groups[tid].push(port_by_id[fid])
     } else if (is_comp(fid) && port_by_id[tid]) {
-      if (!right_port_groups[fid]) right_port_groups[fid] = []
-      right_port_groups[fid].push(port_by_id[tid])
-    } else if (is_comp(fid) && is_comp(tid) && !back_edge_set[fid + '|' + tid]) {
-      var sl = layer_of[fid], dl = layer_of[tid]
-      if (dl - sl === 1 && row_of[fid] === row_of[tid]) direct_conns.push(c)
-      else if (dl - sl === 1) adjacent_cross.push(c)
-      else multi_conns.push(c)
+      // Station→port: check if port is left-dir (contract return)
+      if (port_by_id[tid].dir === 'left') {
+        contract_returns.push(c)
+      } else {
+        if (!right_port_groups[fid]) right_port_groups[fid] = []
+        right_port_groups[fid].push(port_by_id[tid])
+      }
+    } else if (is_comp(fid) && is_comp(tid)) {
+      if (back_edge_set[fid + '|' + tid]) {
+        be_conns.push(c)
+      } else {
+        comp_edges.push({ id: c.id, from_id: fid, to_id: tid })
+      }
     }
   }
 
-  // Widen PORT_COL if both fan vlines and jog vlines are needed in the left margin.
-  // Fan vlines exist when a left port connects to stations at different rows.
-  // Jog vlines exist when a left port connects to a station at layer > 0.
+  // Pre-compute which gaps each back-edge needs vlines in
+  var be_gap_info = {}
+  for (var i = 0; i < be_conns.length; i++) {
+    var bec = be_conns[i]
+    if (bec.from.id === bec.to.id) continue  // self-loop: no gap vlines
+    var from_layer = layer_of[bec.from.id], to_layer = layer_of[bec.to.id]
+    be_gap_info[bec.id] = {
+      src_gap: from_layer < layers.length - 1 ? from_layer : null,  // null = right margin
+      dst_gap: to_layer > 0 ? to_layer - 1 : null                   // null = left margin
+    }
+  }
+
+  // Build reverse map: port_id → [comp_ids] for multi-station port connections
+  function build_port_station_map(port_groups) {
+    var map = {}
+    for (var cid in port_groups) {
+      var group = port_groups[cid]
+      for (var j = 0; j < group.length; j++) {
+        if (!map[group[j].id]) map[group[j].id] = []
+        map[group[j].id].push(cid)
+      }
+    }
+    return map
+  }
+
+  // Widen PORT_COL if both fan vlines and jog vlines are needed in the left margin
   var left_port_stations = build_port_station_map(left_port_groups)
   var has_left_fan = false, has_left_jog = false
   for (var cid in left_port_groups)
@@ -477,92 +499,112 @@ export function layout(topology, options) {
       rows[row_of[left_port_stations[pid][j]]] = true
     if (Object.keys(rows).length > 1) has_left_fan = true
   }
-  if (has_left_fan && has_left_jog) PORT_COL = 7
+  // Also check if back-edges target layer-0 components (need left margin vlines)
+  var has_left_be = false
+  for (var i = 0; i < back_edges.length; i++)
+    if (layer_of[back_edges[i][1]] === 0) { has_left_be = true; break }
+  var left_margin_items = (has_left_fan ? 1 : 0) + (has_left_jog ? 1 : 0) + (has_left_be ? 1 : 0)
+  if (left_margin_items >= 2) PORT_COL = Math.max(PORT_COL, 5 + left_margin_items * 2)
 
-  // ── Channel allocation ───────────────────────────────────────────
+  // Insert dummy nodes into layers for edges spanning 2+ layers.
+  // Each dummy is { id, layer, edge_id } with zero width.
+  var dummy_id_counter = 0
+  var dummy_set = {}  // dummy_id → true
+  // edge_chain[edge_id] = [from_id, dummy_1, dummy_2, ..., to_id]
+  var edge_chain = {}
 
-  // Vertical channels: one per connection that changes rows in a gap
-  var gap_v_channels = []
-  for (var g = 0; g < layers.length - 1; g++) gap_v_channels.push([])
-
-  // Adjacent cross-row: one vchannel in the single gap
-  for (var i = 0; i < adjacent_cross.length; i++) {
-    var c = adjacent_cross[i]
-    var g = layer_of[c.from.id]
-    gap_v_channels[g].push({ conn: c, from_row: row_of[c.from.id], to_row: row_of[c.to.id] })
+  for (var i = 0; i < comp_edges.length; i++) {
+    var e = comp_edges[i]
+    var fl = layer_of[e.from_id], tl = layer_of[e.to_id]
+    var span = tl - fl
+    if (span <= 1) {
+      edge_chain[e.id] = [e.from_id, e.to_id]
+      continue
+    }
+    var chain = [e.from_id]
+    for (var l = fl + 1; l < tl; l++) {
+      var did = '_d' + (dummy_id_counter++)
+      dummy_set[did] = true
+      layer_of[did] = l
+      layers[l].push(did)
+      chain.push(did)
+    }
+    chain.push(e.to_id)
+    edge_chain[e.id] = chain
   }
 
-  // Multi-layer: vchannel in source gap AND dest gap
-  for (var i = 0; i < multi_conns.length; i++) {
-    var c = multi_conns[i]
-    var sl = layer_of[c.from.id], dl = layer_of[c.to.id]
-    var sr = row_of[c.from.id], dr = row_of[c.to.id]
-    gap_v_channels[sl].push({ conn: c, from_row: sr, to_row: sr, side: 'source' })
-    gap_v_channels[dl - 1].push({ conn: c, from_row: dr, to_row: dr, side: 'dest' })
+  // Re-run crossing minimization with dummies included.
+  // Rebuild neighbor lookups including dummy chains.
+  left_neighbors = {}
+  right_neighbors = {}
+  for (var i = 0; i < comp_edges.length; i++) {
+    var chain = edge_chain[comp_edges[i].id]
+    for (var j = 0; j < chain.length - 1; j++) {
+      var a = chain[j], b = chain[j + 1]
+      if (!right_neighbors[a]) right_neighbors[a] = []
+      right_neighbors[a].push(b)
+      if (!left_neighbors[b]) left_neighbors[b] = []
+      left_neighbors[b].push(a)
+    }
   }
 
-  // Back-edges: vchannel in gap to the LEFT of source and LEFT of dest
-  // (connecting to _out on source side, _in on dest side)
-  // For last-layer sources with multi-layer span → right margin.
-  // For layer-0 dests → left margin if room, else gap to the RIGHT.
-  var be_right_margin = []  // back-edges whose source needs right-margin routing
-  var be_left_margin = []   // back-edges whose dest needs left-margin routing
-
-  var left_mid_x = Math.floor(PORT_COL / 2)
-  var port_jog_vlines = {}
-  var has_left_ports = false
-  for (var cid in left_port_groups) { has_left_ports = true; break }
-  // Left margin slots for back-edge dest vlines: positions 2..PORT_COL-2, minus reserved
-  var left_margin_reserved = {}
-  if (has_left_ports) left_margin_reserved[PORT_COL - 2] = true
-  var left_margin_capacity = PORT_COL - 3 - (has_left_ports ? 1 : 0)
-  var left_margin_used = 0
-
-  if (gap_v_channels.length > 0) {
-    for (var i = 0; i < back_edges.length; i++) {
-      var be_from = back_edges[i][0], be_to = back_edges[i][1]
-      var from_layer = layer_of[be_from], to_layer = layer_of[be_to]
-      // Source vline: gap to the RIGHT (connects to _out), or right margin if last layer
-      if (from_layer >= layers.length - 1) {
-        be_right_margin.push(back_edges[i])
-      } else {
-        var from_gap = from_layer  // gap to the RIGHT of source station
-        gap_v_channels[from_gap].push({ conn: { id: be_ids[i] }, from_row: row_of[be_from], to_row: row_of[be_from], side: 'be_from' })
+  // Barycentric sweep with dummies
+  for (var sweep = 0; sweep < 4; sweep++) {
+    var pos = build_pos()
+    if (sweep % 2 === 0) {
+      for (var i = 1; i < layers.length; i++) {
+        sort_layer_by_bc(layers[i], left_neighbors, pos)
+        pos = build_pos()
       }
-      // Dest vline: left margin if layer 0 and room, else gap to the LEFT (or RIGHT for layer 0)
-      if (to_layer === 0 && left_margin_used < left_margin_capacity) {
-        be_left_margin.push(back_edges[i])
-        left_margin_used++
-      } else {
-        var to_gap = to_layer > 0 ? to_layer - 1 : 0
-        gap_v_channels[to_gap].push({ conn: { id: be_ids[i] }, from_row: row_of[be_to], to_row: row_of[be_to], side: 'be_to' })
+    } else {
+      for (var i = layers.length - 2; i >= 0; i--) {
+        sort_layer_by_bc(layers[i], right_neighbors, pos)
+        pos = build_pos()
       }
     }
   }
 
-  // Right port jog vlines: non-last-layer stations with right ports need a vchannel
-  for (var cid in right_port_groups) {
-    if (layer_of[cid] < layers.length - 1 && gap_v_channels.length > 0) {
-      var rp_gap = layer_of[cid]  // gap to the RIGHT of this station
-      gap_v_channels[rp_gap].push({ conn: { id: 'rp_' + cid }, from_row: row_of[cid], to_row: row_of[cid], side: 'rp_src' })
+  // Re-assign row numbers from reordered layers (with dummies)
+  row_of = {}
+  total_rows = 0
+  for (var i = 0; i < layers.length; i++) {
+    for (var j = 0; j < layers[i].length; j++) {
+      if (row_of[layers[i][j]] === undefined)
+        row_of[layers[i][j]] = j
+    }
+    if (layers[i].length > total_rows) total_rows = layers[i].length
+  }
+
+  // ── Gap sizing: count edges that change rows in each gap ──────────
+
+  var gap_channels = []  // gap_channels[g] = number of row-changing edges
+  for (var g = 0; g < layers.length - 1; g++) gap_channels.push(0)
+
+  for (var i = 0; i < comp_edges.length; i++) {
+    var chain = edge_chain[comp_edges[i].id]
+    for (var j = 0; j < chain.length - 1; j++) {
+      var g = layer_of[chain[j]]
+      if (row_of[chain[j]] !== row_of[chain[j + 1]])
+        gap_channels[g]++
     }
   }
 
-  // Left port jog vlines: non-layer-0 stations with left ports need a vchannel in the gap to their LEFT
+  // Also count left port jog vlines and right port jog vlines in gaps
   for (var cid in left_port_groups) {
-    if (layer_of[cid] > 0 && gap_v_channels.length > 0) {
-      var lp_gap = layer_of[cid] - 1  // gap to the LEFT of this station
-      gap_v_channels[lp_gap].push({ conn: { id: 'lp_' + cid }, from_row: row_of[cid], to_row: row_of[cid], side: 'lp_tgt' })
-    }
+    if (layer_of[cid] > 0 && layers.length > 1)
+      gap_channels[layer_of[cid] - 1]++
+  }
+  for (var cid in right_port_groups) {
+    if (layer_of[cid] < layers.length - 1 && layers.length > 1)
+      gap_channels[layer_of[cid]]++
   }
 
-  // Sort channels within each gap for consistent positioning
-  for (var g = 0; g < gap_v_channels.length; g++) {
-    var channels = gap_v_channels[g]
-    if (channels.length === 0) continue
-    channels.sort(function(a, b) {
-      return a.from_row - b.from_row || a.to_row - b.to_row
-    })
+  // Count back-edge vlines in gaps
+  for (var i = 0; i < be_conns.length; i++) {
+    var info = be_gap_info[be_conns[i].id]
+    if (!info) continue
+    if (info.src_gap !== null) gap_channels[info.src_gap]++
+    if (info.dst_gap !== null) gap_channels[info.dst_gap]++
   }
 
   // ── Compute layer_x with gaps sized for channel counts ────────────
@@ -571,62 +613,81 @@ export function layout(topology, options) {
   for (var i = 0; i < layers.length; i++) {
     if (i === 0) layer_x.push(PORT_COL)
     else {
-      var n_channels = gap_v_channels[i - 1].length
-      var gap = Math.max(HLINE_GAP, n_channels > 1 ? 2 * n_channels + 3 : n_channels + 5)
+      var nc = gap_channels[i - 1]
+      var gap = Math.max(HLINE_GAP, nc > 0 ? 2 * nc + 5 : HLINE_GAP)
       layer_x.push(layer_x[i - 1] + layer_width[i - 1] + gap)
     }
   }
 
-  // Convert channel indices to x-positions
-  var v_channel_x = {}
-  for (var g = 0; g < gap_v_channels.length; g++) {
-    var channels = gap_v_channels[g]
-    if (channels.length === 0) continue
+  function comp_right(cid) {
+    return layer_x[layer_of[cid]] + comp_w(cid)
+  }
+
+  // ── Vertical channel x-positions per gap ──────────────────────────
+  // For each gap, collect all edges that change rows and assign x-positions.
+
+  var v_channel_x = {}  // key → x position
+  for (var g = 0; g < layers.length - 1; g++) {
+    var ch_list = []
+    // Collect comp→comp hops that change rows in this gap
+    for (var i = 0; i < comp_edges.length; i++) {
+      var chain = edge_chain[comp_edges[i].id]
+      for (var j = 0; j < chain.length - 1; j++) {
+        if (layer_of[chain[j]] !== g) continue
+        if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
+        ch_list.push({ key: comp_edges[i].id + '_hop' + j,
+                        from_row: row_of[chain[j]], to_row: row_of[chain[j + 1]] })
+      }
+    }
+    // Left port jog vlines in this gap
+    for (var cid in left_port_groups) {
+      if (layer_of[cid] > 0 && layer_of[cid] - 1 === g)
+        ch_list.push({ key: 'lp_' + cid, from_row: row_of[cid], to_row: row_of[cid] })
+    }
+    // Right port jog vlines in this gap
+    for (var cid in right_port_groups) {
+      if (layer_of[cid] < layers.length - 1 && layer_of[cid] === g)
+        ch_list.push({ key: 'rp_' + cid, from_row: row_of[cid], to_row: row_of[cid] })
+    }
+    // Back-edge source-leg and dest-leg vlines in this gap
+    for (var i = 0; i < be_conns.length; i++) {
+      var info = be_gap_info[be_conns[i].id]
+      if (!info) continue
+      if (info.src_gap === g)
+        ch_list.push({ key: 'be_src_' + be_conns[i].id, from_row: row_of[be_conns[i].from.id], to_row: row_of[be_conns[i].from.id] })
+      if (info.dst_gap === g)
+        ch_list.push({ key: 'be_dst_' + be_conns[i].id, from_row: row_of[be_conns[i].to.id], to_row: row_of[be_conns[i].to.id] })
+    }
+    if (ch_list.length === 0) continue
+    ch_list.sort(function(a, b) { return a.from_row - b.from_row || a.to_row - b.to_row })
     var gap_left = layer_x[g] + layer_width[g]
     var gap_right = layer_x[g + 1]
-    var track_min = gap_left + 2
-    var track_max = gap_right - 3
+    var track_min = gap_left + 3
+    var track_max = gap_right - 4
     var usable = track_max - track_min
-    var n = channels.length
+    var n = ch_list.length
     var spacing = n > 1 ? usable / (n - 1) : 0
     for (var j = 0; j < n; j++) {
       var tx = n === 1 ? track_min + Math.floor(usable / 2) : Math.round(track_min + spacing * j)
       tx = Math.max(track_min, Math.min(track_max, tx))
-      var ch = channels[j]
-      var key = ch.conn.id + (ch.side || '')
-      v_channel_x[key] = tx
+      v_channel_x[ch_list[j].key] = tx
     }
   }
 
-  // ── Horizontal channels for multi-layer connections ───────────────
+  // ── Row heights: base + back-edge h-channels below each row ───────
 
-  var row_pair_h_channels = {}
-  for (var i = 0; i < multi_conns.length; i++) {
-    var c = multi_conns[i]
-    var sr = row_of[c.from.id], dr = row_of[c.to.id]
-    var sl = layer_of[c.from.id], dl = layer_of[c.to.id]
-    var h_row = Math.min(sr, dr)
-    var rk = '' + h_row
-    if (!row_pair_h_channels[rk]) row_pair_h_channels[rk] = []
-    row_pair_h_channels[rk].push({ conn: c, from_gap: sl, to_gap: dl - 1 })
-  }
-
-  // Back-edges also need horizontal routing below stations
-  for (var i = 0; i < back_edges.length; i++) {
-    var be_from = back_edges[i][0], be_to = back_edges[i][1]
-    var max_row = Math.max(row_of[be_from], row_of[be_to])
-    var rk = '' + max_row
-    if (!row_pair_h_channels[rk]) row_pair_h_channels[rk] = []
-    row_pair_h_channels[rk].push({ conn: null, back_edge: back_edges[i], from_gap: 0, to_gap: 0 })
-  }
-
-  // Row heights: base + horizontal channel space below each row (stride 2 for spacing)
+  // Count back-edge horizontal channels per row (routed below stations)
   var row_h_count = {}
-  for (var rk in row_pair_h_channels) {
-    var r = parseInt(rk)
-    var n = row_pair_h_channels[rk].length
-    row_h_count[r] = n > 0 ? 2 * n - 1 : 0
+  for (var i = 0; i < back_edges.length; i++) {
+    var max_row = Math.max(row_of[back_edges[i][0]], row_of[back_edges[i][1]])
+    row_h_count[max_row] = (row_h_count[max_row] || 0) + 2
   }
+  // Contract return h-channels (station→left port)
+  for (var i = 0; i < contract_returns.length; i++) {
+    var cr_row = row_of[contract_returns[i].from.id]
+    row_h_count[cr_row] = (row_h_count[cr_row] || 0) + 2
+  }
+  // Port jog h-channels
   for (var cid in left_port_groups)
     if (layer_of[cid] > 0)
       row_h_count[row_of[cid]] = (row_h_count[row_of[cid]] || 0) + 2
@@ -644,27 +705,13 @@ export function layout(topology, options) {
   function comp_y(row) { return row_y_offset[row] !== undefined ? row_y_offset[row] : HEADER_HEIGHT }
   function wire_y(row) { return comp_y(row) + 3 }
 
-  // Assign h-channel y-positions
-  var h_channel_y = {}
-  for (var rk in row_pair_h_channels) {
-    var r = parseInt(rk)
-    var base_y = comp_y(r) + ROW_HEIGHT
-    var channels = row_pair_h_channels[rk]
-    for (var j = 0; j < channels.length; j++) {
-      if (channels[j].conn)
-        h_channel_y[channels[j].conn.id] = base_y + j * 2
-      else if (channels[j].back_edge)
-        var be_idx = back_edges.indexOf(channels[j].back_edge)
-        h_channel_y[be_ids[be_idx]] = base_y + j * 2
-    }
-  }
-
   // ── Place components ──────────────────────────────────────────────
 
   elements = []
   for (var i = 0; i < layers.length; i++) {
     for (var j = 0; j < layers[i].length; j++) {
       var cid = layers[i][j]
+      if (dummy_set[cid]) continue  // skip dummies
       var row = row_of[cid]
       var cx = layer_x[i]
       var cy = comp_y(row) + 1
@@ -693,8 +740,6 @@ export function layout(topology, options) {
   }
 
   // ── Connection paths ────────────────────────────────────────────────
-  // Each connection gets a path: array of {x,y} waypoints tracing its route.
-  // The renderer converts paths to visual wire segments.
 
   var conn_paths = {}
   function add_path(conn_id, x, y) {
@@ -702,76 +747,204 @@ export function layout(topology, options) {
     conn_paths[conn_id].push({ x: x, y: y })
   }
 
-  // Build reverse map: port_id → [comp_ids] for multi-station port connections
-  function build_port_station_map(port_groups) {
-    var map = {}
-    for (var cid in port_groups) {
-      var group = port_groups[cid]
-      for (var j = 0; j < group.length; j++) {
-        if (!map[group[j].id]) map[group[j].id] = []
-        map[group[j].id].push(cid)
+  // ── Route comp→comp edges via dummy chains ─────────────────────────
+
+  // Helper: find the channel x for a hop that changes rows in a gap
+  function find_hop_channel_x(edge_id, chain, hop_idx) {
+    return v_channel_x[edge_id + '_hop' + hop_idx]
+  }
+
+  for (var i = 0; i < comp_edges.length; i++) {
+    var e = comp_edges[i]
+    var chain = edge_chain[e.id]
+    var path = []
+
+    for (var j = 0; j < chain.length - 1; j++) {
+      var from_node = chain[j], to_node = chain[j + 1]
+      var fl = layer_of[from_node], tl = layer_of[to_node]
+      var fr = row_of[from_node], tr = row_of[to_node]
+
+      // Determine x positions for this hop
+      var from_x, to_x
+      if (dummy_set[from_node]) {
+        // Dummy node: use its channel x from previous hop
+        // The dummy's position is in the gap, reuse where we ended
+        from_x = path.length > 0 ? path[path.length - 1].x : layer_x[fl]
+      } else {
+        from_x = layer_x[fl] + comp_w(from_node)  // comp_right
+      }
+      if (dummy_set[to_node]) {
+        // Dummy: will be at the channel x in this gap
+        to_x = layer_x[tl]  // start of next layer (dummy lives there)
+      } else {
+        to_x = layer_x[tl]  // comp in.x
+      }
+
+      var from_wy = wire_y(fr)
+      var to_wy = wire_y(tr)
+
+      if (fr === tr) {
+        // Same row: straight horizontal
+        if (j === 0) path.push({ x: from_x, y: from_wy })
+        path.push({ x: to_x, y: from_wy })
+      } else {
+        // Different rows: h → v → h through channel
+        var ch_x = find_hop_channel_x(e.id, chain, j)
+        if (ch_x === undefined) {
+          // Fallback: midpoint of gap
+          ch_x = Math.floor((from_x + to_x) / 2)
+        }
+        if (j === 0) path.push({ x: from_x, y: from_wy })
+        path.push({ x: ch_x, y: from_wy })
+        path.push({ x: ch_x, y: to_wy })
+        path.push({ x: to_x, y: to_wy })
       }
     }
-    return map
+
+    conn_paths[e.id] = path
   }
 
-  // Compute the y below a station row, past h-channels (for jog routing)
-  function jog_y_below(row) {
-    var rk = '' + row
-    var n = row_pair_h_channels[rk] ? row_pair_h_channels[rk].length : 0
-    var hc = n > 0 ? 2 * n - 1 : 0
-    return comp_y(row) + ROW_HEIGHT + hc + (hc > 0 ? 1 : 0)
+  // ── Left margin slot assignment ───────────────────────────────────
+  // Space vlines 2 apart from x=2 rightward.
+  // Slots: back-edge dest vlines, then fan vlines, then jog vlines
+  var left_margin_slot = 2
+  var be_left_slot = {}
+  for (var i = 0; i < be_conns.length; i++) {
+    if (layer_of[be_conns[i].to.id] === 0) {
+      be_left_slot[be_conns[i].id] = left_margin_slot
+      left_margin_slot += 2
+    }
+  }
+  var left_mid_x = left_margin_slot  // fan vlines start after back-edge slots
+  var left_jog_x = left_mid_x + 2   // jog vlines after fan
+
+  // Shared right-margin allocation counter — used by back-edge vlines AND port jog vlines
+  var right_margin_next = 0
+  for (var i = 0; i < layers.length; i++)
+    for (var j = 0; j < layers[i].length; j++) {
+      if (dummy_set[layers[i][j]]) continue
+      var cr = layer_x[i] + comp_w(layers[i][j]) + 1
+      if (cr > right_margin_next) right_margin_next = cr
+    }
+  right_margin_next += 2
+  // Back-edge source vlines in right margin
+  var be_right_margin_x = {}
+  for (var i = 0; i < be_conns.length; i++) {
+    var info = be_gap_info[be_conns[i].id]
+    if (info && info.src_gap === null) {
+      be_right_margin_x[be_conns[i].id] = right_margin_next
+      right_margin_next += 2
+    }
   }
 
-  // Check if any component in a later layer occupies the same row as cid
-  function has_later_comp_at_row(cid) {
-    var cl = layer_of[cid], cr = row_of[cid]
-    for (var li = cl + 1; li < layers.length; li++)
-      for (var j = 0; j < layers[li].length; j++)
-        if (row_of[layers[li][j]] === cr) return true
-    return false
+  // ── Route back-edges ───────────────────────────────────────────────
+  // Back-edges go from source._out → right → down → left → up → dest._in
+  // They route below all stations via h-channels.
+
+  // Assign h-channel y-positions for back-edges
+  var be_h_channels = {}  // be_conn_id → y
+  for (var i = 0; i < be_conns.length; i++) {
+    var bec = be_conns[i]
+    var be_from = bec.from.id, be_to = bec.to.id
+    var max_row = Math.max(row_of[be_from], row_of[be_to])
+    var base_y = comp_y(max_row) + ROW_HEIGHT
+    var hc_idx = 0
+    for (var k = 0; k < i; k++) {
+      var pk = be_conns[k]
+      var pk_max = Math.max(row_of[pk.from.id], row_of[pk.to.id])
+      if (pk_max === max_row) hc_idx++
+    }
+    be_h_channels[bec.id] = base_y + hc_idx * 2
   }
 
-  // ── Route forward connections ──────────────────────────────────────
+  for (var i = 0; i < be_conns.length; i++) {
+    var bec = be_conns[i]
+    var be_from = bec.from.id, be_to = bec.to.id
+    var from_wy = wire_y(row_of[be_from]), to_wy = wire_y(row_of[be_to])
+    var back_y = be_h_channels[bec.id]
+    if (back_y === undefined) {
+      var max_row = Math.max(row_of[be_from], row_of[be_to])
+      back_y = comp_y(max_row) + ROW_HEIGHT - 1
+    }
 
-  // Direct connections: single horizontal segment through the gap
-  for (var i = 0; i < direct_conns.length; i++) {
-    var c = direct_conns[i]
-    var wy = wire_y(row_of[c.from.id])
-    add_path(c.id, comp_right(c.from.id), wy)
-    add_path(c.id, layer_x[layer_of[c.to.id]], wy)
+    // Self-loop: source and dest are the same station
+    if (be_from === be_to) {
+      var src_out_x = comp_right(be_from)
+      var src_in_x = layer_x[layer_of[be_from]]
+      var loop_vx = src_out_x + 2
+      add_path(bec.id, src_out_x, from_wy)
+      add_path(bec.id, loop_vx, from_wy)
+      add_path(bec.id, loop_vx, back_y)
+      add_path(bec.id, src_in_x - 2, back_y)
+      add_path(bec.id, src_in_x - 2, to_wy)
+      add_path(bec.id, src_in_x, to_wy)
+      continue
+    }
+
+    var info = be_gap_info[bec.id]
+    var src_out_x = comp_right(be_from)
+    var dst_in_x = layer_x[layer_of[be_to]]
+
+    // Source vline: coordinated position from gap allocation or right margin
+    var from_vx = (info && info.src_gap !== null) ? v_channel_x['be_src_' + bec.id]
+                : be_right_margin_x[bec.id]
+    if (from_vx === undefined) from_vx = src_out_x + 3
+
+    // Dest vline: coordinated position from gap allocation or left margin
+    var to_vx = (info && info.dst_gap !== null) ? v_channel_x['be_dst_' + bec.id]
+              : be_left_slot[bec.id]
+    if (to_vx === undefined) to_vx = Math.max(2, dst_in_x - 3)
+
+    // Build path: source._out → from_vx → down → back_y → left → to_vx → up → dest._in
+    add_path(bec.id, src_out_x, from_wy)
+    add_path(bec.id, from_vx, from_wy)
+    add_path(bec.id, from_vx, back_y)
+    add_path(bec.id, to_vx, back_y)
+    add_path(bec.id, to_vx, to_wy)
+    add_path(bec.id, dst_in_x, to_wy)
   }
 
-  // Adjacent cross-row: source trunk → vchannel → dest trunk
-  for (var i = 0; i < adjacent_cross.length; i++) {
-    var c = adjacent_cross[i]
-    var src_wy = wire_y(row_of[c.from.id]), dst_wy = wire_y(row_of[c.to.id])
-    var track_x = v_channel_x[c.id]
-    add_path(c.id, comp_right(c.from.id), src_wy)
-    add_path(c.id, track_x, src_wy)
-    add_path(c.id, track_x, dst_wy)
-    add_path(c.id, layer_x[layer_of[c.to.id]], dst_wy)
-  }
+  // ── Route contract returns (station → left port) ──────────────────
+  // These route from station.out backward to a left-dir port.
+  // Path: station.out → right → down → left → up → port.wire_x
 
-  // Multi-layer: source trunk → source vchannel → h-channel → dest vchannel → dest trunk
-  for (var i = 0; i < multi_conns.length; i++) {
-    var c = multi_conns[i]
-    var dl = layer_of[c.to.id]
-    var src_wy = wire_y(row_of[c.from.id]), dst_wy = wire_y(row_of[c.to.id])
-    var src_vx = v_channel_x[c.id + 'source']
-    var dst_vx = v_channel_x[c.id + 'dest']
-    var jog_y = h_channel_y[c.id]
-    add_path(c.id, comp_right(c.from.id), src_wy)
-    add_path(c.id, src_vx, src_wy)
-    add_path(c.id, src_vx, jog_y)
-    add_path(c.id, dst_vx, jog_y)
-    add_path(c.id, dst_vx, dst_wy)
-    add_path(c.id, layer_x[dl], dst_wy)
+
+
+  for (var i = 0; i < contract_returns.length; i++) {
+    var cr = contract_returns[i]
+    var comp_id = cr.from.id, port_id = cr.to.id
+    var port = port_by_id[port_id]
+    var from_wy = wire_y(row_of[comp_id])
+    // Port may already be emitted from left_port_groups; if not, it will be placed later.
+    // The port is at x=0, wire_x=1. We need to route from station.out back to wire_x=1.
+    var src_out_x = comp_right(comp_id)
+    var port_wy = from_wy  // same row as station (contract pairs share the station)
+
+    // For same-row routing: go from station.out → down → left to port → up
+    var cr_back_y = comp_y(row_of[comp_id]) + ROW_HEIGHT
+    var hc_below = row_h_count[row_of[comp_id]] || 0
+    cr_back_y += hc_below > 0 ? hc_below : 0
+
+    var cr_right_vx = src_out_x + 2
+    var cr_left_vx = Math.max(2, left_mid_x)
+
+    add_path(cr.id, src_out_x, from_wy)
+    add_path(cr.id, cr_right_vx, from_wy)
+    add_path(cr.id, cr_right_vx, cr_back_y)
+    add_path(cr.id, cr_left_vx, cr_back_y)
+    add_path(cr.id, cr_left_vx, port_wy)
+    add_path(cr.id, 1, port_wy)
   }
 
   // ── Route left port connections ────────────────────────────────────
 
   var emitted_ports = {}
+
+  // Compute the y below a station row, past h-channels (for jog routing)
+  function jog_y_below(row) {
+    var hc = row_h_count[row] || 0
+    return comp_y(row) + ROW_HEIGHT + hc - (hc > 0 ? 1 : 0)
+  }
 
   for (var cid in left_port_groups) {
     var group = left_port_groups[cid]
@@ -796,30 +969,27 @@ export function layout(topology, options) {
         // Fan-out: route from fan vline down to this row, then to station
         var port_y = emitted_ports[group[j].id].y
         if (layer_of[cid] > 0) {
-          // Jog below via the fan vline
           var jog_wy = jog_y_below(row_of[cid])
           add_path(pc, 1, port_y)
           add_path(pc, left_mid_x, port_y)
           add_path(pc, left_mid_x, jog_wy)
-          var target_gap_x = v_channel_x['lp_' + cid + 'lp_tgt'] || (layer_x[layer_of[cid]] - 3)
+          var target_gap_x = v_channel_x['lp_' + cid] || (layer_x[layer_of[cid]] - 3)
           add_path(pc, target_gap_x, jog_wy)
           add_path(pc, target_gap_x, wy)
           add_path(pc, lx, wy)
         } else {
-          // Layer 0: fan vline down, then direct to station
           add_path(pc, 1, port_y)
           add_path(pc, left_mid_x, port_y)
           add_path(pc, left_mid_x, wy)
           add_path(pc, lx, wy)
         }
       } else if (layer_of[cid] > 0) {
-        // First port, non-layer-0: jog below
         var jog_wy = jog_y_below(row_of[cid])
-        var first_gap_x = PORT_COL - 2
+        var first_gap_x = left_jog_x
         add_path(pc, 1, wy)
         add_path(pc, first_gap_x, wy)
         add_path(pc, first_gap_x, jog_wy)
-        var target_gap_x = v_channel_x['lp_' + cid + 'lp_tgt'] || (layer_x[layer_of[cid]] - 3)
+        var target_gap_x = v_channel_x['lp_' + cid] || (layer_x[layer_of[cid]] - 3)
         add_path(pc, target_gap_x, jog_wy)
         add_path(pc, target_gap_x, wy)
         add_path(pc, lx, wy)
@@ -860,46 +1030,40 @@ export function layout(topology, options) {
   }
   for (var i = 0; i < layers.length; i++)
     for (var j = 0; j < layers[i].length; j++) {
+      if (dummy_set[layers[i][j]]) continue
       var rx = layer_x[i] + comp_w(layers[i][j]) + 2
       if (rx > max_right_x) max_right_x = rx
     }
-  for (var i = 0; i < back_edges.length; i++) {
-    var be_from_vx = v_channel_x[be_ids[i] + 'be_from']
-    var rx = be_from_vx !== undefined ? be_from_vx + 2 : comp_right(back_edges[i][0]) + 4
+  // Back-edge right-margin vlines may extend right of stations
+  for (var bid in be_right_margin_x) {
+    var rx = be_right_margin_x[bid] + 2
     if (rx > max_right_x) max_right_x = rx
   }
   var width = Math.max(min_width, max_right_x)
 
   // ── Place deferred right ports ─────────────────────────────────────
 
-  var right_edge_positions = {}
-  var max_comp_right = 0
-  for (var i = 0; i < layers.length; i++)
-    for (var j = 0; j < layers[i].length; j++) {
-      var cr = layer_x[i] + comp_w(layers[i][j]) + 1
-      if (cr > max_comp_right) max_comp_right = cr
-    }
-  var next_right_edge = max_comp_right + 2
-  var be_right_margin_x = {}
-  for (var i = 0; i < be_right_margin.length; i++) {
-    be_right_margin_x[be_ids[back_edges.indexOf(be_right_margin[i])]] = next_right_edge
-    next_right_edge += 2
+  // Check if any component in a later layer occupies the same row as cid
+  function has_later_comp_at_row(cid) {
+    var cl = layer_of[cid], cr = row_of[cid]
+    for (var li = cl + 1; li < layers.length; li++)
+      for (var j = 0; j < layers[li].length; j++) {
+        if (dummy_set[layers[li][j]]) continue
+        if (row_of[layers[li][j]] === cr) return true
+      }
+    return false
   }
+
+  // Port jog right-edge vlines — continue from shared right_margin_next counter
+  var right_edge_positions = {}
   for (var i = 0; i < deferred_right.length; i++) {
     var dr_pre = deferred_right[i]
     if (dr_pre.offset === 0 && layer_of[dr_pre.comp_id] < layers.length - 1) {
-      right_edge_positions[dr_pre.comp_id] = next_right_edge
-      next_right_edge += 2
+      right_edge_positions[dr_pre.comp_id] = right_margin_next
+      right_margin_next += 2
     }
   }
-  var be_left_margin_x = {}
-  var next_left_margin = 2
-  for (var i = 0; i < be_left_margin.length; i++) {
-    while (left_margin_reserved[next_left_margin]) next_left_margin++
-    be_left_margin_x[be_ids[back_edges.indexOf(be_left_margin[i])]] = next_left_margin
-    next_left_margin += 2
-  }
-  if (next_right_edge + 3 > width) width = next_right_edge + 3
+  if (right_margin_next + 3 > width) width = right_margin_next + 3
 
   var right_port_stations = build_port_station_map(right_port_groups)
   var right_fan_x = width - 3
@@ -920,16 +1084,14 @@ export function layout(topology, options) {
     var needs_fan_v = is_right_fan && emitted_ports[dr.port.id].y !== wy
     var port_x = needs_fan_v ? right_fan_x : width - 2
     if (dr.offset > 0) {
-      // Offset port: vline from base wire row to offset, then hline to port
       var mid_x = rx + Math.floor((width - 1 - rx) / 2)
       add_path(rpc, rx, base_wy)
       add_path(rpc, mid_x, base_wy)
       add_path(rpc, mid_x, wy)
       add_path(rpc, port_x, wy)
     } else if (layer_of[dr.comp_id] < layers.length - 1 && has_later_comp_at_row(dr.comp_id)) {
-      // Non-last-layer with station blocking: jog below
       var right_jog_y = jog_y_below(row)
-      var right_gap_x = v_channel_x['rp_' + dr.comp_id + 'rp_src'] || (rx + 2)
+      var right_gap_x = v_channel_x['rp_' + dr.comp_id] || (rx + 2)
       var right_edge_x = right_edge_positions[dr.comp_id] || (width - 3)
       add_path(rpc, rx, wy)
       add_path(rpc, right_gap_x, wy)
@@ -938,49 +1100,13 @@ export function layout(topology, options) {
       add_path(rpc, right_edge_x, wy)
       add_path(rpc, port_x, wy)
     } else {
-      // Direct hline to port
       add_path(rpc, rx, wy)
       add_path(rpc, port_x, wy)
     }
-    // Fan-in: add vertical segment from wire row to port's y, then to port
     if (needs_fan_v) {
       var port_wy = emitted_ports[dr.port.id].y
       add_path(rpc, right_fan_x, port_wy)
       add_path(rpc, width - 2, port_wy)
-    }
-  }
-
-  // ── Route back-edges ───────────────────────────────────────────────
-
-  for (var i = 0; i < back_edges.length; i++) {
-    var be_from = back_edges[i][0], be_to = back_edges[i][1]
-    var be_conn = conn_for_pair[be_from + '|' + be_to]
-    if (!be_conn) continue
-    var back_y = h_channel_y[be_ids[i]]
-    if (back_y === undefined) {
-      var max_row = Math.max(row_of[be_from], row_of[be_to])
-      back_y = comp_y(max_row) + ROW_HEIGHT - 1
-    }
-    var from_x = v_channel_x[be_ids[i] + 'be_from']
-    if (from_x === undefined && be_right_margin_x[be_ids[i]] !== undefined)
-      from_x = be_right_margin_x[be_ids[i]]
-    var to_x = v_channel_x[be_ids[i] + 'be_to']
-    var to_is_left_margin = false
-    if (to_x === undefined && be_left_margin_x[be_ids[i]] !== undefined) {
-      to_x = be_left_margin_x[be_ids[i]]
-      to_is_left_margin = true
-    }
-    var from_wy = wire_y(row_of[be_from]), to_wy = wire_y(row_of[be_to])
-    // Path: source station → source vline → h-channel → dest vline → (dest station if left margin)
-    if (from_x !== undefined) {
-      add_path(be_conn, comp_right(be_from), from_wy)
-      add_path(be_conn, from_x, from_wy)
-    }
-    if (from_x !== undefined) add_path(be_conn, from_x, back_y)
-    if (to_x !== undefined) add_path(be_conn, to_x, back_y)
-    if (to_x !== undefined) {
-      add_path(be_conn, to_x, to_wy)
-      add_path(be_conn, layer_x[layer_of[be_to]], to_wy)
     }
   }
 
@@ -1039,7 +1165,12 @@ export function layout(topology, options) {
 
   // Build paths array for output
   var paths = []
-  for (var cid in conn_paths) paths.push({ conn: cid, path: conn_paths[cid] })
+  var conn_by_id = {}
+  for (var i = 0; i < connections.length; i++) conn_by_id[connections[i].id] = connections[i]
+  for (var cid in conn_paths) {
+    var c = conn_by_id[cid]
+    paths.push({ conn: cid, from: c ? c.from.id : null, to: c ? c.to.id : null, path: conn_paths[cid] })
+  }
 
   var result = { id: topology.id, name: name, width: width, height: height, elements: elements, paths: paths }
   if (options && options.check_invariants) {
@@ -1131,6 +1262,36 @@ function check_layout_invariants(laid) {
       var to_pt = to_el.in || { x: to_el.wire_x, y: to_el.y }
       if (last.x !== to_pt.x || last.y !== to_pt.y)
         throw new Error('Invariant endpoint: ' + conn + ' ends at (' + last.x + ',' + last.y + ') but TO ' + tc.to.id + ' in is (' + to_pt.x + ',' + to_pt.y + ')')
+    }
+  }
+
+  // Invariant: no opposing directions on shared wire segments
+  // Two connections sharing a cell must flow the same direction on each axis.
+  var h_dir_at = {}  // 'x,y' → { dir, conn }
+  var v_dir_at = {}
+  for (var i = 0; i < paths.length; i++) {
+    var pts = paths[i].path, conn = paths[i].conn
+    for (var j = 0; j < pts.length - 1; j++) {
+      var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
+      if (y0 === y1) {
+        var hd = x1 > x0 ? 'right' : 'left'
+        var xmin = Math.min(x0, x1), xmax = Math.max(x0, x1)
+        for (var x = xmin; x <= xmax; x++) {
+          var k = x + ',' + y0
+          if (h_dir_at[k] && h_dir_at[k].dir !== hd)
+            throw new Error('Invariant opposing-h: ' + conn + ' goes ' + hd + ' at (' + x + ',' + y0 + ') but ' + h_dir_at[k].conn + ' goes ' + h_dir_at[k].dir)
+          if (!h_dir_at[k]) h_dir_at[k] = { dir: hd, conn: conn }
+        }
+      } else if (x0 === x1) {
+        var vd = y1 > y0 ? 'down' : 'up'
+        var ymin = Math.min(y0, y1), ymax = Math.max(y0, y1)
+        for (var y = ymin; y <= ymax; y++) {
+          var k = x0 + ',' + y
+          if (v_dir_at[k] && v_dir_at[k].dir !== vd)
+            throw new Error('Invariant opposing-v: ' + conn + ' goes ' + vd + ' at (' + x0 + ',' + y + ') but ' + v_dir_at[k].conn + ' goes ' + v_dir_at[k].dir)
+          if (!v_dir_at[k]) v_dir_at[k] = { dir: vd, conn: conn }
+        }
+      }
     }
   }
 }

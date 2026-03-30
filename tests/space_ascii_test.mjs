@@ -308,7 +308,7 @@ for (var fi = 0; fi < fixtures.length; fi++) {
   if (existsSync(fdir + '/layout.json')) {
     var expected_layout = readFileSync(fdir + '/layout.json', 'utf8')
     if (names.length === 1) {
-      var actual_layout = JSON.stringify(layout(extract(names[0], sl[names[0]], options)), null, 2)
+      var actual_layout = JSON.stringify(layout(extract(names[0], sl[names[0]]), options), null, 2)
       test(fname + ': layout', actual_layout, expected_layout)
     } else {
       var layouts = {}
