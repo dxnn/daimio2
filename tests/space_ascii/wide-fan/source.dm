@@ -13,7 +13,7 @@ wide
   @in -> D
   @in -> E
   A -> Z
-  B -> Z
+  B -> A -> Z
   C -> Z
   D -> Z
   E -> Z

@@ -19,7 +19,7 @@
     "stations": [
       {
         "id": "s0",
-        "name": "station-6904076025889428",
+        "name": "s0",
         "source": "{__ | add 1}",
         "ports": []
       }

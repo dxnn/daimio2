@@ -53,7 +53,8 @@ export function extract(name, seedlike) {
         if (extra.indexOf(pname) < 0) extra.push(pname)
       }
     }
-    stations.push({ id: 's' + i, name: sname, source: source, ports: extra })
+    var stable_name = (sname.indexOf('station-') === 0) ? 's' + i : sname
+    stations.push({ id: 's' + i, name: stable_name, source: source, ports: extra })
   }
 
   // Build lookup maps
@@ -64,6 +65,9 @@ export function extract(name, seedlike) {
   var station_name_to_id = {}
   for (var i = 0; i < stations.length; i++)
     station_name_to_id[stations[i].name] = stations[i].id
+  // Also map original seedlike keys (for route resolution when name was stabilized)
+  for (var i = 0; i < station_names.length; i++)
+    station_name_to_id[station_names[i]] = 's' + i
 
   var subspace_names = seedlike.subspaces || {}
   var subspaces = []
@@ -587,7 +591,36 @@ export function layout(topology, options) {
     if (layers[i].length > total_rows) total_rows = layers[i].length
   }
 
-  // ── Gap sizing: count row-changing hops in each gap ─────────────
+  // ── Gap sizing: count distinct fan groups per gap ───────────────
+  // Hops from the same source (fan-out) or to the same dest (fan-in)
+  // share one channel, so count groups not individual hops.
+
+  // Build from/to frequency maps to detect fans
+  var from_count = {}, to_count = {}
+  for (var i = 0; i < all_edges.length; i++) {
+    from_count[all_edges[i].from_id] = (from_count[all_edges[i].from_id] || 0) + 1
+    to_count[all_edges[i].to_id] = (to_count[all_edges[i].to_id] || 0) + 1
+  }
+
+  // For each hop, determine its fan group key in its gap
+  // fan_key[edge_id + '_hop' + j] = group key string
+  var fan_key = {}
+  for (var i = 0; i < all_edges.length; i++) {
+    var e = all_edges[i]
+    var chain = edge_chain[e.id]
+    for (var j = 0; j < chain.length - 1; j++) {
+      if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
+      // Use from_id as fan key if this is a fan-out (multiple edges from same source)
+      // Use to_id as fan key if this is a fan-in
+      // Otherwise use the edge's own id (no fan)
+      if (from_count[e.from_id] > 1)
+        fan_key[e.id + '_hop' + j] = 'from_' + e.from_id
+      else if (to_count[e.to_id] > 1)
+        fan_key[e.id + '_hop' + j] = 'to_' + e.to_id
+      else
+        fan_key[e.id + '_hop' + j] = e.id + '_hop' + j
+    }
+  }
 
   var gap_channels = []
   for (var g = 0; g < layers.length - 1; g++) gap_channels.push(0)
@@ -596,8 +629,21 @@ export function layout(topology, options) {
     var chain = edge_chain[all_edges[i].id]
     for (var j = 0; j < chain.length - 1; j++) {
       var g = layer_of[chain[j]]
-      if (row_of[chain[j]] !== row_of[chain[j + 1]])
-        gap_channels[g]++
+      if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
+      gap_channels[g]++
+    }
+  }
+  // Reduce gap_channels by fan group sharing: subtract (group_size - 1) for each group
+  var gap_fan_seen = {}
+  for (var i = 0; i < all_edges.length; i++) {
+    var chain = edge_chain[all_edges[i].id]
+    for (var j = 0; j < chain.length - 1; j++) {
+      if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
+      var g = layer_of[chain[j]]
+      var fk = fan_key[all_edges[i].id + '_hop' + j]
+      var gk = g + '|' + fk
+      if (gap_fan_seen[gk]) gap_channels[g]--
+      else gap_fan_seen[gk] = true
     }
   }
 
@@ -673,14 +719,32 @@ export function layout(topology, options) {
 
   var v_channel_x = {}
   for (var g = 0; g < layers.length - 1; g++) {
-    var ch_list = []
+    // Collect hops, grouping by fan key. Each fan group gets one channel slot.
+    var ch_list = []       // one entry per fan GROUP (not per hop)
+    var group_hops = {}    // fan_group_key → [hop_keys]
+    var group_seen = {}    // fan_group_key → true (for ch_list dedup)
     for (var i = 0; i < all_edges.length; i++) {
       var chain = edge_chain[all_edges[i].id]
       for (var j = 0; j < chain.length - 1; j++) {
         if (layer_of[chain[j]] !== g) continue
         if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
-        ch_list.push({ key: all_edges[i].id + '_hop' + j,
-                        from_row: row_of[chain[j]], to_row: row_of[chain[j + 1]] })
+        var hop_key = all_edges[i].id + '_hop' + j
+        var fk = fan_key[hop_key]
+        if (!group_hops[fk]) group_hops[fk] = []
+        group_hops[fk].push(hop_key)
+        if (!group_seen[fk]) {
+          group_seen[fk] = true
+          ch_list.push({ key: fk, from_row: row_of[chain[j]], to_row: row_of[chain[j + 1]] })
+        } else {
+          // Expand the group's row range
+          for (var ci = 0; ci < ch_list.length; ci++) {
+            if (ch_list[ci].key !== fk) continue
+            if (row_of[chain[j]] < ch_list[ci].from_row) ch_list[ci].from_row = row_of[chain[j]]
+            if (row_of[chain[j + 1]] < ch_list[ci].from_row) ch_list[ci].from_row = row_of[chain[j + 1]]
+            if (row_of[chain[j]] > ch_list[ci].to_row) ch_list[ci].to_row = row_of[chain[j]]
+            if (row_of[chain[j + 1]] > ch_list[ci].to_row) ch_list[ci].to_row = row_of[chain[j + 1]]
+          }
+        }
       }
     }
     if (ch_list.length === 0) continue
@@ -697,7 +761,14 @@ export function layout(topology, options) {
     for (var j = 0; j < n; j++) {
       var tx = n === 1 ? track_min + Math.floor(usable / 2) : Math.round(track_min + spacing * j)
       tx = Math.max(track_min, Math.min(track_max, tx))
-      v_channel_x[ch_list[j].key] = tx
+      // Assign this x to ALL hop keys in the fan group
+      var gk = ch_list[j].key
+      var hops = group_hops[gk]
+      if (hops) {
+        for (var h = 0; h < hops.length; h++) v_channel_x[hops[h]] = tx
+      } else {
+        v_channel_x[gk] = tx
+      }
     }
   }
 
@@ -1033,6 +1104,7 @@ export function layout(topology, options) {
     add_path(slc.id, sl_in_x, sl_wy)
   }
 
+
   // ── Place port elements ────────────────────────────────────────────
   // Left ports at x=0, right ports at x=width-1, using row assignments
   // from the virtual layers.
@@ -1217,11 +1289,12 @@ function check_layout_invariants(laid) {
   }
 
   // Invariant: no opposing directions on shared wire segments
-  // Two connections sharing a cell must flow the same direction on each axis.
-  var h_dir_at = {}  // 'x,y' → { dir, conn }
+  // Two connections sharing a cell must flow the same direction on each axis,
+  // UNLESS they share an endpoint (fan-out/fan-in trunk splitting both ways).
+  var h_dir_at = {}  // 'x,y' → { dir, conn, from, to }
   var v_dir_at = {}
   for (var i = 0; i < paths.length; i++) {
-    var pts = paths[i].path, conn = paths[i].conn
+    var pts = paths[i].path, conn = paths[i].conn, pfrom = paths[i].from, pto = paths[i].to
     for (var j = 0; j < pts.length - 1; j++) {
       var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
       if (y0 === y1) {
@@ -1229,18 +1302,22 @@ function check_layout_invariants(laid) {
         var xmin = Math.min(x0, x1), xmax = Math.max(x0, x1)
         for (var x = xmin; x <= xmax; x++) {
           var k = x + ',' + y0
-          if (h_dir_at[k] && h_dir_at[k].dir !== hd)
-            throw new Error('Invariant opposing-h: ' + conn + ' goes ' + hd + ' at (' + x + ',' + y0 + ') but ' + h_dir_at[k].conn + ' goes ' + h_dir_at[k].dir)
-          if (!h_dir_at[k]) h_dir_at[k] = { dir: hd, conn: conn }
+          if (h_dir_at[k] && h_dir_at[k].dir !== hd) {
+            var shared = (pfrom === h_dir_at[k].from || pto === h_dir_at[k].to)
+            if (!shared) throw new Error('Invariant opposing-h: ' + conn + ' goes ' + hd + ' at (' + x + ',' + y0 + ') but ' + h_dir_at[k].conn + ' goes ' + h_dir_at[k].dir)
+          }
+          if (!h_dir_at[k]) h_dir_at[k] = { dir: hd, conn: conn, from: pfrom, to: pto }
         }
       } else if (x0 === x1) {
         var vd = y1 > y0 ? 'down' : 'up'
         var ymin = Math.min(y0, y1), ymax = Math.max(y0, y1)
         for (var y = ymin; y <= ymax; y++) {
           var k = x0 + ',' + y
-          if (v_dir_at[k] && v_dir_at[k].dir !== vd)
-            throw new Error('Invariant opposing-v: ' + conn + ' goes ' + vd + ' at (' + x0 + ',' + y + ') but ' + v_dir_at[k].conn + ' goes ' + v_dir_at[k].dir)
-          if (!v_dir_at[k]) v_dir_at[k] = { dir: vd, conn: conn }
+          if (v_dir_at[k] && v_dir_at[k].dir !== vd) {
+            var shared = (pfrom === v_dir_at[k].from || pto === v_dir_at[k].to)
+            if (!shared) throw new Error('Invariant opposing-v: ' + conn + ' goes ' + vd + ' at (' + x0 + ',' + y + ') but ' + v_dir_at[k].conn + ' goes ' + v_dir_at[k].dir)
+          }
+          if (!v_dir_at[k]) v_dir_at[k] = { dir: vd, conn: conn, from: pfrom, to: pto }
         }
       }
     }
