@@ -1,14 +1,14 @@
 {
   "id": "test3",
   "name": "test3",
-  "width": 32,
+  "width": 28,
   "height": 8,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 32,
+      "width": 28,
       "height": 8,
       "name": "test3"
     },

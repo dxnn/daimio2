@@ -1,14 +1,14 @@
 {
   "id": "test1",
   "name": "test1",
-  "width": 50,
+  "width": 46,
   "height": 8,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 50,
+      "width": 46,
       "height": 8,
       "name": "test1"
     },
@@ -60,21 +60,6 @@
   ],
   "paths": [
     {
-      "conn": "c1",
-      "from": "s0",
-      "to": "s1",
-      "path": [
-        {
-          "x": 23,
-          "y": 5
-        },
-        {
-          "x": 30,
-          "y": 5
-        }
-      ]
-    },
-    {
       "conn": "c0",
       "from": "p0",
       "to": "s0",
@@ -85,6 +70,21 @@
         },
         {
           "x": 5,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c1",
+      "from": "s0",
+      "to": "s1",
+      "path": [
+        {
+          "x": 23,
+          "y": 5
+        },
+        {
+          "x": 30,
           "y": 5
         }
       ]

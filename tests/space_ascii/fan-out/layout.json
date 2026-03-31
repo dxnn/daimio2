@@ -2,14 +2,14 @@
   "id": "fo",
   "name": "fo",
   "width": 31,
-  "height": 9,
+  "height": 13,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
       "width": 31,
-      "height": 9,
+      "height": 13,
       "name": "fo"
     },
     {
@@ -51,7 +51,7 @@
     {
       "type": "port",
       "x": 30,
-      "y": 7,
+      "y": 11,
       "dir": "right",
       "key": "out:b",
       "id": "p2",
@@ -104,11 +104,11 @@
         },
         {
           "x": 26,
-          "y": 7
+          "y": 11
         },
         {
           "x": 29,
-          "y": 7
+          "y": 11
         }
       ]
     }
