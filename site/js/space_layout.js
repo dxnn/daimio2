@@ -612,11 +612,13 @@ export function layout(topology, options) {
       if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
       // Use from_id as fan key if this is a fan-out (multiple edges from same source)
       // Use to_id as fan key if this is a fan-in
+      // Split by direction so fans going both up AND down get separate channels
       // Otherwise use the edge's own id (no fan)
+      var hop_dir = row_of[chain[j + 1]] > row_of[chain[j]] ? 'dn' : 'up'
       if (from_count[e.from_id] > 1)
-        fan_key[e.id + '_hop' + j] = 'from_' + e.from_id
+        fan_key[e.id + '_hop' + j] = 'from_' + hop_dir + '_' + e.from_id
       else if (to_count[e.to_id] > 1)
-        fan_key[e.id + '_hop' + j] = 'to_' + e.to_id
+        fan_key[e.id + '_hop' + j] = 'to_' + hop_dir + '_' + e.to_id
       else
         fan_key[e.id + '_hop' + j] = e.id + '_hop' + j
     }
