@@ -1,0 +1,99 @@
+{
+  "id": "contract_pair",
+  "name": "contract_pair",
+  "width": 22,
+  "height": 13,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 22,
+      "height": 13,
+      "name": "contract_pair"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 3,
+      "width": 11,
+      "height": 4,
+      "source": "{svc}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 16,
+        "y": 5
+      },
+      "name": "svc"
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "req",
+      "id": "p0",
+      "wire_x": 1
+    },
+    {
+      "type": "port",
+      "x": 21,
+      "y": 11,
+      "dir": "right",
+      "key": "resp",
+      "wire_x": 20
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c1",
+      "from": "s0",
+      "to": "p0",
+      "path": [
+        {
+          "x": 16,
+          "y": 5
+        },
+        {
+          "x": 18,
+          "y": 5
+        },
+        {
+          "x": 18,
+          "y": 10
+        },
+        {
+          "x": 2,
+          "y": 10
+        },
+        {
+          "x": 2,
+          "y": 5
+        },
+        {
+          "x": 1,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c0",
+      "from": "p0",
+      "to": "s0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

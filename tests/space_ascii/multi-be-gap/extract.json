@@ -1,55 +1,37 @@
 {
-  "id": "test4",
-  "name": "test4",
+  "id": "multi_be_gap",
+  "name": "multi_be_gap",
   "ports": [
     {
       "id": "p0",
-      "key": "init",
+      "key": "in",
       "dir": "left",
-      "flavour": "from-js"
+      "flavour": "in"
     },
     {
       "id": "p1",
-      "key": "touched",
-      "dir": "left",
-      "flavour": "dom-on-click"
+      "key": "out",
+      "dir": "right",
+      "flavour": "out"
     }
   ],
   "stations": [
     {
       "id": "s0",
-      "name": "initializer",
-      "source": "{init}",
+      "name": "A",
+      "source": "{A}",
       "ports": []
     },
     {
       "id": "s1",
-      "name": "process",
-      "source": "{proc}",
+      "name": "B",
+      "source": "{B}",
       "ports": []
     },
     {
       "id": "s2",
-      "name": "try-change",
-      "source": "{change}",
-      "ports": []
-    },
-    {
-      "id": "s3",
-      "name": "changed",
-      "source": "{changed}",
-      "ports": []
-    },
-    {
-      "id": "s4",
-      "name": "station-5655070892044771",
-      "source": "{sleep}",
-      "ports": []
-    },
-    {
-      "id": "s5",
-      "name": "save-change",
-      "source": "{save}",
+      "name": "C",
+      "source": "{C}",
       "ports": []
     }
   ],
@@ -59,7 +41,7 @@
       "id": "c0",
       "from": {
         "id": "p0",
-        "port": "init"
+        "port": "in"
       },
       "to": {
         "id": "s0",
@@ -86,7 +68,7 @@
         "port": "_out"
       },
       "to": {
-        "id": "s3",
+        "id": "s2",
         "port": "_in"
       },
       "type": "faf"
@@ -94,23 +76,23 @@
     {
       "id": "c3",
       "from": {
-        "id": "s1",
+        "id": "s2",
         "port": "_out"
       },
       "to": {
-        "id": "s4",
-        "port": "_in"
+        "id": "p1",
+        "port": "out"
       },
       "type": "faf"
     },
     {
       "id": "c4",
       "from": {
-        "id": "s4",
+        "id": "s2",
         "port": "_out"
       },
       "to": {
-        "id": "s2",
+        "id": "s0",
         "port": "_in"
       },
       "type": "faf"
@@ -123,18 +105,6 @@
       },
       "to": {
         "id": "s1",
-        "port": "_in"
-      },
-      "type": "faf"
-    },
-    {
-      "id": "c6",
-      "from": {
-        "id": "p1",
-        "port": "touched"
-      },
-      "to": {
-        "id": "s5",
         "port": "_in"
       },
       "type": "faf"

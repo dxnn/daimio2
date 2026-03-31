@@ -1,24 +1,24 @@
 {
-  "id": "test2",
-  "name": "test2",
+  "id": "inv1",
+  "name": "inv1",
   "ports": [],
   "stations": [
     {
       "id": "s0",
-      "name": "process",
-      "source": "{ __ | >cells }",
+      "name": "A",
+      "source": "{A}",
       "ports": []
     },
     {
       "id": "s1",
-      "name": "try-change",
-      "source": "{ __ | >cells }",
+      "name": "B",
+      "source": "{B}",
       "ports": []
     },
     {
       "id": "s2",
-      "name": "station-18527831572548237",
-      "source": "{__ | sleep}",
+      "name": "C",
+      "source": "{C}",
       "ports": []
     }
   ],
@@ -31,7 +31,7 @@
         "port": "_out"
       },
       "to": {
-        "id": "s2",
+        "id": "s1",
         "port": "_in"
       },
       "type": "faf"
@@ -39,11 +39,11 @@
     {
       "id": "c1",
       "from": {
-        "id": "s2",
+        "id": "s0",
         "port": "_out"
       },
       "to": {
-        "id": "s1",
+        "id": "s2",
         "port": "_in"
       },
       "type": "faf"
@@ -55,7 +55,7 @@
         "port": "_out"
       },
       "to": {
-        "id": "s0",
+        "id": "s2",
         "port": "_in"
       },
       "type": "faf"

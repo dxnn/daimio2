@@ -1,6 +1,6 @@
 {
-  "id": "counter",
-  "name": "counter",
+  "id": "selfloop_jog",
+  "name": "selfloop_jog",
   "ports": [
     {
       "id": "p0",
@@ -18,8 +18,14 @@
   "stations": [
     {
       "id": "s0",
-      "name": "station-9510653012077946",
-      "source": "{1 | add $count | >$count}",
+      "name": "A",
+      "source": "{A}",
+      "ports": []
+    },
+    {
+      "id": "s1",
+      "name": "B",
+      "source": "{B}",
       "ports": []
     }
   ],
@@ -44,13 +50,35 @@
         "port": "_out"
       },
       "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c2",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
         "id": "p1",
         "port": "out"
       },
       "type": "faf"
+    },
+    {
+      "id": "c3",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
     }
   ],
-  "state": {
-    "count": 0
-  }
+  "state": {}
 }

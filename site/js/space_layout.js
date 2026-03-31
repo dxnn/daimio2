@@ -1294,4 +1294,54 @@ function check_layout_invariants(laid) {
       }
     }
   }
+
+  // Invariant: no false connectivity on shared wire segments
+  // Two connections sharing a cell in the same direction must share
+  // at least one endpoint (from or to). Otherwise the diagram implies
+  // a connection that doesn't exist.
+  var h_conns_at = {}  // 'x,y' → [{ conn, from, to }]
+  var v_conns_at = {}
+  for (var i = 0; i < paths.length; i++) {
+    var p = paths[i], pts = p.path
+    for (var j = 0; j < pts.length - 1; j++) {
+      var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
+      if (y0 === y1) {
+        var hd = x1 > x0 ? 'right' : 'left'
+        var xmin = Math.min(x0, x1), xmax = Math.max(x0, x1)
+        for (var x = xmin; x <= xmax; x++) {
+          var k = x + ',' + y0
+          if (!h_conns_at[k]) h_conns_at[k] = []
+          h_conns_at[k].push({ conn: p.conn, from: p.from, to: p.to, dir: hd })
+        }
+      } else if (x0 === x1) {
+        var vd = y1 > y0 ? 'down' : 'up'
+        var ymin = Math.min(y0, y1), ymax = Math.max(y0, y1)
+        for (var y = ymin; y <= ymax; y++) {
+          var k = x0 + ',' + y
+          if (!v_conns_at[k]) v_conns_at[k] = []
+          v_conns_at[k].push({ conn: p.conn, from: p.from, to: p.to, dir: vd })
+        }
+      }
+    }
+  }
+  var reported_pairs = {}
+  function check_shared_wire(cells_at, axis) {
+    for (var k in cells_at) {
+      var entries = cells_at[k]
+      if (entries.length < 2) continue
+      for (var i = 0; i < entries.length; i++) {
+        for (var j = i + 1; j < entries.length; j++) {
+          var a = entries[i], b = entries[j]
+          if (a.dir !== b.dir) continue  // different directions handled by opposing check
+          if (a.from === b.from || a.to === b.to) continue  // shared endpoint: valid fan-in/out
+          var pair_key = a.conn < b.conn ? a.conn + '|' + b.conn : b.conn + '|' + a.conn
+          if (reported_pairs[pair_key]) continue
+          reported_pairs[pair_key] = true
+          throw new Error('Invariant shared-wire: ' + a.conn + ' (' + a.from + '->' + a.to + ') and ' + b.conn + ' (' + b.from + '->' + b.to + ') share ' + axis + ' wire at ' + k + ' with no common endpoint')
+        }
+      }
+    }
+  }
+  check_shared_wire(h_conns_at, 'h')
+  check_shared_wire(v_conns_at, 'v')
 }

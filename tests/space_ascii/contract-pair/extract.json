@@ -1,25 +1,25 @@
 {
-  "id": "counter",
-  "name": "counter",
+  "id": "contract_pair",
+  "name": "contract_pair",
   "ports": [
     {
       "id": "p0",
-      "key": "in",
+      "key": "req",
       "dir": "left",
-      "flavour": "in"
+      "flavour": "req"
     },
     {
       "id": "p1",
-      "key": "out",
+      "key": "resp",
       "dir": "right",
-      "flavour": "out"
+      "flavour": "resp"
     }
   ],
   "stations": [
     {
       "id": "s0",
-      "name": "station-9510653012077946",
-      "source": "{1 | add $count | >$count}",
+      "name": "svc",
+      "source": "{svc}",
       "ports": []
     }
   ],
@@ -29,13 +29,14 @@
       "id": "c0",
       "from": {
         "id": "p0",
-        "port": "in"
+        "port": "req"
       },
       "to": {
         "id": "s0",
         "port": "_in"
       },
-      "type": "faf"
+      "type": "contract",
+      "pair": "c1"
     },
     {
       "id": "c1",
@@ -44,13 +45,12 @@
         "port": "_out"
       },
       "to": {
-        "id": "p1",
-        "port": "out"
+        "id": "p0",
+        "port": "req"
       },
-      "type": "faf"
+      "type": "contract",
+      "pair": "c0"
     }
   ],
-  "state": {
-    "count": 0
-  }
+  "state": {}
 }

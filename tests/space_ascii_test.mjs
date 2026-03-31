@@ -289,6 +289,11 @@ for (var fi = 0; fi < fixtures.length; fi++) {
   var sl = D.seedlikes_from_string(source)
   var names = Object.keys(sl)
 
+  // Every fixture must have all three output files
+  if (!existsSync(fdir + '/extract.json')) test(fname + ': missing extract.json', 'MISSING', 'exists')
+  if (!existsSync(fdir + '/layout.json')) test(fname + ': missing layout.json', 'MISSING', 'exists')
+  if (!existsSync(fdir + '/render.txt')) test(fname + ': missing render.txt', 'MISSING', 'exists')
+
   // Check extract.json
   if (existsSync(fdir + '/extract.json')) {
     var expected_extract = readFileSync(fdir + '/extract.json', 'utf8')
@@ -362,28 +367,8 @@ for (var fi2 = 0; fi2 < fixtures.length; fi2++) {
   }
 }
 
-// Also check inline tricky topologies
-var tricky_defs = [
-  'inv1\n  A {A}\n  B {B}\n  C {C}\n  A -> B\n  A -> C\n  B -> C',
-  'inv2\n  @in\n  @out\n  A {A}\n  B {B}\n  X {X}\n  Y {Y}\n  @in -> A\n  @in -> B\n  A -> X\n  A -> Y\n  B -> X\n  B -> Y\n  X -> @out\n  Y -> @out',
-  'junc\n  A {A}\n  B {B}\n  C {C}\n  X {X}\n  Y {Y}\n  Z {Z}\n  A -> X\n  A -> Y\n  A -> Z\n  B -> X\n  B -> Y\n  B -> Z\n  C -> X\n  C -> Y\n  C -> Z',
-  'deep\n  A {A}\n  B {B}\n  C {C}\n  D {D}\n  A -> B\n  B -> C\n  C -> D\n  D -> A',
-  'wide\n  @in\n  @out\n  A {A}\n  B {B}\n  C {C}\n  D {D}\n  E {E}\n  Z {Z}\n  @in -> A\n  @in -> B\n  @in -> C\n  @in -> D\n  @in -> E\n  A -> Z\n  B -> Z\n  C -> Z\n  D -> Z\n  E -> Z\n  Z -> @out',
-]
-for (var i = 0; i < tricky_defs.length; i++) {
-  var tname = tricky_defs[i].split('\n')[0].trim()
-  var tsl = D.seedlikes_from_string(tricky_defs[i])
-  var ttopo = extract(tname, tsl[tname])
-  try {
-    layout(ttopo, { check_invariants: true })
-    test('inline/' + tname + ': invariants', 'pass', 'pass')
-  } catch(e) {
-    test('inline/' + tname + ': ' + e.message, 'FAIL', 'pass')
-  }
-}
-
-// Junction geometry: no raw '+' in output
-var sl_junc2 = D.seedlikes_from_string(tricky_defs[2])
+// Junction geometry: no raw '+' in output (uses junc fixture)
+var sl_junc2 = D.seedlikes_from_string(readFileSync(fixture_dir + '/junc/source.dm', 'utf8'))
 var r_junc = render(layout(extract('junc', sl_junc2.junc)))
 test('junction: no raw + chars', r_junc.indexOf('+') < 0, true)
 test('junction: crossing produces O', r_junc.indexOf('O') >= 0, true)

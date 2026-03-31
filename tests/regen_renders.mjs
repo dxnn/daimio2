@@ -13,10 +13,8 @@ for (var i = 0; i < fixtures.length; i++) {
   var sl = D.seedlikes_from_string(source)
   var names = Object.keys(sl)
 
-  if (existsSync(fdir + '/render.txt')) {
-    var rendered = names.length === 1 ? render_space(names[0], sl[names[0]], options) : render_all(sl, options)
-    writeFileSync(fdir + '/render.txt', rendered)
-  }
+  var rendered = names.length === 1 ? render_space(names[0], sl[names[0]], options) : render_all(sl, options)
+  writeFileSync(fdir + '/render.txt', rendered)
 
   if (existsSync(fdir + '/extract.json')) {
     var extracts

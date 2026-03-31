@@ -1,37 +1,31 @@
 {
-  "id": "timer",
-  "name": "timer",
+  "id": "selfloop_be",
+  "name": "selfloop_be",
   "ports": [
     {
       "id": "p0",
-      "key": "in:step",
+      "key": "in",
       "dir": "left",
-      "flavour": "in:step"
+      "flavour": "in"
     },
     {
       "id": "p1",
-      "key": "in:speed",
-      "dir": "left",
-      "flavour": "in:speed"
-    },
-    {
-      "id": "p2",
-      "key": "out:display",
+      "key": "out",
       "dir": "right",
-      "flavour": "out:display"
+      "flavour": "out"
     }
   ],
   "stations": [
     {
       "id": "s0",
-      "name": "station-5860544012205646",
-      "source": "{__ | add $count | >$count}",
+      "name": "A",
+      "source": "{A}",
       "ports": []
     },
     {
       "id": "s1",
-      "name": "station-4197102472682086",
-      "source": "{__ | >$time}",
+      "name": "B",
+      "source": "{B}",
       "ports": []
     }
   ],
@@ -41,7 +35,7 @@
       "id": "c0",
       "from": {
         "id": "p0",
-        "port": "in:step"
+        "port": "in"
       },
       "to": {
         "id": "s0",
@@ -56,39 +50,47 @@
         "port": "_out"
       },
       "to": {
-        "id": "p2",
-        "port": "out:display"
-      },
-      "type": "faf"
-    },
-    {
-      "id": "c2",
-      "from": {
-        "id": "p1",
-        "port": "in:speed"
-      },
-      "to": {
         "id": "s1",
         "port": "_in"
       },
       "type": "faf"
     },
     {
-      "id": "c3",
+      "id": "c2",
       "from": {
         "id": "s1",
         "port": "_out"
       },
       "to": {
-        "id": "p2",
-        "port": "out:display"
+        "id": "p1",
+        "port": "out"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c3",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c4",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
       },
       "type": "faf"
     }
   ],
-  "state": {
-    "count": 0,
-    "step": 1,
-    "time": 500
-  }
+  "state": {}
 }
