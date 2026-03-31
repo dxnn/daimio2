@@ -1,6 +1,5 @@
  _ contract_pair ___
 |                   |
-|                   |
 |     _ svc ___     |
 |    /         \    |
 o^--(  {svc}    )-v |

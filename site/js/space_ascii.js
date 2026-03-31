@@ -116,7 +116,46 @@ export function render(laid_out) {
   var lines = []
   for (var y = 0; y < h; y++)
     lines.push(grid[y].join('').replace(/\s+$/, ''))
-  return lines.join('\n')
+
+  // Collapse consecutive identical rows that contain only vertical bars and spaces
+  var collapsed = [lines[0]]
+  for (var y = 1; y < lines.length; y++) {
+    if (lines[y] === lines[y - 1] && /^[| ]+$/.test(lines[y]))
+      continue
+    collapsed.push(lines[y])
+  }
+
+  // Collapse consecutive identical columns that contain only spaces and dashes
+  // (excluding the top and bottom border rows)
+  var max_len = 0
+  for (var y = 0; y < collapsed.length; y++)
+    if (collapsed[y].length > max_len) max_len = collapsed[y].length
+  // Build full column strings (all rows) to check identity,
+  // but only collapse if the interior (non-border) chars are all spaces/dashes
+  var keep = []
+  for (var x = 0; x < max_len; x++) {
+    var col = ''
+    for (var y = 0; y < collapsed.length; y++)
+      col += x < collapsed[y].length ? collapsed[y][x] : ' '
+    var prev_col = ''
+    if (keep.length > 0) {
+      var px = keep[keep.length - 1]
+      for (var y = 0; y < collapsed.length; y++)
+        prev_col += px < collapsed[y].length ? collapsed[y][px] : ' '
+    }
+    if (keep.length > 0 && col === prev_col && /^[ _-]+$/.test(col))
+      continue
+    keep.push(x)
+  }
+  // Rebuild lines keeping only the selected columns
+  var result = []
+  for (var y = 0; y < collapsed.length; y++) {
+    var row = ''
+    for (var ki = 0; ki < keep.length; ki++)
+      row += keep[ki] < collapsed[y].length ? collapsed[y][keep[ki]] : ' '
+    result.push(row.replace(/\s+$/, ''))
+  }
+  return result.join('\n')
 }
 
 export function render_space(name, seedlike, options) {
