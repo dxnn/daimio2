@@ -188,17 +188,30 @@ export function topo_sort(topology) {
   for (var i = 0; i < ports.length; i++)
     port_ids[ports[i].id] = true
 
-  // Collect all component ids
+  // Collect all component ids, sorted deterministically:
+  // subspaces first (by name), then named stations (by name), then anonymous (by source)
   var comp_ids = []
   var comp_set = {}
+  var station_by_id = {}
   for (var i = 0; i < stations.length; i++) {
     comp_ids.push(stations[i].id)
     comp_set[stations[i].id] = true
+    station_by_id[stations[i].id] = stations[i]
   }
   for (var i = 0; i < subspaces.length; i++) {
     comp_ids.push(subspaces[i])
     comp_set[subspaces[i]] = true
   }
+  comp_ids.sort(function(a, b) {
+    var a_sub = !station_by_id[a], b_sub = !station_by_id[b]
+    if (a_sub !== b_sub) return a_sub ? -1 : 1  // subspaces first
+    if (a_sub) return a < b ? -1 : a > b ? 1 : 0  // both subspaces: sort by name
+    var sa = station_by_id[a], sb = station_by_id[b]
+    var a_anon = /^s\d+$/.test(sa.name), b_anon = /^s\d+$/.test(sb.name)
+    if (a_anon !== b_anon) return a_anon ? 1 : -1  // named before anonymous
+    if (a_anon) return sa.source < sb.source ? -1 : sa.source > sb.source ? 1 : 0
+    return sa.name < sb.name ? -1 : sa.name > sb.name ? 1 : 0
+  })
 
   if (comp_ids.length === 0)
     return { layers: [], layer_of: {}, back_edges: [] }
@@ -277,9 +290,15 @@ export function layout(topology, options) {
   var name = topology.name
   var ports = topology.ports || []
   var stations = topology.stations || []
-  var connections = topology.connections || []
+  var connections = (topology.connections || []).slice()
   var subspaces = topology.subspaces || []
   var elements = []
+
+  // Sort connections deterministically so path routing is independent of source order
+  connections.sort(function(a, b) {
+    return (a.from.id < b.from.id ? -1 : a.from.id > b.from.id ? 1 : 0) ||
+           (a.to.id < b.to.id ? -1 : a.to.id > b.to.id ? 1 : 0)
+  })
 
   // ── Lookups ──────────────────────────────────────────────────────────
 

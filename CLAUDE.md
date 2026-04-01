@@ -172,3 +172,54 @@ Many aliases fill a parameter spot this same way, but not all, so pay attention.
 See `extra/notes.md` for spec reference, test-spec traceability, current work status,
 demo status, and optimization opportunities.
 
+## Project structure
+
+```
+daimio/           — core engine (1_daimio.js, daimio.js, segtypes, commands, etc.)
+site/             — browser-facing files
+  css/            — stylesheets
+  js/             — space_layout.js, space_ascii.js, space_svg.js, editor.js
+  demos/          — demo apps
+  editor/         — CodeMirror mode/hint, spaceeditor
+  tests/          — browser test pages
+  images/         — logo
+tests/            — Node test suites + space_ascii fixtures (41 fixture dirs)
+bin/              — CLI tools (repl, fuzzer, space-ascii, highlight-conn)
+extra/            — notes, reports, commentary (not in git)
+expired/          — old commands/demos for reference
+```
+
+## Space-ASCII layout engine
+
+`site/js/space_layout.js` — full Sugiyama pipeline:
+1. Extract topology from seedlike
+2. Topo sort with cycle detection (DFS, back-edge identification)
+3. Virtual port layers (left ports at layer 0, right ports at last layer)
+4. Back-edge reversal (swap from/to, route as forward, flip path at end)
+5. Dummy node insertion for all multi-layer edges
+6. Barycentric crossing minimization (with dummies and ports)
+7. Fan grouping (shared-endpoint edges get one channel, split by direction)
+8. Gap sizing + vertical channel allocation
+9. Approach tracks for crossing edges (dedicated y-offset to prevent shared-wire)
+10. Unique h-channels per reversed edge
+11. Post-processing: row/column collapsing
+
+Three invariant checks (all passing, 268/268):
+- No wire through station body interior
+- No opposing-direction wires (unless shared endpoint)
+- No shared-wire false connectivity (unless shared endpoint)
+
+Renderers: `space_ascii.js` (ASCII), `space_svg.js` (SVG). Both use same layout output.
+
+## Test status (as of 2026-03-31)
+
+- d2_spec_test: 424/427 pass (3 pre-existing failures)
+- daimio_test: 829/843 pass (14 known failures)
+- node_code: 83/83 pass
+- security_test: 179/179 pass
+- space_test: 124/148 pass (24 known spec-gap failures)
+- space_ascii_test: 268/268 pass (0 failures, 41 fixture dirs)
+- example_test: 104/104 pass
+- perf_test: 21/21 pass
+- editor_test: 84/84 pass
+

@@ -1,6 +1,7 @@
 import D from '../daimio/daimio.js'
 import { extract, layout, topo_sort } from '../site/js/space_layout.js'
 import { render, render_space, render_all } from '../site/js/space_ascii.js'
+import { parse_ascii } from '../site/js/space_ascii_parse.js'
 import { readdirSync, readFileSync, existsSync } from 'fs'
 
 var pass = 0, fail = 0, failures = []
@@ -372,6 +373,32 @@ var sl_junc2 = D.seedlikes_from_string(readFileSync(fixture_dir + '/junc/source.
 var r_junc = render(layout(extract('junc', sl_junc2.junc)))
 test('junction: no raw + chars', r_junc.indexOf('+') < 0, true)
 test('junction: crossing produces O', r_junc.indexOf('O') >= 0, true)
+
+// === Round-trip: render.txt → parse → re-render ===
+for (var fi3 = 0; fi3 < fixtures.length; fi3++) {
+  var rt_fname = fixtures[fi3]
+  var rt_fdir = fixture_dir + '/' + rt_fname
+  var rt_options = existsSync(rt_fdir + '/options.json')
+    ? JSON.parse(readFileSync(rt_fdir + '/options.json', 'utf8'))
+    : {}
+
+  if (!existsSync(rt_fdir + '/render.txt')) continue
+  var rt_render = readFileSync(rt_fdir + '/render.txt', 'utf8')
+
+  // Parse the render back to source.dm
+  var rt_source = parse_ascii(rt_render, rt_options)
+
+  // Feed through the pipeline: source.dm → seedlikes → extract → layout → render
+  var rt_sl = D.seedlikes_from_string(rt_source)
+  var rt_names = Object.keys(rt_sl)
+  var rt_actual
+  if (rt_names.length === 1)
+    rt_actual = render_space(rt_names[0], rt_sl[rt_names[0]], rt_options)
+  else
+    rt_actual = render_all(rt_sl, rt_options)
+
+  test(rt_fname + ': round-trip', rt_actual, rt_render)
+}
 
 // Report
 console.log('space_ascii_test: ' + pass + '/' + (pass + fail) + ' passed')
