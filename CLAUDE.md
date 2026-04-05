@@ -210,16 +210,36 @@ Three invariant checks (all passing, 268/268):
 - No shared-wire false connectivity (unless shared endpoint)
 
 Renderers: `space_ascii.js` (ASCII), `space_svg.js` (SVG). Both use same layout output.
+Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render-guided refinement.
 
-## Test status (as of 2026-03-31)
+## ASCII parser (Astroglot round-trip)
 
-- d2_spec_test: 424/427 pass (3 pre-existing failures)
+`site/js/space_ascii_parse.js` — parses render.txt back to source.dm format.
+Round-trip: `render.txt → parse_ascii() → source.dm → seedlikes_from_string → extract → layout → render`.
+
+28/41 fixtures round-trip exactly. The 13 that don't are complex topologies where:
+- Wire tracer creates false positive connections at junction chars (self-loops, cross-connections)
+- The score-guided refine step can't reliably remove false positives (local minimum problem)
+- Subspace port detection is off-by-one due to column collapsing
+- See plan at `.claude/plans/velvet-stirring-pretzel.md` for full design
+
+## Test status (as of 2026-04-05)
+
+- d2_spec_test: 423/427 pass (4 known failures)
 - daimio_test: 829/843 pass (14 known failures)
 - node_code: 83/83 pass
 - security_test: 179/179 pass
 - space_test: 124/148 pass (24 known spec-gap failures)
-- space_ascii_test: 268/268 pass (0 failures, 41 fixture dirs)
+- space_ascii_test: 296/309 pass (13 round-trip failures, 0 other failures, 41 fixture dirs)
 - example_test: 104/104 pass
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass
+
+### Known failure root causes
+- **d2_spec_test (4)**: 2x time.now has `fun` fallback (should be purely effectful),
+  2x `>$x.path` desugars to `list poke` which coerces scalar data to list before D.poke sees it
+- **daimio_test (14)**: 11x peek-scalar (Pos/Key on scalar yields scalar instead of Empty),
+  1x poke-key-unkeyed-fail, 2x poke-pos-scalar (Pos on scalar coerces to list)
+- **space_test (24)**: 23x unimplemented spec behaviors (up-ports, cmd forwarding, timeouts, etc.),
+  1x k_variable.js returns `false` for unbound svar instead of empty
 
