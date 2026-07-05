@@ -243,6 +243,13 @@ Round-trip: `render.txt → parse_ascii() → source.dm → seedlikes_from_strin
 - **space_test (24)**: 23x unimplemented spec behaviors (up-ports, cmd forwarding, timeouts, etc.),
   1x k_variable.js returns `false` for unbound svar instead of empty
 
+## Provisional spec decisions (revisit later)
+- **Block in a space variable → serialized as a dead string.** A block held
+  in an svar serializes to its source text and is always dead on reload, even
+  if it was live when the space was serialized. Reviving requires `process
+  unquote`. Marked `[serialize-block-dead]` in D2-spec.md §8. Revisit if/when
+  live-block persistence is wanted (interacts with the unquote privilege gate).
+
 ## Git policy (overrides global)
 You manage git directly in this project. The global "manual git" rule does
 NOT apply here. `git push` remains denied at the permission layer; the user

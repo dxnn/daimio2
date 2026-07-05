@@ -167,7 +167,7 @@ surface; the principle is unchanged.
 Every effectful command invocation within a space produces a port
 request. Port requests propagate outward (via down-port forwarding
 through parent spaces) until they reach the outermost space, where
-real effects occur. Any intermediate space can intercept and handle
+the App handles them. Any intermediate space can intercept and handle
 the request (via up-port wiring to a subspace or a local handler).
 This is the mechanism behind testability: any space can be tested
 by composing it into a parent that provides mock handlers, and the
@@ -251,7 +251,9 @@ to a parameter name, removing it from the implicit filling order.
 Every command definition is either pure (has a `fun`) or effectful
 (has an `effect` with a port type). Never both,
 never neither. A pure command is a total function from parameters to
-a value -- it can be executed with no environment at all. An effectful
+a value -- it can be executed with no environment at all, save for
+reads of the space's seeded PRNG (`math random`), which is
+deterministic given the seed. An effectful
 command can do nothing except send a request to its port and return
 whatever comes back. This partition is what makes a DAML program
 decomposable into an effect skeleton (the sequence of port requests)
@@ -530,8 +532,9 @@ surrounding topology is Astroglot.
 
 Astroglot is **indentation-based** with exactly two levels:
 
-  - **Level 0** (column 0): space names. Each name starts a new
-    space definition. [spacesyn-toplevel]
+  - **Level 0** (column 0): space labels. Each label starts a new
+    space definition -- a bare name, or `((name))` for a black hole.
+    [spacesyn-toplevel]
   - **Level 1** (indented): properties of the current space —
     ports, stations, wires, state.
   - **Deeper**: continuation of the previous property (e.g.,
@@ -734,6 +737,8 @@ Borks include:
   - A contract `<->` with wrong signal types (e.g., Entrance on LHS)
   - A contract `<->` with more than two endpoints
   - Multiple wires to a round-trip port (point-to-point only)
+  - An Exit-N-Reenter port as the RHS terminus of a FAF `->` chain
+    (it may appear only as MID)
 
   Naming conflicts:
   - Duplicate space names in the same file
@@ -912,8 +917,9 @@ the port is not wired, the command sploots.
 
 A program is a pipeline, serialized as DAML source text. It enters
 an outer space as a ship payload -- a dead string -- and may be
-brought to life via `process unquote` and evaluated as a block,
-creating a sub-process (P-uniformeval).
+brought to life by `process unquote` (run in some space whose dialect
+permits it) and then evaluated as a block, creating a sub-process
+(P-uniformeval).
 
 A program has two kinds of operations:
 
@@ -951,10 +957,13 @@ this through demand-created ports and wiring rules (section 6).
 > The effect signature is open (not statically fixed), since
 > block evaluation can invoke arbitrary effectful commands.
 
-Requires: the effective dialect must include `process unquote` (to
-revive the received text) and whatever commands the program
-invokes, and port wiring must exist (or be demand-creatable) for
-any effects used.
+Requires: the text must be revived by `process unquote` in some space
+whose dialect permits it -- not necessarily the space that evaluates
+the result -- and the revived block then runs under its evaluating
+dialect, which must include whatever commands it invokes, with port
+wiring (or demand-creation) for any effects. Today one dialect spans
+the hierarchy, so reviving and evaluating coincide; future
+per-subspace dialects could separate them.
 
 ### Ships
 ```
@@ -1016,6 +1025,8 @@ through the entire execution tree:
   - Error ships carry the sender [sender-propagate-error]
   - Ships exiting the outermost space carry the sender (so the
     App can route responses back and apply its own policies) [sender-propagate-exit]
+  - Ships emerging from a black hole carry the sender the App
+    attaches, exactly as at the outermost boundary [blackhole-sender-outer]
 
 The sender is how the App tracks which external entity triggered
 a computation. Daimio does not authenticate senders -- the App is
@@ -1031,10 +1042,10 @@ the receiving environment:
 
 - **Data** -- just a Val. No behavior, no effects, no requirements.
   Enters a space as a ship payload through any in-port.
-- **Program** -- a pipeline as DAML source text. Needs dialect
-  (including `process unquote`) + state + ports from the host
-  (see Programs above). The program is "parasitic" -- it borrows
-  everything.
+- **Program** -- a pipeline as DAML source text. Must be revived by
+  `process unquote` somewhere along its path, then needs dialect +
+  state + ports from the host (see Programs above). The program is
+  "parasitic" -- it borrows everything.
 - **Space** -- a serialized space definition (Astroglot). Needs
   port wiring + dialect from the parent (see Spaces below). The
   space is "self-reliant" -- it brings its own programs and state.
@@ -1513,6 +1524,38 @@ different outer space entirely.
 
 
 
+### The App's obligations
+
+Several invariants rest on obligations Daimio cannot enforce from
+inside -- the outer application supplies them. A conforming App MUST:
+
+  - **Authenticate and attach senders.** Daimio trusts the sender on
+    every inbound ship without verifying it (§4 Senders). If the App
+    attaches an unvalidated or over-privileged sender, dialect
+    confinement (I2, I4) is only as sound as the App's identity check.
+    A senderless ship runs at full space dialect
+    [sender-effective-default], so omitting a sender grants maximal
+    authority -- and this is true at every runtime boundary alike,
+    the outermost edge and each black hole [blackhole-sender-outer].
+  - **Answer or time out down-port requests.** Liveness (I9) assumes
+    every request the App receives is eventually answered or left to
+    the timeout. The App must deliver a response to the waiting
+    process, or nothing and let the timeout fire -- never leave a
+    request hanging past its timeout with no resolution.
+  - **Enforce resource limits.** Totality (I1) prevents crashes but
+    not runaway pure computation (§13, §14). The App is responsible
+    for monitoring and killing processes that exceed CPU or memory
+    budgets; without this, liveness still holds but throughput does
+    not.
+  - **Provide only intended flavours.** A port flavour that is not
+    loaded cannot be created (§4 Port flavours), so the set of loaded
+    flavours is a coarse capability gate the App controls.
+
+Where an obligation is unmet, the named invariant does not fail
+loudly inside Daimio -- it is simply no longer guaranteed, because
+its precondition was the App's to supply.
+
+
 ## 5. Space Execution (Scheduling)
 
 ### Serial execution per space
@@ -1721,7 +1764,7 @@ Signal type        In -> (FAF)          In <-> (contract)
 Entrance           LHS (source)         (not valid)
 Exit               RHS (destination)    (not valid)
 Enter-N-Exit       (not valid)          LHS only
-Exit-N-Reenter     MID or RHS          RHS only
+Exit-N-Reenter     MID only            RHS only
 station            LHS, MID, or RHS    RHS only
 station@foo        LHS only (exit)     (not valid)
 ```
@@ -2288,7 +2331,11 @@ serializedSpace = space syntax source text
 
 Space syntax is the canonical serialization format. A serialized
 space includes current space variable values (the main thing that
-changes between the initial definition and a running snapshot).
+changes between the initial definition and a running snapshot). A
+space variable holding a block is serialized as the block's source
+text and is **dead** on reload -- even if it was live in the running
+space; reviving it needs `process unquote`, like any dead string
+[serialize-block-dead].
 Socketed subspaces are serialized as regular subspace definitions
 -- once loaded, a socketed space is just a subspace.
 
@@ -2993,10 +3040,14 @@ positions are stable across consecutive pokes).
 MapId (identity block preserves structure) holds universally (map
 doesn't change collection shape either).
 
-GetPut holds except when Key creates a new entry.
+GetPut holds except when Key creates a new entry, and for Star or Par
+paths (peek wraps a traversal in a list, so what is read back is not
+what was written).
 
-PutGet holds when poke actually writes. Fails on no-ops (out-of-bounds
-Pos, Key soft error on unkeyed) and on traversal scalar skips.
+PutGet holds when poke writes to a single affine focus. Fails on
+no-ops (out-of-bounds Pos, Key soft error on unkeyed), on traversal
+scalar skips, and on Star or Par paths (peek wraps the traversal, so
+it returns `[x, …]`, not `x`).
 
 **Positional delete shifts positions.** After a positional delete,
 remaining elements shift to fill the gap (splice semantics). This
