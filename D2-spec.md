@@ -1324,8 +1324,6 @@ socket transition drains the old subspace).
     out-ports: update DOM elements when ships exit.
   - `websock-in`, `websock-out` — in/out-ports for WebSocket
     communication.
-  - `websock-add-user`, `websock-remove-user` — out-ports for
-    WebSocket user management.
 
 **The flavour IS the handler.** There is no separate "handler
 map" passed in at space creation time. A space definition
