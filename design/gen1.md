@@ -391,3 +391,35 @@ REALIZE-pending: once the draft is merged into D2-spec.md, mark
   #idea:black-hole, #idea:bh-outerspace-dual, #idea:bh-fire-forget,
   #idea:bh-glyph, #idea:bh-mock-swap → REALIZE with [dd:blackhole].
   #idea:bh-render remains open (test-suite + renderer phase).
+
+## HEAD (graduated 2026-07-05 → gen2.md)
+
+Standing threads (deferred):
+- #idea:split-1-daimio — deferred
+- #idea:runtime-isolation — deferred
+- #idea:alias-attenuation — deferred; watch: bh sender identity is
+  provisional and revisits here
+- #idea:explore-topics — deferred
+- #idea:space-spec-gaps — deferred
+
+Black hole cluster (draft at design/blackhole-spec-draft.md, awaiting
+user review/merge — all REALIZE on merge as [dd:blackhole]):
+- #idea:black-hole
+- #idea:bh-spec-today — constraint satisfied by draft; retire on merge
+- #idea:bh-outerspace-dual
+- #idea:bh-fire-forget
+- #idea:bh-mock-swap
+- #idea:bh-socket-pflav-reuse
+- #idea:bh-glyph — ((label)) decided
+- #idea:bh-updown-ports — deferred; draft makes exclusion explicit
+  [blackhole-inout-only]
+- #idea:bh-render — open task: renderers, parser, fixtures, labelled tests
+- #tension:bh-serialization — covered in draft via duality; closes on merge
+- #tension:bh-silent-loss — covered in draft [blackhole-no-guarantee];
+  closes on merge
+
+Left HEAD this gen: #tension:bh-effect-locality (resolved),
+#tension:bh-declaration (resolved), #tension:bh-sender (resolved,
+provisional), #tension:bh-port-inversion (resolved),
+#idea:bh-port-flavours (resolved), #idea:space-flavours (merged →
+space-types), #idea:space-types (rejected).
