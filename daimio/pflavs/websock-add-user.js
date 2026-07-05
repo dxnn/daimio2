@@ -1,5 +1,5 @@
 import D from '../1_daimio.js'
-D.import_port_flavour('socket-add-user', {
+D.import_port_flavour('websock-add-user', {
   dir: 'in',
   unsafe: true,
   settings: [

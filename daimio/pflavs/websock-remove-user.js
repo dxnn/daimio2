@@ -1,5 +1,5 @@
 import D from '../1_daimio.js'
-D.import_port_flavour('socket-in', {
+D.import_port_flavour('websock-remove-user', {
   dir: 'in',
   unsafe: true,
   settings: [
@@ -8,23 +8,15 @@ D.import_port_flavour('socket-in', {
       desc: 'A dom selector for binding',
       type: 'selector'
     },
-    {
-      key: 'parent',
-      desc: 'A dom element contain thing. Defaults to document.',
-      type: 'id'
-    },
   ],
   outside_add: function() {
     var self = this
-      , channel = 'bounced'
-
-    if(self.settings.all.length > 2)
-      channel = self.settings.thing // explicit third param only -- no sugar
 
     if(!D.Etc.socket)
       return D.set_error('You must place a valid socket connection in D.Etc.socket')
 
-    D.Etc.socket.on(channel, function (ship) {
+    D.Etc.socket.on('disconnected', function (ship) {
+      if(!ship.user) return false
       self.enter(ship)
     })
 

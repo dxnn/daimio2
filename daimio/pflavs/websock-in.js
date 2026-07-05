@@ -1,6 +1,6 @@
 import D from '../1_daimio.js'
-D.import_port_flavour('socket-out', {
-  dir: 'out',
+D.import_port_flavour('websock-in', {
+  dir: 'in',
   unsafe: true,
   settings: [
     {
@@ -14,15 +14,19 @@ D.import_port_flavour('socket-out', {
       type: 'id'
     },
   ],
-  outside_exit: function(ship) {
-    var channel = 'bounce'
+  outside_add: function() {
+    var self = this
+      , channel = 'bounced'
 
-    if(this.settings.all.length > 2)
-      channel = this.settings.thing // explicit third param only -- no sugar
+    if(self.settings.all.length > 2)
+      channel = self.settings.thing // explicit third param only -- no sugar
 
     if(!D.Etc.socket)
       return D.set_error('You must place a valid socket connection in D.Etc.socket')
 
-    D.Etc.socket.emit(channel, ship)
+    D.Etc.socket.on(channel, function (ship) {
+      self.enter(ship)
+    })
+
   }
 })
