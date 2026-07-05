@@ -225,8 +225,9 @@ socket.
 There is no special "eval" mechanism. Blocks, received programs,
 named blocks, and station blocks all execute as processes under the
 same rules -- same dialect, same serial execution, same fresh reads,
-same effect routing. A program received as data is evaluated the
-same way as a block passed to `list map` -- both create a
+same effect routing. A program received as data (revived via
+`process unquote` -- see §11 "Blocks and strings") is evaluated
+the same way as a block passed to `list map` -- both create a
 sub-process. This is what makes programmable applications work:
 a program sent by a sender executes under exactly the same
 rules as built-in code, constrained by the effective dialect.
@@ -851,8 +852,9 @@ the port is not wired, the command sploots.
 ### Programs
 
 A program is a pipeline, serialized as DAML source text. It enters
-an outer space as a ship payload and may be evaluated as a block
-via `process run`, creating a sub-process (P-uniformeval).
+an outer space as a ship payload -- a dead string -- and may be
+brought to life via `process unquote` and evaluated as a block,
+creating a sub-process (P-uniformeval).
 
 A program has two kinds of operations:
 
@@ -890,9 +892,10 @@ this through demand-created ports and wiring rules (section 6).
 > The effect signature is open (not statically fixed), since
 > block evaluation can invoke arbitrary effectful commands.
 
-Requires: the effective dialect must include whatever commands the
-program invokes, and port wiring must exist (or be
-demand-creatable) for any effects used.
+Requires: the effective dialect must include `process unquote` (to
+revive the received text) and whatever commands the program
+invokes, and port wiring must exist (or be demand-creatable) for
+any effects used.
 
 ### Ships
 ```
@@ -969,9 +972,10 @@ the receiving environment:
 
 - **Data** -- just a Val. No behavior, no effects, no requirements.
   Enters a space as a ship payload through any in-port.
-- **Program** -- a pipeline as DAML source text. Needs dialect +
-  state + ports from the host (see Programs above). The program
-  is "parasitic" -- it borrows everything.
+- **Program** -- a pipeline as DAML source text. Needs dialect
+  (including `process unquote`) + state + ports from the host
+  (see Programs above). The program is "parasitic" -- it borrows
+  everything.
 - **Space** -- a serialized space definition (Astroglot). Needs
   port wiring + dialect from the parent (see Spaces below). The
   space is "self-reliant" -- it brings its own programs and state.
@@ -1269,7 +1273,7 @@ the outside port:
      outside port and pairs it immediately. The flavour's
      `outside_add()` is called on the outside port — this is
      where the flavour connects to the real world (bind a DOM
-     listener, open a socket connection, etc.).
+     listener, open a network connection, etc.).
   3. **Subspace ports**: the parent creates a matching outside
      port and pairs it when the subspace is wired. No
      `outside_add()` — the parent's wiring handles the
@@ -1318,16 +1322,16 @@ socket transition drains the old subspace).
     in-ports: bind DOM event listeners, push events as ships.
   - `dom-set-text`, `dom-set-value`, `dom-set-raw-html` —
     out-ports: update DOM elements when ships exit.
-  - `socket-in`, `socket-out` — in/out-ports for socket.io
+  - `websock-in`, `websock-out` — in/out-ports for WebSocket
     communication.
-  - `socket-add-user`, `socket-remove-user` — out-ports for
-    socket user management.
+  - `websock-add-user`, `websock-remove-user` — out-ports for
+    WebSocket user management.
 
 **The flavour IS the handler.** There is no separate "handler
 map" passed in at space creation time. A space definition
 declares which flavours its ports use, and the flavour provides
 the behavior. This makes space definitions self-describing — a
-space says what it needs (DOM access, socket communication, etc.)
+space says what it needs (DOM access, WebSocket communication, etc.)
 by declaring port flavours.
 
 **Substitutability.** To override a port's behavior (for testing,
@@ -2141,15 +2145,15 @@ A serialized space does NOT include:
   - Dialect (the Daimio instance's dialect applies)
   - Port wiring (wiring comes from the socket's parent)
 
-### Socket-in port
+### Socket-load port
 
-A socket is any space that has a port of flavour "socket-in".
+A socket is any space that has a port of flavour "socket-load".
 
 ```
-socketSpace = space with at least one port where flavour = "socket-in"
+socketSpace = space with at least one port where flavour = "socket-load"
 ```
 
-When a serialized space arrives as a ship at a socket-in port: [socket-load]
+When a serialized space arrives as a ship at a socket-load port: [socket-load]
 
   1. **Parse** the source text (space syntax) into a space
      definition.
@@ -3205,9 +3209,12 @@ type depends on origin.
     block's source text as a dead string [quote-kills].
   - **unquote** (`process unquote`): string → block. Compiles
     the string into a live block [unquote-compiles]. This is the
-    **privilege boundary** — the only runtime mechanism that
-    turns data into code. If `unquote` is not in the dialect,
-    strings are permanently inert [unquote-privilege].
+    **privilege boundary** — the only mechanism by which a
+    pipeline turns data into code. If `unquote` is not in the
+    dialect, strings are permanently inert [unquote-privilege].
+    Space-level code arrives through a different door with a
+    different gate: a socket-load port (§8), gated by topology
+    rather than dialect.
   - **run** (`process run`): evaluates a block, creating a
     sub-process under the sender's effective dialect.
   - **String commands** (e.g., `string transform`): block →
@@ -3218,7 +3225,8 @@ type depends on origin.
     pipeline always produces a final value
     [block-end-of-pipe-eval]. Blocks never leave a station.
 
-**Dynamic code execution** requires `unquote` — the sole gate:
+**Dynamic code execution** in a pipeline requires `unquote` —
+the sole gate for strings:
 ```
 {$user_input | process unquote | process run}
 ```
@@ -3258,12 +3266,6 @@ are threaded into the expansion. `{add 5 to 3}` expands `add`
 to `math add value`, then `5` fills the dangling positional slot
 and `to 3` maps to the `to` parameter of `math add`
 [alias-param-thread].
-
-**Dialect gating.** Aliases are part of the dialect. If an alias
-is removed from a restricted dialect, it is unavailable -- using
-it sploots [alias-dialect-gate]. Note that alias expansion happens
-at compile time, but the expanded command is still checked against
-the effective dialect at runtime.
 
 **Multiple invocations.** Each invocation of an alias in a
 pipeline gets fresh internal keys. This ensures that multiple
@@ -3788,6 +3790,16 @@ This section traces attack vectors against the model and shows
 how the invariants defend against them -- or where the defense
 depends on configuration.
 
+**Code injection: two doors.** Outside text becomes executable
+code through exactly two routes, each with its own gate.
+**Programs** (strings) become blocks only via `process unquote`,
+gated by the effective dialect (§11). **Spaces** (Astroglot)
+become live subspaces only via a socket-load port, gated by
+topology: the parent must expose the port, and the parent's
+wiring confines the loaded space's effects (§8). The analyses
+below cover what injected code can do once it is running; these
+two gates govern how code gets in.
+
 ### Privilege escalation via block evaluation
 
 **Attack:** Alice stores malicious code in a space variable.
@@ -3947,7 +3959,7 @@ the model):
 | Implicit block eval (pipe) | same as above | Same `datatypes/block.js` path |
 | Station docking | `port_standard_enter` then `Space.dock` | Sender extracted from process, forwarded through port pair |
 | Subspace crossing | `Space` constructor | `this.dialect = parent.dialect` (I2 monotonicity); sender intersected at Process creation |
-| Alias expansion | `n_alias.js` (parse) + `m_command.js` (runtime) | **Implementation gap:** aliases expand unconditionally at parse time (spec requires dialect gating [alias-dialect-gate]); resulting Command checked at dispatch |
+| Alias expansion | `n_alias.js` (parse) + `m_command.js` (runtime) | Aliases expand unconditionally at parse time; resulting Command checked at dispatch. Alias-level gating is future work (§14). |
 | `D.run` boundary | `execute_then_stringify` | Sender forwarded to block re-execution context |
 
 **Key invariants this depends on:**
@@ -4046,10 +4058,14 @@ Open questions:
     from DAML, so sender-derived restrictions should be safe.
     But the full implications of live expressions in alias
     expansion need analysis.
-  - Alias dialect-gating (`[alias-dialect-gate]`) becomes
-    security-critical if aliases carry restrictions. The
-    current implementation gap (global expansion) must be
-    fixed first.
+  - Alias dialect-gating: aliases currently expand
+    unconditionally at compile time, and the runtime checks
+    only the expanded command -- removing an alias from a
+    dialect has no enforcement point of its own. If aliases
+    carry restrictions, gating becomes security-critical:
+    using an alias removed from a restricted dialect must
+    sploot [alias-dialect-gate]. This must be specified and
+    implemented before alias-level attenuation lands.
 
 ### Normal forms, content-addressing, and deduplication
 
