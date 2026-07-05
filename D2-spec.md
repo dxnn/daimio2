@@ -766,6 +766,7 @@ Borks include:
     [blackhole-inout-only]
   - A black hole definition containing a station, wire, or state
     declaration [blackhole-only-ports]
+  - A black hole declaring a `socket-load` port [blackhole-no-socket-load]
   - The root space declared as a black hole [blackhole-not-root]
 
 These are all detectable at parse/compile time. The compiler
@@ -2364,6 +2365,13 @@ When a serialized space arrives as a ship at a socket-load port: [socket-load]
      wiring rules apply to the new subspace's ports on demand. [socket-wiring-demand]
   5. If a previous subspace occupied this socket, **overlap**
      semantics apply (see below).
+
+A black hole cannot be created through a socket-load port: if the
+parsed definition is a black hole (`((label))`), the load borks
+[blackhole-no-socket-load]. A black hole's ports face the world and
+the App must bind them itself (§4, "Black holes"); they cannot arrive
+as hot-loaded data. (This may later relax to App-mediated binding of
+a loaded black hole; for now it is simply disallowed.)
 
 ### Socket transitions: overlap
 
