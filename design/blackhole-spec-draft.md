@@ -31,6 +31,27 @@ Replace the section body with:
 (Second paragraph is unchanged from the current text; only the opening
 paragraph is new.)
 
+Also amend the two invariants that state the same principle in
+normative form — the property list and the I1–I15 list are maintained
+separately, so both must move together.
+
+**I10 (§1, line 364)** — replace with:
+
+> **I10. Effect exteriority.** Effectful commands produce port
+> requests, not direct effects. Real effects occur only at a runtime
+> boundary — the outside of the outermost space, or a black hole's
+> port boundary (§4, "Black holes"). Effectful port requests
+> propagate outward until they reach such a boundary, where the
+> App's handler executes them; a ship that reaches a black hole's
+> in-port leaves the runtime there. No space can cause a real-world
+> effect except at a runtime boundary.
+
+**I3 (§1, line 329)** — replace the final sentence:
+
+> The sender exits all ports, including runtime boundaries: the
+> outermost boundary to the App, and any black hole crossing to its
+> external app (§4).
+
 ---
 
 ## Edit 2 — Design Decisions Record (§2, after "Why channel-independent
@@ -80,8 +101,39 @@ Add a category:
 >   Black hole violations:
 >   - A black hole port whose flavour direction does not oppose the
 >     port direction [blackhole-flavour-oppose]
->   - A black hole port with dir `up` or `down` [blackhole-inout-only]
+>   - A black hole port with dir `up` or `down` (not yet supported)
+>     [blackhole-inout-only]
+>   - A black hole definition containing a station, wire, or state
+>     declaration [blackhole-only-ports]
 >   - The root space declared as a black hole [blackhole-not-root]
+
+---
+
+## Edit 4b — Spaceseed record (§3, spaceseed at line 736)
+
+Add a field to the spaceseed record:
+
+```
+spaceseed = {
+  ...
+  blackhole      : bool            -- true for a black hole [blackhole-seed-flag]
+}
+```
+
+> A spaceseed compiled from a `((label))` definition has
+> `blackhole = true` (default false). This is the only structural
+> difference in the compiled form; a black hole's `stations`,
+> `state`, and interior `subspaces` are empty [blackhole-no-interior].
+> When `blackhole` is true, each port's world-facing flavour methods
+> bind to the port's inside face rather than its outside (Edit 6).
+>
+> This is not a new mechanism. It is the same boundary duality that
+> already governs `up`/`down` -- a port's role reverses at the
+> boundary -- now applied to the `in`/`out` axis. Round-trip ports
+> flip north/south (Enter-N-Exit ⇄ Exit-N-Reenter); a black hole's
+> one-way ports flip east/west (Entrance ⇄ Exit of the runtime).
+> Nothing is inverted at runtime; the boundary simply sits on the
+> other face.
 
 ---
 
@@ -102,8 +154,8 @@ before "Port flavours", line 1244)
 >
 > ```
 > ((relay))
->   @in:feed   socket-out
->   @out:news  socket-in
+>   @in:feed   websock-out
+>   @out:news  websock-in
 >
 > main
 >   @in:init     from-js
@@ -112,55 +164,53 @@ before "Port flavours", line 1244)
 >   relay@out:news -> @out:display
 > ```
 >
-> A black hole declares only ports. Stations, wires, and state
-> declarations inside a black hole definition are parsed and
-> discarded [blackhole-ignore-structure] -- there is no inside to
-> put them in. References use the bare name [blackhole-ref-bare],
-> and definition-before-reference applies unchanged
+> A black hole declares only ports. A station, wire, or state
+> declaration inside a black hole definition borks
+> [blackhole-only-ports] -- there is no inside to put it in.
+> References use the bare name [blackhole-ref-bare], and
+> definition-before-reference applies unchanged
 > [spacesyn-subspace-before-ref].
 >
-> **Two boundaries, two directions.** A port's dir is
-> parent-relative: which way ships flow between this space and its
-> parent. A flavour's dir is boundary-relative: `in` means ships
-> enter the runtime, `out` means ships leave it. At an outer space
-> the two coincide, which is why the distinction is invisible there.
-> At a black hole they oppose: ships flowing in from the parent (port
-> dir `in`) are leaving the runtime (flavour dir `out`). Nothing is
-> inverted -- the two directions measure different boundaries. A
-> black hole port whose flavour direction does not oppose its port
-> direction borks [blackhole-flavour-oppose]. A black hole port
-> declared without a flavour defaults to the generic flavour of the
-> opposing direction [blackhole-default-flavour] -- a bare `@in` on
-> a black hole is a pure sink.
+> **Ports mirror the outer space.** An outer space has the world
+> outside, so each port's flavour matches its direction: `@in` takes
+> an in-flavour that brings ships from the world (`dom-on-click`,
+> `websock-in`), `@out` takes an out-flavour that emits to the world
+> (`dom-set-text`, `websock-out`). A black hole has the world
+> *inside*, so it is the mirror -- each port takes the flavour of the
+> **opposite** direction. Read `@in:feed websock-out` as: the parent
+> sends a ship in, and because the world is inside, it leaves the
+> runtime. Read `@out:news websock-in` as: the world produces a value
+> that comes out to the parent. The port names stay parent-relative,
+> so the parent wires a black hole exactly like any other subspace;
+> only the flavour is mirrored. A port whose flavour direction does
+> not oppose its port direction borks [blackhole-flavour-oppose]; a
+> bare port with no flavour takes the generic flavour of the opposing
+> direction [blackhole-default-flavour] -- a bare `@in` is a pure sink.
 >
-> **Ordinary flavours.** There are no black-hole-specific port
-> flavours; the universal flavour pool applies. A socket-backed
-> black hole needs nothing new: its in-ports carry `socket-out`,
-> its out-ports carry `socket-in`.
+> **Crossing.** There is no interior to route through, so a black
+> hole port runs its flavour's world-facing action directly. A ship
+> arriving at `@in:feed` is emitted to the world and gone --
+> fire-and-forget, no response, no delivery guarantee
+> [blackhole-in-exit][blackhole-no-guarantee]; the destination is the
+> flavour's own concern (a `websock-out` emits on its configured
+> channel), and nothing is added to the ship. A value arriving from
+> the world at `@out:news` becomes a ship that exits into the parent's
+> wiring, queuing like any external arrival [blackhole-out-enter].
 >
-> **Crossing outward.** When a ship enters a black hole's in-port,
-> the flavour's real-world exit executes and the ship leaves the
-> runtime [blackhole-in-exit]. The crossing is fire-and-forget: no
-> response, no delivery guarantee -- if nothing is listening, the
-> ship is gone [blackhole-no-guarantee]. Ships crossing outward are
-> stamped with the black hole's space identifier and the port name;
-> the outer application dispatches on this metadata
-> [blackhole-ship-stamp].
->
-> **Crossing inward.** When the flavour's real-world connection
-> produces a value, a ship is created at the corresponding out-port
-> and exits into the parent's wiring, queueing like any ship
-> arriving from outside [blackhole-out-enter]. Emerging ships carry
-> the black hole space's identity as their sender
-> [blackhole-sender-identity]; the effective dialect follows the
-> normal sender rules (§4 Senders), so a black hole cannot exceed
-> its host's permissions (P-compose).
+> **Sender.** A black hole is treated exactly like the outermost
+> boundary: the App attaches the sender to an emerging ship, and
+> Daimio trusts it without authenticating (§4 Senders)
+> [blackhole-sender-outer]. The App interposes between the black hole
+> and the external app and attenuates the sender's dialect as it sees
+> fit -- the same mechanism, and the same responsibility, as at the
+> outer edge.
 >
 > **No correlation.** A black hole's in and out streams are
 > independent [blackhole-uncorrelated]. Nothing pairs an entering
 > ship with an emerging one; request/response across a hole is not
-> part of this model. Black holes declare only in- and out-ports --
-> `up` and `down` ports on a black hole bork [blackhole-inout-only].
+> part of this model. Black holes declare only in- and out-ports;
+> `up` and `down` ports on a black hole are not yet supported and
+> bork [blackhole-inout-only].
 >
 > **Opacity.** By space boundary opacity (I8), a black hole is
 > indistinguishable from an ordinary subspace with the same port
@@ -178,31 +228,25 @@ before "Port flavours", line 1244)
 
 ---
 
-## Edit 6 — Port lifecycle (§4, "Creation" list at line 1268 and
-"Ship flow" at line 1282)
+## Edit 6 — Port lifecycle (§4, "Creation" list at line 1268)
 
 Add a fourth creation case:
 
 >   4. **Black hole ports**: the parent creates and pairs the outside
->      port as for any subspace port. The flavour's real-world
->      methods run on the **inside** port -- at a black hole the
->      inside face touches the runtime boundary -- so `outside_add()`
->      is called there at instantiation [blackhole-flavour-inside].
-
-Add one sentence after the Ship flow bullets:
-
-> At a black hole, the real-world methods (`outside_add`,
-> `outside_exit`) run at the inside face rather than the outside:
-> the flavour's world-facing end sits wherever the runtime boundary
-> is [blackhole-flavour-inside].
+>      port as for any subspace port, but the flavour's world-facing
+>      methods bind to the **inside** face -- at a black hole the
+>      inside face is the runtime boundary. `outside_add()` runs there
+>      at instantiation, and a ship reaching that face is emitted to
+>      the world rather than forwarded to the paired port
+>      [blackhole-flavour-inside].
 
 ---
 
 ## New assertion IDs (16)
 
-spacesyn-blackhole, blackhole-ref-bare, blackhole-ignore-structure,
+spacesyn-blackhole, blackhole-ref-bare, blackhole-only-ports,
 blackhole-flavour-oppose, blackhole-default-flavour, blackhole-inout-only,
 blackhole-not-root, blackhole-in-exit, blackhole-no-guarantee,
-blackhole-ship-stamp, blackhole-out-enter, blackhole-sender-identity,
+blackhole-seed-flag, blackhole-out-enter, blackhole-sender-outer,
 blackhole-uncorrelated, blackhole-substitutable, blackhole-no-interior,
 blackhole-flavour-inside
