@@ -3,7 +3,8 @@
 Drafted 2026-07-05 from design/gen2.md (reviewer finding on
 P-effectpartition / transition-rule coverage; decision: A+E).
 Seven edits, ordered by spec position. Line numbers refer to the
-current D2-spec.md. New assertion IDs use the `blockeval-` prefix
+current D2-spec.md (anchors refreshed 2026-07-05 after the black
+hole merge). New assertion IDs use the `blockeval-` prefix
 (6 total).
 
 The one-sentence version: the partition becomes ternary — pure,
@@ -12,7 +13,7 @@ is exactly as effectful as the blocks it receives.
 
 ---
 
-## Edit 1 — Rewrite [P-effectpartition] (§1, lines 243–266)
+## Edit 1 — Rewrite [P-effectpartition] (§1, line 250)
 
 Replace the section body (including the aside) with:
 
@@ -61,7 +62,7 @@ Replace the section body (including the aside) with:
 
 ---
 
-## Edit 2 — P-handlersub derivation (§1, lines 281–283)
+## Edit 2 — P-handlersub derivation (§1, line 288)
 
 Replace the final "Follows from:" paragraph:
 
@@ -74,7 +75,7 @@ Replace the final "Follows from:" paragraph:
 
 ---
 
-## Edit 3 — Command definitions (§4, lines 818–827)
+## Edit 3 — Command definitions (§4, line 878)
 
 Replace the definition/result block:
 
@@ -94,7 +95,7 @@ A command execution produces one of two results:
 ```
 
 Add after the "Pure commands are total functions..." paragraph
-(line 829):
+(line 888):
 
 > Block-evaluating commands (`list map`, `list filter`, `process
 > run`, `logic if`, etc.) are total functions over values and block
@@ -106,7 +107,7 @@ Add after the "Pure commands are total functions..." paragraph
 ---
 
 ## Edit 4 — Covering transition rule (§7, after "Resumption",
-line 2046)
+line 2199)
 
 > **Block-evaluating command execution:**
 > ```
@@ -139,7 +140,7 @@ line 2046)
 
 ---
 
-## Edit 5 — §11 filling note (lines 3325–3327)
+## Edit 5 — §11 filling note (lines 3478–3480)
 
 Replace the sentence "PureCmd and EffCmd use
 `fillImplicit(args, process.v)`...":
@@ -148,7 +149,7 @@ Replace the sentence "PureCmd and EffCmd use
 > process.v)`, which handles `absent` directly (by skipping
 > implicit filling).
 
-Add after the Pure command rule (line 3337):
+Add after the Pure command rule (line 3490):
 
 > Block-evaluating commands share this filling and coercion; their
 > execution rule lives in §7, since they can suspend when a block
@@ -156,7 +157,7 @@ Add after the Pure command rule (line 3337):
 
 ---
 
-## Edit 6 — Segment grammar (§11, line 3659)
+## Edit 6 — Segment grammar (§11, line 3812)
 
 Add a segment kind:
 
@@ -172,7 +173,7 @@ seg ::= PureCmd(c, args)           -- invoke a pure command
 
 ---
 
-## Edit 7 — Dialect-check note (line 3941)
+## Edit 7 — Dialect-check note (line 4094)
 
 Replace "PureCmd (§11) and EffCmd (§7) both check
 `c ∈ effective_dialect.commands`":
@@ -186,12 +187,12 @@ Replace "PureCmd (§11) and EffCmd (§7) both check
 
 ## Cross-references left intact (verified consistent)
 
-- §5 "Sub-processes" (line 1463) already describes the category
+- §5 "Sub-processes" (line 1616) already describes the category
   informally ("Commands that accept block parameters ... evaluate
   the block by creating a sub-process") — optionally prefix with
   "Block-evaluating commands (P-effectpartition)" for the
   vocabulary link.
-- §11 "Block-typed contexts" (line 3378) and [block-param-block] /
+- §11 "Block-typed contexts" (line 3531) and [block-param-block] /
   [block-param-nonblock] already specify per-invocation sub-process
   creation and the non-block pass-through; unchanged.
 - P-total is unaffected: block-evaluating commands still always

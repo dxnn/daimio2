@@ -224,3 +224,127 @@ User framing:
   recursion MUST sploot (soft error, empty value, process completes)
   rather than crash. Assertion-labelled test material for
   [depth-exceeded-sploot] independent of the bound's value.
+
+## Decisions round 6 (2026-07-05)
+
+### Black hole cluster closed
+
+> "fyi I've merged in the revised black hole patch, so you can close that
+> issue on your side."
+
+Verified in D2-spec.md: [spacesyn-blackhole] grammar (line 548), §4
+section, I3/I10 amendments present.
+REALIZE #idea:black-hole, #idea:bh-outerspace-dual, #idea:bh-fire-forget,
+  #idea:bh-mock-swap, #idea:bh-socket-pflav-reuse, #idea:bh-glyph
+  → [dd:blackhole] (merged 2026-07-05).
+RESOLVE #tension:bh-serialization, #tension:bh-silent-loss — closed by
+  the merge (duality rule; [blackhole-no-guarantee]).
+#idea:bh-spec-today — retired (constraint met).
+#idea:bh-render — REMAINS OPEN: renderers, parser, fixtures, labelled
+  tests for the 17 blackhole-* assertion IDs now in the spec.
+NOTE (claude): the merge shifted spec line numbers (~+7 §1, ~+60 §4,
+  ~+153 §7 onward); blockeval-spec-draft.md anchors refreshed to match.
+
+### Depth bound decided
+
+RESOLVE #tension:depth-bound — option (a) + instance-level bound
+RESOLVE #idea:depth-instance-bound — yes; system default 100
+  > "Yes, I agree with (a) + instance level bound that paralells the
+  > timeout. I think 100 is generous enough for a default depth bound.
+  > Don't bother with (b), we will just do (a) -- every implementation
+  > has a bound checker on subprocess depth, and every implemention must
+  > catch whatever runtime errors it can and turn those into sploots (I
+  > think this is already true, though)."
+  IMPORTANCE: HIGH — makes P-total/I1 true (currently false for
+    self-referential blocks); closes a known open issue.
+  CONFIDENCE: HIGH.
+  RIGOR: CAREFUL — reviewer options + four additional supporting
+    arguments; details (nesting-only, routing reset) pinned down.
+  Decisions: normative default 100, per outer space at creation (exactly
+    parallel to the 10000ms timeout default); (b) dropped from spec text
+    entirely; instead a GENERAL normative rule: implementations must
+    catch what host errors they can and convert to sploots.
+  NOTE (claude): verified the "(I think this is already true)" claim —
+    partially. [flavour-error-soft] covers port-flavour lifecycle
+    methods only; nothing covers command funs or general execution.
+    The draft adds [host-error-sploot] as the generalization.
+
+REALIZE-pending: on merge of design/depth-spec-draft.md, mark
+  #idea:depth-finding, #idea:depth-timeout-dual,
+  #idea:depth-single-demand-site, #idea:depth-instance-bound →
+  REALIZE as [dd:depthbound]. #idea:depth-portable-test feeds the
+  test phase.
+
+## Sender attachment at boundaries (2026-07-05)
+
+Reviewer finding, received via user:
+
+> "5. Sender attachment at port flavours is unspecified (HL). Ships
+> without senders run at full space dialect, flavours originate ships,
+> and nothing says where identity binds between "packet arrives at
+> socket-in" and "ship docks." This is the most security-relevant gap
+> for the multiplayer story."
+
+User framing:
+
+> "This one opens up some design space that we've sidestepped, let's dig
+> into it."
+
+[idea:sender-gap-finding] OBSERVATION, grounded:
+  (1) [sender-effective-default] (line 1007): "A ship without a sender
+  runs under the space's dialect directly (the default case for internal
+  routing, system events, etc.)" — the parenthetical shows no-sender was
+  designed for INTERNAL provenance, but nothing stops boundary flavours
+  from producing unattributed ships, which then inherit the internal
+  default. The spec conflates "internal" with "unattributed."
+  (2) The App-authority principle (line 1021: "the App is responsible
+  for validating identity before passing a sender into the outer
+  space") has NO mechanism: from-js's enter(ship, process) has no
+  sender parameter; websock-in calls self.enter(ship) with the raw
+  socket payload, senderless → full base dialect.
+  (3) Payload spoofing surface: websock-add-user checks ship.user — a
+  PAYLOAD field, attacker-controlled in multiplayer. Identity must ride
+  the carrier, not the payload.
+
+[tension:sender-binding] #idea:sender-gap-finding vs [P-dialect]/
+  App-authority: four moments where identity could bind between packet
+  and dock — transport (connection/session), flavour outside face
+  (outside_add callback), the port boundary (enter), dock (process
+  creation). Spec defines sender semantics from dock onward only.
+
+[tension:sender-default] the crux: what do boundary-originated ships
+  carry when nothing attaches identity?
+  (a) status quo — unattributed at full base dialect (dangerous:
+      every boundary flavour is a privilege-escalation vector)
+  (b) anonymous/empty dialect — secure, breaks every current demo
+      (dom-on-click would sploot on everything)
+  (c) port-identity default — see #idea:sender-port-identity:
+      attribution always, authorization unchanged by default.
+
+[idea:sender-port-identity] PROP: every world-facing port IS an
+  identity. Ships it originates carry the port's sender (id = space/
+  port qualified name; dialect = base unless attenuated) unless the
+  flavour attaches something more specific. Generalizes
+  [blackhole-sender-identity] — the black hole rule becomes the special
+  case, and the provisional #tension:bh-sender resolution gets
+  CONFIRMED by generalization. Preserves current behavior (base ∩ base
+  = base) while making every external ship attributable; multiplayer
+  security = attenuate the port's dialect or register per-user senders.
+  Connects to #idea:alias-attenuation (per-port dialect attenuation).
+
+[idea:sender-enter-hook] PROP: the normative core is small — a
+  boundary port's enter() attaches a sender; WHERE it comes from is
+  the flavour's business: static (port declaration/settings), dynamic
+  (transport mapping via App-registered senders), or App-passed
+  (from-js grows a sender argument). websock-add-user/remove-user
+  become the registry-mutation flavours they were gesturing at.
+
+[idea:sender-carrier-not-payload] PROP: identity binds as carrier
+  metadata at or before enter(); payload fields claiming identity are
+  data, not identity. Stations must not derive privilege from
+  __in.user. Candidate invariant for §13's multiplayer story.
+
+[idea:sender-registry-app-side] OBSERVATION: keep the id→sender
+  registry App-side (spec principle already says App validates
+  externally); the spec defines only the flavour-visible hook, not
+  registry lifecycle. Avoids over-speccing session management.
