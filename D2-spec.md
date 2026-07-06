@@ -2204,6 +2204,17 @@ Only `var read-out` and `var write-out` cross boundaries
 (effectful, via ports); `$foo` and `>$foo` are pure and local.
 [socket-crossboundary-var]
 
+To read or write the **current** space's variables by a name computed
+at runtime -- which the literal `$foo`/`>$foo` syntax cannot express --
+use `{var read name :foo}` [var-read] and
+`{var write name :foo value 5}` [var-write]. The name is an ordinary
+value, so `{var read name _n}` reads whatever variable `_n` names.
+These are local -- no port, no boundary crossing -- the dynamic-name
+counterparts to `$foo`/`>$foo`: `var read` is a state read, and
+`var write` performs the same space-variable write as `>$foo`. Their
+effectful, cross-boundary counterparts are `var read-out`/`var
+write-out` above.
+
 
 ## 7. Async Boundaries
 
