@@ -422,14 +422,21 @@ outside wants to send multiple values, it uses an in-port
 (fire-and-forget) -- the down-port response can serve as the trigger
 ("start streaming") while the in-port carries the data.
 
-### Why overlap for socket transitions?
-When a new space is loaded into an occupied socket, the alternative
-is to drain the old space before activating the new one (blocking).
-Overlap was chosen to avoid blocking on potentially long-running
-in-flight operations. The cost is that state doesn't survive
-transitions -- but this is consistent with the space isolation
-model. Persistent state lives Outside (via ports to external
-storage), not in space variables.
+### Why drain-or-smash for socket transitions?
+When new content is loaded into an occupied socket, the old content
+must give way, and there are two honest options: let it finish its
+in-flight work first (**drain**, briefly blocking new traffic) or
+discard it and swap at once (**smash**, losing in-flight work). Rather
+than pick one globally, the socket-load port carries the choice,
+defaulting to drain (the non-destructive one). The rejected
+alternative was *overlap* -- running old and new simultaneously until
+the old drained -- which never lets two definitions cleanly share the
+one name and slot (they collide) and forces the old content's output
+to cross-feed into the new. Since a transition discards the old
+content's state either way, overlap's only real gain -- concurrency
+during the swap -- did not justify its cost. An author who genuinely
+needs old and new live at once models them as two sibling subspaces
+with explicit routing.
 
 ### Why is cross-boundary state access verbose?
 Crossing a space boundary to access state is a significant action
@@ -771,6 +778,9 @@ Borks include:
     declaration [blackhole-only-ports]
   - A black hole declaring a `socket-load` port [blackhole-no-socket-load]
   - The root space declared as a black hole [blackhole-not-root]
+
+  Socket errors:
+  - A `socket-load` port on the outer (root) space [socket-load-not-root]
 
 These are all detectable at parse/compile time. The compiler
 rejects the definition and reports the error. No spaceseed is
@@ -2378,56 +2388,77 @@ A serialized space does NOT include:
 
 ### Socket-load port
 
-A socket is any space that has a port of flavour "socket-load".
+A **socket** is a subspace with a port of flavour "socket-load". A
+socket-load port on the outer (root) space is a bork
+[socket-load-not-root] -- the root has no parent to hold its name or
+wiring, so it cannot be a socket.
 
 ```
-socketSpace = space with at least one port where flavour = "socket-load"
+socketSpace = a subspace with at least one port where flavour = "socket-load"
 ```
 
-When a serialized space arrives as a ship at a socket-load port: [socket-load]
+When valid Astroglot arrives as a ship at a subspace's socket-load
+port, that subspace's internal content is **replaced** with the sent
+definition [socket-load]:
 
-  1. **Parse** the source text (space syntax) into a space
-     definition.
-  2. **Compile** the definition into a spaceseed.
-  3. **Instantiate** the spaceseed into a live subspace (with its
-     own state store, queue, and recursively instantiated sub-subspaces).
-     Ports are left unresolved -- they are demand-created on first
-     use.
-  4. **Add** the new subspace to the socket space. The parent's
-     wiring rules apply to the new subspace's ports on demand. [socket-wiring-demand]
-  5. If a previous subspace occupied this socket, **overlap**
-     semantics apply (see below).
+  1. **Parse** the source text into a space definition and
+     **compile** it into a spaceseed. Invalid Astroglot borks the
+     load and the subspace's current content is untouched.
+  2. **Replace** the subspace's internals -- stations, internal
+     wiring, sub-subspaces, initial state, and port declarations --
+     with the compiled definition, instantiated fresh (recursively
+     instantiating any sub-subspaces). The sent Astroglot's top-level
+     label is discarded; the subspace keeps the name its parent gave
+     it. Otherwise the subspace becomes a faithful representation of
+     the sent Astroglot, exactly as if that had been its original
+     definition [socket-load-replace].
+  3. The **parent's wiring** of the subspace is unaffected: it lives
+     in the parent (I11) and re-applies to the replaced content's
+     ports on demand [socket-wiring-demand]. Only the subspace's own
+     prior internal wiring -- its default before any load -- goes with
+     the old definition. A parent wire naming a port the new content
+     never declares sits inert until that port is demand-created.
+  4. If content already occupied the socket, the transition follows
+     the socket-load port's **drain**/**smash** setting (below).
 
-A black hole cannot be created through a socket-load port: if the
-parsed definition is a black hole (`((label))`), the load borks
-[blackhole-no-socket-load]. A black hole's ports face the world and
-the App must bind them itself (§4, "Black holes"); they cannot arrive
-as hot-loaded data. (This may later relax to App-mediated binding of
-a loaded black hole; for now it is simply disallowed.)
+Because replacement is faithful and total, a subspace stays reloadable
+only if the loaded content itself declares a socket-load port
+[socket-load-reloadable].
 
-### Socket transitions: overlap
+A socket cannot be loaded with a black hole: if the sent definition is
+a black hole (`((label))`), the load borks [blackhole-no-socket-load].
+A black hole's ports face the world and the App must bind them itself
+(§4, "Black holes"); they cannot arrive as hot-loaded data. (This may
+later relax to App-mediated binding of a loaded black hole; for now it
+is simply disallowed.)
 
-If a previous subspace occupied this socket, the transition uses
-**overlap** semantics. Both subspaces are live simultaneously
-until the old one finishes its work:
+### Socket transitions: drain or smash
 
-  1. **New subspace goes live immediately.** All newly arriving
-     ships route to the new subspace. [socket-overlap-new-live]
-  2. **Old subspace keeps running.** It finishes its active
-     process, then processes every ship remaining in its queue,
-     one at a time, in FIFO order. No new ships enter the old
-     subspace -- only its existing queue drains. Ships produced
-     by the old subspace's output routing (e.g., `_out` feeding
-     back) route to the **new** subspace, not the old one.
-     [socket-overlap-drain]
-  3. **Old subspace is collected** when its queue is empty and
-     no process is active. Its state is discarded. [socket-overlap-state-lost]
+When a socket already holds content and a new definition arrives, the
+socket-load port's setting -- a flavour parameter, `socket-load drain`
+or `socket-load smash` -- decides how the old content gives way.
+**drain** is the default; to offer both, a subspace declares two
+socket-load ports.
 
-No ships are lost. [socket-overlap-no-loss] The old subspace's queued work completes
-before the subspace is removed. But state does not survive the
-transition -- if you need persistent state across socket swaps,
-it lives outside the space (via ports to external storage). The
-socket is a hot-swappable execution slot, not a state container.
+**Drain** [socket-drain]. The old content finishes its active process
+and every ship already in its queue, one at a time in FIFO order. No
+new ship enters the old content; ships that arrive during the drain
+**buffer** at the socket. When the old content is done, it is replaced
+and the buffered ships flow into the new content. Nothing in flight is
+lost; the cost is latency during the drain window. Only one definition
+is ever live at a time.
+
+**Smash** [socket-smash]. The new content replaces the old at once.
+The old content is destroyed: its space variables are gone, and every
+ship that has not already exited it -- queued or in-flight -- is
+destroyed with it. A process that was waiting on a down-port simply
+ceases to exist; when its response later arrives it reaches a space
+that is no longer there and becomes a ghost ship (§6 "Ghost ships").
+Nothing blocks, but in-flight work is lost.
+
+Either way, space variables do not survive a transition -- persistent
+state lives Outside, via ports to external storage. The socket is a
+hot-swappable execution slot, not a state container.
 
 ### Cross-boundary space variable access
 
