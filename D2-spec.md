@@ -310,6 +310,10 @@ and state match.
 Follows from: no closures in DAML, deterministic evaluation, and
 uniform evaluation.
 
+Deterministic identity (I16) extends this from "same requests" to
+"same bytes": two runs with identical topology and inputs produce
+byte-identical observable output, identifiers included.
+
 
 ### Invariants
 
@@ -340,7 +344,9 @@ from block evaluation, ships sent through `>@portname`, ships
 exiting through `_out`, down-port requests, and error ships.
 The sender exits all ports, including runtime boundaries: the
 outermost boundary to the App, and any black hole crossing to its
-external app (§4).
+external app (§4). A ship that has no sender acquires one at the first
+port it enters (§4, "Sender attachment at entry" [sender-attach-entry]);
+from then on, preservation applies.
 
 **I4. Sender confinement.** A process can never do more than
 both the sender and the space allow. The effective dialect (§4
@@ -407,6 +413,13 @@ perspective, pipeline flow is functionally pure.
 the first unfilled parameter by the command's definition order.
 This is deterministic from the command signature alone -- no runtime
 state affects which parameter receives the implicit value.
+
+**I16. Deterministic identity.** Every identifier that reaches an
+observable surface -- sender ids, error ship contents, ships exiting a
+runtime boundary -- is a deterministic function of the source topology
+and the execution inputs (ship arrivals, effect responses, PRNG seed).
+Runtime-generated handles are implementation-internal and never
+observable [id-deterministic].
 
 
 ## 2. Design Decisions Record
@@ -859,11 +872,51 @@ other face.
 
 ### Identifiers
 ```
-x in PVar      -- pipeline variable names (_foo, _bar)
-s in SVar      -- space variable names ($foo, $bar)
-c in Cmd       -- command identifiers: c.handler (e.g. math) and c.method (e.g. add)
-p in PortId    -- port identifiers, generated at runtime
+x in PVar       -- pipeline variable names (_foo, _bar)
+s in SVar       -- space variable names ($foo, $bar)
+c in Cmd        -- command identifiers: c.handler (e.g. math) and c.method (e.g. add)
+p in PortId     -- runtime port handle (internal, never observable)
+q in QName      -- qualified names: spaces, stations, ports [qname-structure]
+pr in ProcessId -- process ids: space qname '#' sequence [procid-sequence]
 ```
+
+**Qualified names.** Every space, station, and port has a qualified
+name derived from the source topology alone [qname-structure]. A
+space's qualified name is its path of subspace names from the outer
+root, `/`-separated. A station appends its name to its space's path.
+A port appends the §3 endpoint syntax:
+
+```
+game/player1              -- a space (player1, subspace of game)
+game/player1/splitter     -- a station in that space
+game/player1@out:move     -- a port on that space
+game/player1/splitter@left -- a named port on that station
+@in:init                  -- a port on the outer space itself
+```
+
+Uniqueness follows from existing rules: subspace names are unique per
+parent, station names cannot collide with subspace names, port names
+are unique per space, and bare vs named ports are distinct
+[port-bare-named-coexist]. Anonymous inline stations are named `s1`,
+`s2`, ... in source order [qname-anon-station]. In a reference a
+subspace always carries a port (`worker@cmd:*`); a bare trailing name
+is a station. Qualified names are scoped to one outer space; the App
+disambiguates between outer spaces externally [outer-independent].
+
+**Process ids.** Each space keeps a process sequence. Every process
+created in the space -- docked ships and sub-processes alike -- takes
+the next number: `game/player1#42` [procid-sequence]. Under serial
+execution and depth-first sub-process evaluation, the sequence is
+deterministic given the same inputs.
+
+**Content-addressed ids.** Spaceseed ids and block ids are content
+hashes -- deterministic by construction [id-content-hash].
+
+**Runtime handles.** Implementations may use internal handles
+(counters, pointers) for ports, processes, and ships. Handles are
+never observable [id-internal-handles]; anywhere an identifier appears
+on an observable surface, it is a qualified name, a process id, or a
+content hash (I16).
 
 ### Dialect
 ```
@@ -1030,7 +1083,29 @@ the same regardless of where in the hierarchy the ship docks. It
 is computed once at dock time and can be memoized.
 
 A ship without a sender runs under the space's dialect directly
-(the default case for internal routing, system events, etc.). [sender-effective-default]
+(internal-only by construction: a ship acquires a sender at the first
+port it enters [sender-attach-entry]). [sender-effective-default]
+
+**Sender attachment at entry.** A ship entering a port that has no
+sender takes the port's qualified name as its sender id
+[sender-attach-entry]. If the App has registered a sender under that
+id, the ship carries the registered sender (that id, that dialect)
+[sender-attach-registry]; otherwise the sender is the qualified name
+with the space's base dialect -- behaviorally identical to before, but
+attributed. A ship that already has a sender is unaffected; attachment
+never overrides propagation [sender-attach-no-override].
+
+Identity therefore binds at the first port a ship enters. For a ship
+from the outside world, that is the boundary port -- a `websock-in`
+port, a `dom-on-click` port, a black hole out-port. To confine an
+entry point, the App registers a sender under its qualified name with
+an attenuated dialect; every ship entering there is then
+dialect-confined at dock, with no cooperation required from the flavour
+or the payload.
+
+Because every ship acquires a sender at first entry, a ship without a
+sender is internal by construction -- the case
+[sender-effective-default] was designed for.
 
 **Sender propagation.** The sender is immutable and propagates
 through the entire execution tree:
@@ -1046,9 +1121,16 @@ through the entire execution tree:
 
 The sender is how the App tracks which external entity triggered
 a computation. Daimio does not authenticate senders -- the App is
-responsible for validating identity before passing a sender into
-the outer space. From Daimio's perspective, the sender is trusted
+responsible for validating identity before registering senders and
+passing ships in. From Daimio's perspective, the sender is trusted
 metadata.
+
+Identity rides the carrier, never the payload
+[sender-carrier-not-payload]. A payload field that claims an identity
+(`__in.user`) is data like any other -- stations MUST NOT derive
+privilege from it. The only identity a ship has is its sender, bound
+at entry or attached by the App; a forged identity claim inside a
+packet is inert (§13, "Sender spoofing").
 
 ### Sendability and the gradient of dependency
 
@@ -1385,13 +1467,14 @@ channel), and nothing is added to the ship. A value arriving from
 the world at `@out:news` becomes a ship that exits into the parent's
 wiring, queuing like any external arrival [blackhole-out-enter].
 
-**Sender.** A black hole is treated exactly like the outermost
-boundary: the App attaches the sender to an emerging ship, and
-Daimio trusts it without authenticating (§4 Senders)
-[blackhole-sender-outer]. The App interposes between the black hole
-and the external app and attenuates the sender's dialect as it sees
-fit -- the same mechanism, and the same responsibility, as at the
-outer edge.
+**Sender.** A black hole's out-ports are entry points like any other,
+so emerging ships acquire their sender by the general rule (§4,
+"Sender attachment at entry"): a ship with no sender takes the
+out-port's qualified name (e.g. `relay@out:news`), or the sender the
+App registered under that name [blackhole-sender-outer]
+[sender-attach-entry]. This is port-level attribution; the qualified
+name carries the space path, so space-level policy is the coarse case
+-- register the same sender for each of the hole's out-ports.
 
 **No correlation.** A black hole's in and out streams are
 independent [blackhole-uncorrelated]. Nothing pairs an entering
@@ -1471,6 +1554,16 @@ the outside port:
     `pair.exit()`. If no pair but has a station, docks the
     ship. If neither, soft error (ship is lost).
     [flavour-enter-dock]
+
+    Sender attachment happens at `enter()` [sender-attach-entry],
+    before routing or queueing, so the effective dialect is known by
+    dock time. A flavour MAY attach a more specific sender before
+    entry -- mapped from transport identity (a websock flavour
+    resolving a session to an App-registered user sender) or passed
+    by the App (`from-js` accepts an explicit sender)
+    [sender-flavour-supply]. Flavours derive senders from transport
+    metadata or App input only -- never from packet contents
+    [sender-carrier-not-payload].
   - **`outside_exit(ship)`** — called on the outside port at
     the outermost boundary. The real-world effect. Default:
     no-op. [flavour-outside-exit]
@@ -4049,8 +4142,11 @@ to the error:
 ```
 
 **Error ship format.** The error ship's value is a string
-describing the error. The ship carries the process's sender
-(if any), so the receiver can identify who triggered it.
+describing the error. Any identifiers in that string are qualified
+names or process ids -- never runtime handles (I16). The ship carries
+the process's sender (if any), so the receiver can identify who
+triggered it. Given identical topology and inputs, error ships are
+byte-identical [id-deterministic].
 
 If no `@out:err` port is declared, errors are silently dropped.
 [error-unwired-dropped] `@out:err` is for observability, not
@@ -4184,15 +4280,21 @@ doesn't wire it, the request sploots.
 **Attack:** A malicious entity sends a ship with a forged sender
 (claiming to be an admin).
 
-**Defense:** Daimio does not authenticate senders -- this is
-explicitly the App's responsibility. Daimio trusts whatever
-sender the App provides. If the App's authentication is broken,
-Daimio's dialect confinement is bypassed.
+**Defense:** Identity binds structurally. A ship's sender is attached
+at its entry port [sender-attach-entry] or provided by the App;
+payload identity claims are inert data [sender-carrier-not-payload].
+A malicious packet through a `websock-in` port cannot name its own
+sender -- it gets the port's identity (and the App-registered dialect
+for that port), or whatever sender the flavour resolved from
+*transport* identity. Daimio still does not authenticate senders:
+validating that a transport session belongs to a user remains the
+App's responsibility. If the App's authentication is broken, dialect
+confinement is bypassed for the identities it vouches for.
 
-**Mitigation:** The sender authentication mechanism (section 14)
-would add cryptographic verification at the outer space
-boundary. Until then, the App MUST validate sender identity
-before passing ships into the outer space.
+**Mitigation:** Register attenuated senders for every world-facing
+entry port, so even unauthenticated traffic is confined by default.
+The sender authentication mechanism (section 14) would add
+cryptographic verification at the outer space boundary.
 
 ### Port wiring as attack surface
 
@@ -4423,6 +4525,17 @@ needed. This cleanly separates "I want this text" from "I want
 this computation," and eliminates the tension between
 optimization and `process quote`: live blocks optimize freely;
 dead strings are untouched.
+
+### Persistent socket ports
+
+Socket-load replaces a subspace's content wholesale, so the socket-load
+port is replaced along with everything else: a subspace stays reloadable
+only if each loaded definition re-declares a socket-load port
+[socket-load-reloadable]. A future option would be an **always-socketed**
+subspace -- a socket-load port (or a subspace-level flag) that persists
+across loads, so a slot remains reloadable no matter what content
+occupies it. This separates the loadable slot from the content it holds,
+at the cost of a port the loaded content cannot remove.
 
 ### Virtual round-trip pairing
 
