@@ -248,30 +248,48 @@ details. Named parameters override this by explicitly binding a value
 to a parameter name, removing it from the implicit filling order.
 
 ### Effect partition [P-effectpartition]
-Every command definition is either pure (has a `fun`) or effectful
-(has an `effect` with a port type). Never both,
-never neither. A pure command is a total function from parameters to
-a value -- it can be executed with no environment at all, save for
-reads of the space's seeded PRNG (`math random`), which is
-deterministic given the seed. An effectful
-command can do nothing except send a request to its port and return
-whatever comes back. This partition is what makes a DAML program
-decomposable into an effect skeleton (the sequence of port requests)
-and pure filling (the computation between them). If a command could
-be mostly pure but also touch a port, you could no longer substitute
-handlers freely because you wouldn't know what the "pure" parts
-were secretly doing.
+Every command definition is exactly one of three things: **pure**
+(a `fun`, no block-typed params), **block-evaluating** (a `fun` and
+at least one block-typed param, counting `either` params with a block
+arm), or **effectful** (an `effect` with a port type). The
+classification is mechanical from the definition alone and is checked
+at registration time [blockeval-category].
 
-The partition is checkable at command registration time: every
-command definition must have exactly one of `fun` or `effect`.
+A pure command is a total function from parameters to a value -- it
+can be executed with no environment at all, save for reads of the
+space's seeded PRNG (`math random`), which is deterministic given the
+seed. An effectful command can do nothing except send a request to
+its port and return whatever comes back. A block-evaluating command
+computes like a pure command but may apply its block parameters, each
+application creating a sub-process (P-uniformeval, §5). It makes no
+port requests of its own [blockeval-no-port]: **a block-evaluating
+command is exactly as effectful as the blocks it receives**
+[blockeval-parametric]. Given pure blocks -- or non-block values,
+which are never evaluated (§11, "Block-typed contexts") -- it
+completes synchronously, indistinguishable from a pure command
+[blockeval-sync-when-pure]. Given a block containing effectful
+commands, the sub-process's port requests are the only async
+boundaries the command has (§7).
+
+This partition is what makes a DAML program decomposable into an
+effect skeleton (the sequence of port requests) and pure filling (the
+computation between them). Block evaluation preserves the
+decomposition recursively: a sub-process contributes its own effect
+skeleton, spliced into the parent's at the point of application. If a
+command could be mostly pure but also touch a port, you could no
+longer substitute handlers freely because you wouldn't know what the
+"pure" parts were secretly doing.
 
 > **Algebraic aside.** In the free monad tree, `Pure` nodes are
-> computation (transforming values). `Op` nodes are effect
-> requests (asking the outside for something). A command that
-> does both would be a node that computes AND requests — but
-> the tree structure separates these: computation happens in
-> the continuations between `Op` nodes, never inside them. The
-> effect partition is forced by the tree shape.
+> computation and `Op` nodes are effect requests. A block-evaluating
+> command is a node containing sub-trees -- the blocks it applies.
+> Evaluation demands are served by the runtime itself: they never
+> cross a space boundary and never appear on the effect surface. When
+> a sub-tree contains `Op` nodes, they splice into the parent's effect
+> sequence at the application point; when it contains none, the node
+> collapses to `Pure`. The partition is still forced by the tree shape
+> -- computation in continuations, requests at `Op` nodes -- applied
+> recursively.
 
 ### Handler parametricity [P-handlersub]
 Given the same effect responses, initial space state, and PRNG
@@ -287,9 +305,12 @@ request sequence and the same output. The test doesn't need a
 "test mode" — it needs a different handler and the same starting
 conditions. See P-duality and P-effectlocal.
 
-Follows from: effect partition (pure parts can't touch ports),
-effect exteriority (I10), and the uniform command syntax (effectful
-commands look the same as pure commands from inside the pipeline).
+Follows from: effect partition (pure and block-evaluating parts
+cannot touch ports themselves -- a block-evaluating command is exactly
+as effectful as the blocks it receives, and those blocks' requests are
+already part of the skeleton), effect exteriority (I10), and the
+uniform command syntax (effectful commands look the same as pure
+commands from inside the pipeline).
 
 ### Program portability [P-portable]
 A DAML program -- a block or pipeline serialized as source text --
@@ -952,19 +973,30 @@ appear in the spec depending on context:
 These all refer to the same command.
 
 ```
-A command definition is either:
-  Pure(name, params, fun)                           -- a pure command
-  Effectful(name, params, portType)                 -- an effectful command
+A command definition is one of:
+  Pure(name, params, fun)            -- fun, no block-typed params
+  BlockEval(name, params, fun)       -- fun, ≥1 block-typed param [blockeval-category]
+  Effectful(name, params, portType)  -- port type, no fun
   -- name is a Cmd (has .handler, .method fields)
 
 A command execution produces one of two results:
   Value(Val)         -- the command completed, here is the result
-  Async(port, cont)  -- the command initiated a port request; resume via cont
+  Async(wait, cont)  -- the command suspended; resume via cont
+                     -- wait: a port (effectful command), or a
+                     -- suspended sub-process (block-evaluating
+                     -- command whose block hit an effect)
 ```
 
 Pure commands are total functions from params to Val. `math random`
 is pure [random-pure] — it reads from the space's own PRNG,
 which is deterministic given the seed (see Spaces, PRNG).
+
+Block-evaluating commands (`list map`, `list filter`, `process run`,
+`logic if`, etc.) are total functions over values and block
+applications. They are exactly as effectful as the blocks they receive
+[blockeval-parametric]: with pure blocks they produce `Value`
+synchronously; a block that reaches an effectful command suspends its
+sub-process, and the command suspends with it.
 
 Effectful commands have no fun -- they have a port type. When
 an effectful command is registered, it also registers a port
@@ -2370,6 +2402,35 @@ unchanged from the time of waiting -- no other process can modify space state
 while this process holds the space. The "fresh reads" property is
 trivially satisfied (see section 1).
 
+**Block-evaluating command execution:**
+```
+  c in effective_dialect.commands
+  c is BlockEval(name, params, fun)
+  args' = fillImplicit(args, process.v)     -- same filling as PureCmd
+  v' = fun(args') with apply
+  ---
+  (process, state) --[BlockCmd(c, args)]--> (process{v := v'}, state)
+```
+
+`apply(block, input)` is the evaluation demand [blockeval-demand]:
+each call creates a sub-process executing `block` with `__in = input`,
+under the same rules as any process -- same effective dialect, same
+space, same sender (P-uniformeval; §5, "Sub-processes"). Non-block
+values at block-typed params are returned as-is, demanding nothing
+(§11) [blockeval-sync-when-pure].
+
+A block-evaluating command suspends only through its sub-processes.
+Sub-processes are nested, depth-first execution, not concurrent
+execution [subprocess-sync-dfs]: if a sub-process reaches an effectful
+command, that sub-process WAITs on its port by the effectful-command
+rule above, and the parent command is held by the depth-first nesting
+until the sub-process resumes and completes. When the response arrives,
+RESUME continues the sub-process; on its completion `apply` returns the
+block's value and `fun` proceeds. When no sub-process suspends, the
+command completes synchronously, exactly as a pure command does.
+Pipeline variables and the sender are preserved across such a wait, as
+at every async boundary [async-preserve-vars] [async-preserve-sender].
+
 ### 7.2 Timeouts
 
 Every down-port wire has a **timeout**: the maximum duration the runtime
@@ -3699,9 +3760,9 @@ val(process.v) = empty        if process.v is absent
 ```
 
 WriteSVar, WritePVar, and PortSend all use `val(process.v)` because
-they consume the pipe value as data, not for parameter filling. PureCmd
-and EffCmd use `fillImplicit(args, process.v)`, which handles `absent`
-directly (by skipping implicit filling).
+they consume the pipe value as data, not for parameter filling.
+PureCmd, BlockCmd, and EffCmd use `fillImplicit(args, process.v)`,
+which handles `absent` directly (by skipping implicit filling).
 
 **Pure command:**
 ```
@@ -3712,6 +3773,10 @@ directly (by skipping implicit filling).
   ---
   (process, state) --[PureCmd(c, args)]--> (process{v := v'}, state)     [total-cmd-value]
 ```
+
+Block-evaluating commands share this filling and coercion; their
+execution rule lives in §7, since they can suspend when a block
+reaches an effectful command.
 
 **Parameter filling** (`fillImplicit`) works in two passes:
 
@@ -4034,6 +4099,10 @@ async boundaries (I6).
 #### Pipeline Segments
 ```
 seg ::= PureCmd(c, args)           -- invoke a pure command
+      | BlockCmd(c, args)          -- invoke a block-evaluating command
+                                   --   (sub-process per block application;
+                                   --   async boundary only if a block
+                                   --   suspends) [blockeval-segment]
       | EffCmd(c, args)            -- invoke an effectful command (async boundary)
       | ReadSVar(s, path)          -- read a space variable (with optional path)
       | WriteSVar(s, path)         -- write pipeline value to space variable
@@ -4324,8 +4393,11 @@ sploots.
 executing under D_eff can invoke a command outside D_eff.
 
 **Why this holds structurally:** The transition relations for
-PureCmd (§11) and EffCmd (§7) both check `c ∈ effective_dialect.commands`
-before execution. These are the ONLY rules that invoke commands.
+PureCmd (§11), BlockCmd (§7), and EffCmd (§7) all check
+`c ∈ effective_dialect.commands` before execution. These are the ONLY
+rules that invoke commands. Sub-processes created by BlockCmd run
+under the same effective dialect (P-uniformeval), so a block cannot
+reach commands its parent could not.
 Every other segment type (ReadSVar, WriteSVar, ReadPVar, WritePVar,
 PortSend, Literal) does not invoke commands. Sub-processes inherit
 the effective dialect (I4). Therefore, by the structure of the
