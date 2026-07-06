@@ -348,3 +348,216 @@ User framing:
   registry App-side (spec principle already says App validates
   externally); the spec defines only the flavour-visible hook, not
   registry lifecycle. Avoids over-speccing session management.
+
+## Decisions round 7 (2026-07-05)
+
+### Sender entry rule — user refinement of #idea:sender-port-identity
+
+> "I think the suggestion is that a ship entering through a port will
+> take that port's id as its sender, unless it already has a sender.
+> I like this. Black hole ship entry works exactly like regular ship
+> entry currently, so this change will impact both. And I believe we
+> already have sender-specific dialects, so the app creator can have
+> different dialects for different entry ports."
+
+MERGE #idea:sender-port-identity + #idea:sender-enter-hook →
+[idea:sender-entry-rule] PROP: a ship entering through a port takes
+  that port's id as its sender, unless it already has a sender.
+  Uniform — no boundary-vs-internal classification needed; applies to
+  black hole ports automatically (bh entry = regular entry); ships
+  with senders pass through unchanged (propagation intact). Identity
+  comes from topology, authority from the App's sender registry:
+  register a sender under a port's id with an attenuated dialect and
+  that port's ships are confined; unregistered ids run at base
+  (current behavior preserved, attribution universal).
+  Verified: sender-specific dialects exist (sender = (id, dialect),
+  line 986; effective dialect intersection line 1000).
+
+[idea:port-qualified-name] PROP: the sender id for a port is its
+  QUALIFIED NAME — the path of subspace names from the outer root,
+  '/'-separated, ending in Astroglot endpoint syntax:
+  `@in:init` (root port), `relay@in:feed` (subspace port),
+  `game/player1@out:move` (nested). NOT the runtime PortId (spec line
+  852 "generated at runtime"; implementation uses counters).
+  Arguments: (1) determinism — sender ids are observable (error
+  ships, exits [sender-propagate-exit]); runtime-generated ids differ
+  across runs, breaking P-portable/P-handlersub replay; (2) the App
+  must pre-register dialects keyed by these ids — only possible if
+  they're readable off the Astroglot source; (3) stability across
+  serialization. Uniqueness holds from existing rules: subspace names
+  unique per parent (name→seed map), port names unique per space
+  (duplicate-declaration bork), bare vs named ports distinct
+  [port-bare-named-coexist]. PortId remains the runtime handle —
+  two different things, kept distinct.
+
+Open wrinkles (captured, not solved):
+[idea:sender-socket-slot-name] QUESTION: what path component does a
+  socket-LOADED subspace contribute? If the loaded space's declared
+  name: identity changes per load. If a stable socket-slot name:
+  attenuation policy survives swaps ("whatever runs in this socket").
+  Lean: stable slot semantics, but needs a rule in §8.
+NOTE (claude): anonymous inline stations need deterministic generated
+  names for their ports' qualified names (layout engine already did
+  this for rendering — stable station names). Multiple outer spaces:
+  qualified names scoped per outer space [outer-independent]; the App
+  disambiguates externally. Bonus: the spaceeditor's injected
+  _repl_in port gets an attenuable identity for free.
+
+## Decisions round 8 (2026-07-05)
+
+RESOLVE #idea:sender-socket-slot-name — moot for now
+  > "You asked about socket-loaded spaces, but at the moment there's no
+  > way to have a ship come out of a socket loaded space that didn't
+  > already go into it from elsewhere, because the spec currently bans
+  > black holes inside socket-loaded spaces. So I think we're safe on
+  > that front for now."
+  Verified: [blackhole-no-socket-load] (spec lines 2369–2374). Under the
+  entry rule every ship is attributed at its FIRST port, so ships inside
+  socket-loaded spaces always arrive already-attributed; interior ports
+  never mint identities. Reopens only if loaded black holes are ever
+  allowed (the spec's own "for now it is simply disallowed" note).
+
+RESOLVE #tension:sender-default + #tension:sender-binding — via
+  #idea:sender-entry-rule + #idea:port-qualified-name
+  > "Yes, go with the /-seperated subspace hierarchy, followed by the
+  > regular port naming convention, so `game/player1@out:move`.
+  > Move forward with that, scoped to just senders re: runtime ids, but
+  > then when you're done show me what it would look like to do this for
+  > all runtime ids -- it might not be much work."
+  IMPORTANCE: HIGH — the multiplayer security story; reviewer's
+    highest-severity gap.
+  CONFIDENCE: HIGH.
+  RIGOR: CAREFUL — grounded in spec + pflav code; default semantics
+    preserve existing behavior; wrinkles enumerated and dispatched.
+  Scope: qualified names for SENDER ids only; runtime PortId untouched.
+
+NOTE (claude): consequence the user anticipated ("this change will
+  impact both"): [blackhole-sender-identity] (merged, space-level
+  identity) is superseded by port-level granularity under the uniform
+  rule — `relay@out:news` subsumes space-level attribution (path
+  contains the space name). Draft amends that assertion. The
+  provisional flag on the old #tension:bh-sender resolution comes off:
+  confirmed by generalization.
+
+[idea:qname-all-runtime-ids] PROJECT: extend qualified names to all
+  runtime ids (user request: sketch after sender patch). Inventory:
+  ports/spaces/stations are topological → qnames (station names
+  already can't collide with subspace names — one namespace, one path
+  syntax); blocks + spaceseeds already content-hashed (done); processes/
+  ships are execution instances → deterministic per-space sequence
+  numbers (serial execution makes them reproducible) where observable.
+  Prior art: layout engine's stable station naming. Payoffs: golden-file
+  error-ship tests, reproducible traces, strengthens P-portable.
+
+REALIZE-pending: on merge of design/sender-spec-draft.md, mark
+  #idea:sender-entry-rule, #idea:port-qualified-name,
+  #idea:sender-carrier-not-payload, #idea:sender-gap-finding →
+  REALIZE as [dd:sender-entry]. #idea:sender-registry-app-side folds
+  into the same dd.
+
+## Decisions round 9 (2026-07-05)
+
+RESOLVE #idea:qname-all-runtime-ids — full approach approved, folded
+into the sender patch (per user: "Good, write that up, with the full
+QNames / deterministic ids everywhere approach" / "(Add it to the
+sender draft patch)").
+  IMPORTANCE: MED-HIGH — upgrades P-portable to byte-level determinism;
+    new invariant I16.
+  CONFIDENCE: HIGH.
+  RIGOR: MODERATE — grounded (error ships carry string + sender only;
+    SpaceseedId had no stated generation rule, now content-hash
+    normative; anon-station convention `s1, s2, ...` already exists in
+    the codebase); implementation follow-ups listed in the draft, not
+    yet costed.
+  sender-spec-draft.md rewritten: 8 edits, 11 assertion IDs
+  (5 sender-*, 6 identity), test material incl. byte-determinism and
+  anon-naming tests, implementation follow-ups noted (thread qnames
+  through constructors, per-space process sequence, leak-site audit).
+  On merge: REALIZE #idea:qname-all-runtime-ids into [dd:sender-entry]
+  (same dd as the sender cluster).
+
+## Deterministic scheduler (2026-07-06)
+
+> "We're going to need a deterministic scheduler -- without that, we're
+> still wrestling with non-deterministic docking of ships across and
+> between subspaces, which weakens all the determinism guarantees we'd
+> like to make. Let's dig into that. It's a complicated topic, with
+> intersection points in quite a few sections of the spec, so take some
+> time to familiarize yourself before we start the design session."
+
+[idea:sched-goal] DESIRE: deterministic scheduling of ship docking
+  across and between subspaces, upgrading the determinism guarantees
+  (I16, P-portable, P-handlersub) from per-space to whole-tree.
+
+[idea:sched-nondet-inventory] OBSERVATION — where nondeterminism lives:
+  1. SIBLING INTERLEAVING: spec line 1572 "sibling subspaces...can
+     process ships concurrently" — no interleaving rule. Observable
+     whenever siblings' outputs converge on a common target (parent
+     station, third sibling): its queue order differs run to run.
+  2. THE DEFER PRIMITIVE: per-process routing order is specified
+     [routing-deferred-order], but cross-space deferred-entry order is
+     not. Implementation: all deferral funnels through D.setImmediate
+     (4 call sites; lib/setimmediate.js → host setImmediate /
+     postMessage / setTimeout fallback) — host macrotask ordering,
+     not guaranteed across classes or hosts.
+  3. TIMEOUTS: wall-clock timers race responses [timeout-ghost-drop];
+     firing order vs other events is host timing.
+  4. EXTERNAL ARRIVALS: App inputs, socket packets, DOM events, black
+     hole emissions, App-side down-port responses — genuinely external.
+  5. SOCKET OVERLAP: old subspace drains WHILE new is live
+     [socket-overlap-drain] — two live spaces, interleaving unspecified.
+  Already deterministic: per-space FIFO [queue-fifo], queued-before-
+  routed [queue-priority-routing], per-process routing order
+  [routing-deferred-order], sub-processes [subprocess-sync-dfs],
+  per-space PRNG, effective-dialect memoization.
+
+[idea:sched-input-schedule] PROP: target theorem — given (topology,
+  initial state, PRNG seed, ordered schedule of external events),
+  execution is byte-identical. Requires defining "external event":
+  boundary in-port entry, App-side response arrival, clock advance.
+  Everything between external events must be internally deterministic.
+
+[tension:sched-internal-vs-external] where is the input line? An App
+  response is external; a response served by a sibling via up-port
+  wiring is INTERNAL and must be derived deterministically; a timeout
+  is a clock event — and the clock itself is the question of
+  #tension:sched-time.
+
+[tension:sched-time] wall-clock vs logical time. P-liveness depends on
+  real timers in production; determinism wants a virtual clock.
+  Candidate cut: make time an INPUT — timeouts become clock events on
+  the external schedule (production: wall clock feeds the stream;
+  test/replay: virtual clock feeds it deterministically). The
+  scheduler is deterministic modulo the clock stream.
+
+[tension:sched-granularity] the model-shape decision:
+  (a) global ready-queue — one logical run loop per outer space tree;
+      every deferred entry/dequeue/resumption enqueues FIFO with
+      deterministic tie-breaks. Total order, simple.
+  (b) per-space queues + deterministic merge rule (e.g., round-robin
+      over ready spaces by qname per tick).
+  (c) segment-tick model from D2-concurrent-scheduling.md — ready-
+      continuation queue that later generalizes to ready-segment for
+      intra-space concurrency. Under serial-per-space, (c) reduces to
+      (a) with future-proof item granularity.
+
+[tension:sched-fairness-liveness] a fixed total order must not starve
+  spaces; P-liveness preserved; perf cost of a run-queue vs free host
+  scheduling (perf_test watches this).
+
+[tension:sched-socket-overlap] the overlap drain needs its own
+  deterministic interleaving rule (old-drain vs new-live ordering).
+
+[idea:sched-qname-tiebreak] OBSERVATION: deterministic tie-breaking
+  needs stable identities — the sender/QName patch just provided them
+  (space qnames, per-space process sequences). The patches stack.
+
+[idea:sched-choke-point] OBSERVATION (implementation): D.setImmediate
+  is the seam — replace its 4 call sites with a run-queue and the
+  scheduler is centralized; timeouts join via the clock stream.
+
+Intersection map: §1 (P-serial, P-fresh, P-portable, P-handlersub,
+I6, I9/P-liveness, I16), §5 (queue, DEFER, sibling sentence), §6
+(up-port response paths, ghost ships), §7 (WAIT/RESUME, §7.2
+timeouts), §8 (socket overlap), §4 (black hole emissions as external
+events; PRNG), D2-concurrent-scheduling.md (TICK model), §14.
