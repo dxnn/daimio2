@@ -2319,6 +2319,22 @@ timeout:
 
 This is synchronous -- the process does not wait.
 
+#### Request cycles
+
+A round-trip request can form a cycle. A process in space A, waiting
+on a request routed to B, holds A (serial exclusion, §5); if serving
+that request leads B to issue a round-trip back into A, the
+back-request cannot dock -- A stays held until its own request
+resolves, and B's request won't resolve until the back-request is
+served. This is a legal topology, not a bork, and it resolves by
+timeout [request-cycle-timeout]: the first wire in the cycle to time
+out sploots its waiting process to empty, freeing that space so the
+queued back-request can proceed; a response that arrives after its
+requester has already timed out is a ghost (§6 "Ghost ships").
+Liveness (I9) holds -- no process waits forever -- but the cycle
+degrades to empty values and dropped responses, so avoid wiring one
+where a real result is expected.
+
 
 ## 8. Sockets and Space Serialization
 
