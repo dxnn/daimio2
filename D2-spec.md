@@ -419,7 +419,9 @@ observable surface -- sender ids, error ship contents, ships exiting a
 runtime boundary -- is a deterministic function of the source topology
 and the execution inputs (ship arrivals, effect responses, PRNG seed).
 Runtime-generated handles are implementation-internal and never
-observable [id-deterministic].
+observable [id-deterministic]. Like serial exclusion (I5), this
+determinism is a property of the current serial model; a future
+concurrent scheduler would relax it.
 
 
 ## 2. Design Decisions Record
@@ -898,10 +900,13 @@ Uniqueness follows from existing rules: subspace names are unique per
 parent, station names cannot collide with subspace names, port names
 are unique per space, and bare vs named ports are distinct
 [port-bare-named-coexist]. Anonymous inline stations are named `s1`,
-`s2`, ... in source order [qname-anon-station]. In a reference a
-subspace always carries a port (`worker@cmd:*`); a bare trailing name
-is a station. Qualified names are scoped to one outer space; the App
-disambiguates between outer spaces externally [outer-independent].
+`s2`, ... in source order [qname-anon-station]. A qualified-name
+identity does not itself encode kind -- `game/player1` (space) and
+`game/player1/splitter` (station) are distinguished by the topology,
+not the string. (In an Astroglot wire endpoint a subspace is always
+named with a port; a bare endpoint name is a station -- §3.) Qualified
+names are scoped to one outer space; the App disambiguates between
+outer spaces externally [outer-independent].
 
 **Process ids.** Each space keeps a process sequence. Every process
 created in the space -- docked ships and sub-processes alike -- takes
@@ -1116,8 +1121,9 @@ through the entire execution tree:
   - Error ships carry the sender [sender-propagate-error]
   - Ships exiting the outermost space carry the sender (so the
     App can route responses back and apply its own policies) [sender-propagate-exit]
-  - Ships emerging from a black hole carry the sender the App
-    attaches, exactly as at the outermost boundary [blackhole-sender-outer]
+  - Ships emerging from a black hole are an entry, not propagation:
+    they acquire a sender at the out-port per the general rule
+    (§4, "Sender attachment at entry") [blackhole-sender-outer]
 
 The sender is how the App tracks which external entity triggered
 a computation. Daimio does not authenticate senders -- the App is
@@ -1638,14 +1644,17 @@ different outer space entirely.
 Several invariants rest on obligations Daimio cannot enforce from
 inside -- the outer application supplies them. A conforming App MUST:
 
-  - **Authenticate and attach senders.** Daimio trusts the sender on
-    every inbound ship without verifying it (§4 Senders). If the App
-    attaches an unvalidated or over-privileged sender, dialect
-    confinement (I2, I4) is only as sound as the App's identity check.
-    A senderless ship runs at full space dialect
-    [sender-effective-default], so omitting a sender grants maximal
-    authority -- and this is true at every runtime boundary alike,
-    the outermost edge and each black hole [blackhole-sender-outer].
+  - **Authenticate and register senders.** Daimio trusts the sender on
+    every inbound ship without verifying it (§4 Senders). A ship
+    entering a port takes that port's qualified name as its sender
+    unless the App registered one there [sender-attach-entry]; the
+    default carries the space's base dialect, so an entry port with no
+    registered sender grants maximal authority. To confine an entry
+    point -- at the outermost edge or a black hole out-port alike
+    [blackhole-sender-outer] -- the App registers an attenuated sender
+    under its qualified name [sender-attach-registry]. Dialect
+    confinement (I2, I4) is only as sound as the App's identity check
+    behind those registrations.
   - **Answer or time out down-port requests.** Liveness (I9) assumes
     every request the App receives is eventually answered or left to
     the timeout. The App must deliver a response to the waiting
@@ -2428,7 +2437,7 @@ timeout:
   p has no wiring
   ---
   (process, state) --[EffCmd(c, args)]--> (process{v := empty}, state)
-  emit soft error: {type: "unwired_port", port: p}
+  emit soft error: {type: "unwired_port", port: portType}   -- the cmd:handler:method name, never the handle p (I16)
 ```
 
 This is synchronous -- the process does not wait.
