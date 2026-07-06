@@ -561,3 +561,190 @@ I6, I9/P-liveness, I16), §5 (queue, DEFER, sibling sentence), §6
 (up-port response paths, ghost ships), §7 (WAIT/RESUME, §7.2
 timeouts), §8 (socket overlap), §4 (black hole emissions as external
 events; PRNG), D2-concurrent-scheduling.md (TICK model), §14.
+
+### Model shape session (2026-07-06)
+
+> "My first inclination was (b), because a per-space queue maps to how I
+> already think about the system, and I like breaking things apart and
+> keeping them loose whenever possible. But the argument for a global
+> queue has benefit as well. What is the segment tick model?"
+
+[idea:sched-axes] PROP: (a)/(b)/(c) are not three models — the space
+  decomposes into independent axes:
+  Axis 1 — ORDERING RULE (the real tension): causal arrival order
+    (dock in the order sent, globally — (a)'s FIFO) vs positional
+    rotation (round-robin cursor over ready spaces — (b)'s merge).
+  Axis 2 — ITEM GRANULARITY (cheap): queue items as continuations
+    ((c)'s contribution) vs whole ships. Continuations future-proof
+    for intra-space concurrency; under serial-per-space they behave
+    identically.
+  Axis 3 — PRESENTATION: spec written globally vs compositionally.
+    Per-space FIFOs + per-parent forwarding in emission order is
+    provably equivalent to one global FIFO — so the text can be
+    compositional (b's soul) while the semantics is global arrival
+    order (a's simplicity). The single queue becomes a theorem and
+    an implementation strategy, not a spec primitive.
+
+Forces on Axis 1:
+  - EXPLAINABILITY: FIFO = "ships dock in the order they were sent."
+    Rotation order depends on cursor state not derivable from the
+    ships' causal history ("why first?" → "where the cursor was").
+  - FROZEN POLICY: determinism makes the schedule part of semantics —
+    the rule is forever (replay/goldens depend on it). Favors the
+    simplest committable rule.
+  - FAIRNESS BIAS: FIFO lets a prolific process's emissions cluster;
+    rotation throttles per-space but that "fairness" is itself a bias,
+    and serial-per-space already limits flooding (one process per
+    space at a time).
+  - LOOSE COUPLING (user's instinct + spec aesthetic, I8): no global
+    object in the spec — satisfied by Axis 3's compositional
+    presentation rather than by rotation.
+
+### Round: user challenges Axis 3 (2026-07-06)
+
+> "What does "per-parent forwarding in emission order" mean? I'm not
+> seeing how we get "provably equivalent to one global FIFO" from
+> nested per-space FIFOs without a lot of work.
+> I'm also not sure we want equivalence to one global FIFO -- if one
+> space is getting a lot of traffic, other spaces may starve, if things
+> are dequeued strictly in global insertion order. (We may lose all
+> inter-space concurrency benefits, for instance.)
+> And what about a space that sends ships into itself? Well, maybe that
+> would be okay, ships docking from the outside would still work their
+> way through the queue."
+
+CONCESSION (claude): the equivalence claim was overstated. What comes
+  free is only: local FIFO per space + per-source emission order
+  [routing-deferred-order]. The missing piece is exactly the ordering
+  of causally-INCOMPARABLE insertions at a shared queue — which is the
+  whole problem. Distributed determinism-equivalence is the hard
+  direction (conservative distributed DES, Chandy-Misra lookahead —
+  the "lot of work" the user smelled).
+
+[idea:sched-convergence-only] PROP (reframe, prompted by the
+  challenge): determinism does NOT require a total order. It requires
+  a deterministic ORDER AT EACH CONVERGENCE POINT — a queue receiving
+  from multiple causally-independent sources. Causally independent
+  regions may interleave or run in parallel freely; only merges must
+  be deterministic. Global FIFO is sufficient but over-serializes;
+  it also answers the user's concurrency worry: a partial-order spec
+  preserves inter-space parallelism (future workers/instances) by
+  construction. Anchor: the spec already HAS one local deterministic
+  merge rule — [queue-priority-routing] (queued beats newly-routed).
+  This generalizes it.
+
+[idea:sched-vtime] PROP (leading candidate merge rule): virtual time /
+  discrete-event style. Ships carry logical timestamps; a process at
+  vtime t emits at t+1; each queue is a priority queue on (vtime,
+  emitter qname, emission ordinal). Compositional — timestamps travel
+  WITH ships, no global structure in the spec; the single global
+  event list becomes merely the reference implementation. Unifies
+  with #tension:sched-time: timeouts and external arrivals are events
+  stamped into the same vtime stream (external events stamped at the
+  current frontier). Self-feeding chains advance +1 per hop, so
+  external arrivals slot in at the frontier rather than behind an
+  unbounded chain — natural fairness without a cursor.
+
+NOTE (claude): starvation correction — global FIFO is technically
+  starvation-free (everything enqueued runs in bounded order); the
+  real phenomenon is BURST LATENCY (B's one ship behind A's thousand).
+  Rotation fixes burst latency at the cost of causal explainability;
+  vtime matches rotation on chains (each hop +1) and matches FIFO on
+  bursts (a burst shares one vtime, tie-broken by ordinal).
+
+NOTE (claude): user's self-send intuition confirmed under all
+  candidate rules: self-sent ships join the space's own queue;
+  outside ships already queued dock first [queue-priority-routing];
+  under vtime each self-hop costs a tick so external ships interleave
+  at the frontier. With the depth bound handling recursion and the
+  queue handling iteration, self-feeding is safe by construction.
+
+NOTE (claude): vtime walkthrough (2026-07-06) used these PROVISIONAL
+  stamping choices, not yet decided: external events stamped at the
+  scheduler frontier; time advances +1 per process (dock→emit), port
+  hops are free [routing-no-process]-style; merge key =
+  (vtime, emitter qname, emission ordinal). These are the open
+  details named at the end of the Axis-3 round.
+
+### Round: loop vs stamps (2026-07-06)
+
+> "What does that get us over per-station FIFO queues? Seems like a lot
+> of bookkeeping, but I'm not seeing the gain.
+> Also, what is setting the ticks?
+> Also, what decides which subspace goes next?"
+
+[tension:sched-loop-vs-stamps] the sharpened Axis-1 tension. Plain
+  FIFO queues alone are NOT a candidate (arrival order at fan-ins IS
+  the nondeterminism). The real alternatives:
+  X — DETERMINISTIC LOOP + dumb FIFOs: one run loop per universe with
+    a fixed discipline; arrival order everywhere becomes deterministic
+    as a consequence. Zero per-ship bookkeeping. The semantics IS the
+    loop: conformance and replay require simulating the reference
+    machine's walk; parallel/concurrent futures must re-derive the
+    loop's order to conform.
+  V — VTIME STAMPS: order defined on the ships (causal depth), machine-
+    independent. Any execution strategy that sorts fan-in merges
+    correctly conforms — single loop, workers, the concurrent model.
+    Cost: one integer on the carrier (rides next to {sender}).
+  Same determinism today; the difference is whether the ORDER'S
+  DEFINITION lives in a machine or in the data.
+
+NOTE (claude): bookkeeping is smaller than it looks — single-source
+  queues (the common case) never sort and stay plain FIFOs; only
+  fan-in queues consult stamps. The carrier already exists (sender
+  work); vtime is a second field on it.
+
+Answers given (provisional mechanics):
+  - Ticks: set by nobody — Lamport-style derived bookkeeping (dock at
+    t → emit at t+1). The runtime injects numbers only when stamping
+    external arrivals at the frontier; in a single-loop implementation
+    the frontier is just the stamp of the item being processed.
+    (Distributed frontier-tracking is where the hard research lives —
+    named honestly, not needed for the single-loop reference.)
+  - "Which subspace next": semantically unordered (the feature) —
+    any order respecting per-queue merges conforms. The reference
+    loop pops smallest (vtime, qname, ordinal).
+  Crossover condition stated to user: if Daimio is forever a single
+  loop, X wins on simplicity; V pays one integer to keep the
+  semantics machine-free (workers, distributed, concurrent model,
+  partial replay).
+
+### Round: the true tie (2026-07-06)
+
+User's minimal fan-in probe: outer fans @in to A and B; both emit at
+t=1 to C. Same vtime — a genuine causal tie.
+
+> "Which arrives at C first, the ship from A or the ship from B? With
+> your earlier example, it depended on B doing an extra loop to offset
+> them. But here it depends on whether A runs before B or vice versa.
+> Who decides that?"
+
+Answer given: NOBODY decides "who runs first" — under vtime that
+question is not semantic for independent work (either wall-clock order
+is invisible). The semantic question is only the merge order at C, and
+at a true tie the TIE-BREAK decides. Every deterministic scheduler
+hides a coin at true ties (X: loop discipline; rotation: cursor;
+vtime: explicit key). The design question is where the coin is legible.
+
+[tension:sched-tiebreak] which coin:
+  (i) emitter qname — simple, but BREAKS ALPHA-EQUIVALENCE: renaming
+      space A to Z flips C's dock order. Renames should be inert.
+      Non-local (the rule lives nowhere visible).
+  (ii) wire declaration order at the convergent port — C@in's incoming
+      wires (A@out -> C@in before B@out -> C@in) rank ties by source
+      order. LOCAL (visible exactly where convergence is declared),
+      name-independent, matches the spec's "wiring order matters"
+      spirit [routing-deferred-order] and "the space definition
+      controls routing" philosophy. Reordering wires changes behavior
+      — but that reads as behavioral, unlike a rename.
+  (iii) X's implicit answer for contrast: loop discipline ≈ wiring
+      order via dock sequence, but buried in the machine.
+
+REVISION (claude): walkthrough's provisional merge key
+  (vtime, emitter qname, ordinal) revised → (vtime, wire index at the
+  convergent port, within-wire sequence). Supporting model: WIRES ARE
+  ORDER-PRESERVING CHANNELS (FIFO per wire, inherited recursively from
+  [routing-deferred-order]); fan-in ports merge across wires by
+  (vtime, wire declaration order). Kahn-network-with-timestamps shape.
+  Same-wire same-vtime collisions resolve by within-wire order, which
+  is deterministic upstream.
