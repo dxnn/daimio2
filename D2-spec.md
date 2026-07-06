@@ -322,8 +322,11 @@ path access produces a value. Every port request eventually resolves
 or crashes. The empty value is always a valid result.
 
 **I2. Dialect monotonicity.** A process's effective dialect is
-always a subset of the outer space's base dialect. A sender's dialect is
-always a subset of the outer space's base dialect. No mechanism -- block
+always a subset of the outer space's base dialect. A sender's
+*effective* dialect (its dialect intersected with the space's) is
+likewise always a subset -- the intersection only removes commands,
+never adds them, so a sender cannot escalate regardless of what
+dialect the App attaches. No mechanism -- block
 evaluation, program-as-data, socket loading, port routing -- can
 produce a process with a dialect that exceeds the outer space's
 base dialect. Subspaces do not have their own dialects; they
@@ -999,8 +1002,10 @@ sender = (id, dialect)
 ```
 
 A sender identifies who originated a ship and what dialect they
-operate under. The sender's dialect is always a subset of the
-outer space's base dialect (`sender.dialect` is a subset of `space.dialect`).
+operate under. The sender's dialect need not be a subset of the
+space's -- whatever the App attaches, the ship runs under the
+**effective dialect** (its intersection with the space's dialect,
+defined below), which is always a subset of the space's.
 
 When a ship with a sender docks at a station, the process runs
 under the **effective dialect**: the intersection of the sender's
