@@ -2769,6 +2769,40 @@ D.Space.prototype.scrub_process = function(pid) {
 }
 
 
+// ── Deterministic-harness hooks (additive) ───────────────────────────
+// A space is idle when nothing is running and nothing is queued. An
+// async process waiting on a world response stays in `processes`, so
+// this correctly reads "not idle" until that response arrives.
+D.Space.prototype.is_idle = function() {
+  return !this.processes.length && !this.queue.length
+}
+
+// A bare, isolated execution space (its own svar `state`). Backs
+// D.ExecutionSpace and lets tests get a fresh, non-leaking space per run.
+D.make_execution_space = function() {
+  return new D.Space(D.spaceseed_add(
+    { dialect: { commands: {}, aliases: {} }, stations: [], subspaces: [],
+      ports: [], routes: [], state: {} }))
+}
+
+// Drive a space to quiescence, then callback(true). Work defers through
+// setImmediate, so we poll on the same queue; idle must hold across two
+// consecutive ticks to skip the momentary gap in run_queue (between
+// queue.shift() and its deferred real_execute). The tick budget turns a
+// non-settling self-feed into callback(false) instead of a hang.
+D.settle = function(space, callback, budget) {
+  budget = budget || 100000
+  var confirms = 0
+  function tick() {
+    confirms = space.is_idle() ? confirms + 1 : 0
+    if(confirms >= 2) return callback(true)
+    if(--budget <= 0) return callback(false)
+    D.setImmediate(tick)
+  }
+  D.setImmediate(tick)
+}
+
+
 
 D.try_optimize = function(block) {
   if(!D.Etc.use_optimizations) return block

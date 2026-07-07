@@ -89,10 +89,7 @@ import './pflavs/xhr-send.js'
 D.DIALECTS.top = new D.Dialect() // no params means "use whatever i've imported"
 D.DIALECTS.restricted = D.make_restricted_dialect()
 
-D.ExecutionSpace =
-  new D.Space(
-    D.spaceseed_add(
-      {dialect: {commands:{}, aliases:{}}, stations: [], subspaces: [], ports: [], routes: [], state: {}}))
+D.ExecutionSpace = D.make_execution_space()
 
 // Make D available globally for inline scripts
 if (typeof window !== 'undefined')
