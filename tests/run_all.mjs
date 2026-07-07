@@ -15,7 +15,7 @@ const dir = dirname(fileURLToPath(import.meta.url))
 
 const suites = [
   // [file, label, known_failures]
-  ['d2_spec_test.mjs',     'spec alignment',                          3],  // WRONG poke tests
+  ['d2_spec_test.mjs',     'spec alignment',                          0],  // self-manages known failures (its own known_failures set)
   ['daimio_test.mjs',      'legacy suite',                           14],
   ['node_code.mjs',        'internal JS-level',                       0],
   ['security_test.mjs',    'dialect, pollution, regex, senders',       0],

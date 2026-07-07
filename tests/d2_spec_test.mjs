@@ -13,6 +13,19 @@ var pending = 0
 var all_registered = false
 var reported = false
 
+// Known failures — RED guides for spec behaviors not yet implemented.
+// A failure whose label is in this set is expected; anything else is a
+// regression (and fails the suite).
+var known_failures = new Set([
+  // pre-existing spec-gap RED tests
+  'is-in: keyed list finds matching value [coerce-list] [P-total]',
+  'effectful command with unwired port sploots to empty [effectful-unwired-sploot] [P-liveness]',
+  'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
+  'poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
+  // new RED guides (this session)
+  'var write then var read by computed name [var-read] [var-write]',
+])
+
 function test(label, input, expected) {
   pending++
   D.run(input, function(output) {
@@ -35,12 +48,15 @@ function report() {
   if (reported) return
   reported = true
 
-  console.log('\n=== D2 Spec Tests ===')
-  console.log(`${pass + fail} tests: ${pass} passed, ${fail} failed`)
+  var known = failures.filter(function(f) { return known_failures.has(f.label) })
+  var novel = failures.filter(function(f) { return !known_failures.has(f.label) })
 
-  if (failures.length) {
-    console.log('\nFailures:')
-    for (var f of failures) {
+  console.log('\n=== D2 Spec Tests ===')
+  console.log(`${pass + fail} tests: ${pass} passed, ${fail} failed (${known.length} known, ${novel.length} new)`)
+
+  if (novel.length) {
+    console.log('\nNew failures (REGRESSION):')
+    for (var f of novel) {
       console.log(`  [${f.label}]`)
       console.log(`    input:    ${f.input}`)
       console.log(`    expected: ${f.expected}`)
@@ -49,8 +65,13 @@ function report() {
     }
   }
 
-  if (!fail) console.log('\nAll passing!')
-  if (fail) process.exit(1)
+  if (known.length) {
+    console.log('\nKnown failures (RED guides):')
+    for (var g of known) console.log(`  [${g.label}]`)
+  }
+
+  if (!novel.length) console.log('\nAll passing (no regressions)!')
+  if (novel.length) process.exit(1)
 }
 
 
@@ -1339,7 +1360,7 @@ test(
 // Since star doesn't create, this is safe.
 
 test(
-  'Star PutGet: poke star then peek star [law-putget] [poke-star] [peek-star]',
+  'Star PutGet fails: peek wraps traversal, [0,0,0] != 0 [law-putget] [peek-star-wraps]',
   '{(1 2 3) | list poke path "*" value 0 | list peek path "*"}',
   '[0,0,0]'
 )
@@ -2535,15 +2556,26 @@ test('union: large array does not stack overflow [P-total]',
 // §I1 Effect separation: every command has fun XOR effect
 // =====================================================
 
-;(function() { // [P-effectpartition]
+;(function() { // [P-effectpartition] [blockeval-category]
   pending++
 
-  // Known violations: commands that currently have BOTH fun and effect.
-  // The spec says effectful commands have no fun (§4 line 629), but these
-  // use fun as a default handler when the port is unwired.
+  // Ternary partition: every command is exactly one of pure / block-evaluating
+  // / effectful. Effectful commands have no fun (§4). These currently carry
+  // BOTH fun and effect (fun as a fallback handler) — a known violation until
+  // effectful dispatch lands (all effectful commands must be port-routed).
   var known_both = ['time.now', 'var.read-out', 'var.write-out']
 
-  var pure = 0, effectful = 0, both = 0, neither = 0
+  function has_block_param(m) {
+    if (!m.params) return false
+    return m.params.some(function(p) {
+      if (p.type === 'block') return true
+      if (typeof p.type === 'string' && p.type.indexOf('either:') === 0)
+        return p.type.indexOf('block') !== -1
+      return false
+    })
+  }
+
+  var pure = 0, blockeval = 0, effectful = 0, both = 0, neither = 0
   var unexpected_both = []
   var unexpected_neither = []
 
@@ -2559,6 +2591,8 @@ test('union: large array does not stack overflow [P-total]',
       if (has_fun && has_effect) {
         both++
         if (known_both.indexOf(name) === -1) unexpected_both.push(name)
+      } else if (has_fun && has_block_param(m)) {
+        blockeval++
       } else if (has_fun) {
         pure++
       } else if (has_effect) {
@@ -2579,9 +2613,9 @@ test('union: large array does not stack overflow [P-total]',
     if (unexpected_both.length) msg += 'unexpected fun+effect: ' + unexpected_both.join(', ') + '. '
     if (unexpected_neither.length) msg += 'no fun or effect: ' + unexpected_neither.join(', ')
     failures.push({
-      label: 'effect separation: fun XOR effect',
-      input: '(structural check of D.Commands)',
-      expected: 'every command has fun XOR effect (known_both: ' + known_both.join(', ') + ')',
+      label: 'ternary partition: pure | block-evaluating | effectful [blockeval-category]',
+      input: '(D.Commands scan: ' + pure + ' pure, ' + blockeval + ' block-evaluating, ' + effectful + ' effectful)',
+      expected: 'each command in exactly one category (known fun+effect: ' + known_both.join(', ') + ')',
       actual: msg
     })
   }
@@ -3309,6 +3343,36 @@ test(
   '[1,3]'
 )
 
+
+// =====================================================
+// Lens laws: traversal (Star) breaks PutGet / GetPut
+// =====================================================
+
+test(
+  'Star GetPut fails: peek wraps, poke(v,*,peek(v,*)) != v [law-getput] [peek-star-wraps]',
+  '{(1 2 3) | list poke path "*" value (1 2 3)}',
+  '[[1,2,3],[1,2,3],[1,2,3]]'
+)
+
+// =====================================================
+// §5 Recursion depth: unbounded recursion sploots to empty, never crashes
+// =====================================================
+
+test(
+  'self-invoking block sploots to empty, never crashes [depth-exceeded-sploot] [host-error-sploot]',
+  '{"{$loop | run}" | >$loop || $loop | run}',
+  ''
+)
+
+// =====================================================
+// §6 Dynamic svar access: {var read} / {var write}  (RED — not yet implemented)
+// =====================================================
+
+test(
+  'var write then var read by computed name [var-read] [var-write]',
+  '{var write name :foo value 5 | var read name :foo}',
+  '5'
+)
 
 // =====================================================
 // Done registering tests
