@@ -3,7 +3,8 @@
 Tests to upgrade and write for the spec changes made this session:
 websock rename + unquote gate, black holes, socket-load rewrite,
 sender/qualified-names + I16, block-evaluating commands, recursion-depth
-bound. Layout/`space_ascii` is a separate stream — not covered here.
+bound, deterministic scheduler (virtual time). Layout/`space_ascii` is a
+separate stream — not covered here.
 
 Suites: `d2_spec_test.mjs` (DAML spec assertions), `space_test.mjs`
 (space-level), `security_test.mjs`, `node_code.mjs`, `example_test.mjs`
@@ -160,6 +161,33 @@ already does for the space_test spec-gaps.
 ### Request cycles — `space_test` (needs ports/timeouts)
 - A cyclic request chain resolves by timeout to empty; a late response
   becomes a ghost `[request-cycle-timeout]`.
+
+### Deterministic scheduler — `space_test` (needs the priority-loop scheduler)
+- **Convergence order.** A and B fan in to C; C's two inputs dock in the
+  order their wires are declared in the source, on every run and host
+  `[sched-tie-wire][sched-advance]`.
+- **Advance blocks reordering.** With A's ship pending at a lower number,
+  C cannot dock B's higher-numbered ship first `[sched-advance]`.
+- **Single wire is FIFO.** Ships on one wire dock in emission order; on a
+  single wire the key reduces to FIFO because the source's numbers only
+  increase `[sched-wire-fifo][routing-deferred-order]`.
+- **Self-send fairness.** A self-feeding space (`>@again`) interleaves
+  fresh external arrivals at the frontier and never starves them
+  `[sched-entry-frontier][sched-dock-max]`.
+- **Held-space re-numbering.** Ships queued behind a long App wait dock
+  with re-raised numbers; no downstream key lands below one already
+  processed `[sched-reentry-uniform][sched-dock-max]`.
+- **Timeout as schedule event.** Placing a timeout before/after a response
+  in the schedule deterministically decides which wins; the loser ghosts
+  `[sched-timeout-event][timeout-ghost-drop]`.
+- **Replay.** The same space + same input schedule, run twice, yields a
+  byte-identical trace including error ships and process ids
+  `[sched-deterministic][id-deterministic]`.
+- **Socket-transition determinism.** A drain (or smash) during traffic
+  produces the same interleaving on every run `[sched-transition-keys]`.
+- **Bork.** A station-free wiring cycle fails to compile
+  `[sched-cycle-station]` — `[now]` once cycle detection lands, `[impl]`
+  until then.
 
 ---
 
