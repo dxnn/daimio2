@@ -64,3 +64,28 @@ Add items freely.
   returns null, the connection is skipped, and the contract vanishes with no error (the port
   renders as an unwired standalone). Fix: mint a `station-<n>` for a `{…}` RHS (and LHS) in the
   `<->` branch, mirroring the FAF branch. Fail loud or, better, just handle it.
+
+## Space layout: vertical-to-vertical port contracts
+
+- **A contract between two round-trip ports mis-routes to a side + orphans a glyph**
+  (found 2026-07-07, `site/js/space_layout.js`). When a connection joins a wall vertical
+  port and a subspace down port — e.g. `@down <-> inner.down`, which should desugar to
+  `down -> inner.down` / `inner.down -> down` once the `<->` parser bug above is fixed —
+  the layout renders it wrong: outer's `@down` attaches to **inner's left/right `o` (in/out)
+  sides** and inner's `down` `^v` glyph is stamped but left **orphaned** (no wire, yet its
+  band slots still add row height). Two causes in the connection classifier:
+  1. The vertical-port diversion (`vport_by_pid[fid] || vport_by_pid[tid]`) is checked
+     *before* the subspace-down check, so the connection is handled as `@down`'s leg and the
+     far end attaches at the subspace's side (`vp_in_x`), never at its bottom-edge `^v`.
+  2. `sub_down_info` *also* fires on the same connection and places the `^v` glyph + band
+     slots, but `route_subdown_chain` never runs for it (it went to `vport_conns`), so the
+     glyph is orphaned. (Confirmed: invariants pass — they check paths, not glyphs — but the
+     corrected-route render fails round-trip, parsing back as `@down -> inner.in` /
+     `inner.out -> @down`.)
+  Fix needs a genuine **vertical-to-vertical route**: both endpoints attach at their own
+  `^v` (outer's floor pair and inner's bottom-edge pair), neither on a side wall — a routing
+  case that doesn't exist yet. Also make the two detectors mutually exclusive (or cooperate)
+  so no orphaned glyph is placed. Loose end: `sub_down_info`'s `/^down/` test also matches a
+  malformed `down.in`/`down.out` port (the parser bug above), which is how the original
+  report produced *two* `^v` pairs on inner — moot once the parser is fixed, but worth
+  tightening to an exact `down`/`down:*` match.
