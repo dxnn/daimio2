@@ -34,7 +34,8 @@ export function extract(name, seedlike) {
     var key = port_keys[i]
     var arr = seedlike.ports[key]
     var prefix = key.split(':')[0]
-    var dir = (prefix === 'in' || prefix === 'up') ? 'left' : 'right'
+    var dir = (prefix === 'in') ? 'left' : (prefix === 'up') ? 'top'
+            : (prefix === 'down') ? 'bottom' : 'right'
     var flavour = arr[0]
     ports.push({ id: 'p' + i, key: key, dir: dir, flavour: flavour })
   }
@@ -482,20 +483,29 @@ export function layout(topology, options) {
   // Model ports as 1-cell nodes in virtual layers so they go through the
   // Sugiyama dummy pipeline. Left ports → layer 0, right ports → last layer.
 
-  // Collect used ports and classify
+  // Collect used ports and classify. Vertical ports (up-flavour → top
+  // border, down-flavour → bottom border) skip the Sugiyama virtual
+  // layers entirely — their wires run vertically and are routed in the
+  // vertical-port section below.
   var used_left_ports = []   // port objects with dir=left in some connection
   var used_right_ports = []  // port objects with dir=right in some connection
+  var used_top_ports = []
+  var used_bottom_ports = []
   var used_ports = {}
   for (var i = 0; i < connections.length; i++) {
     if (port_by_id[connections[i].from.id]) used_ports[connections[i].from.id] = true
     if (port_by_id[connections[i].to.id]) used_ports[connections[i].to.id] = true
   }
-  var left_port_set = {}, right_port_set = {}
+  var left_port_set = {}, right_port_set = {}, vport_by_pid = {}
   for (var i = 0; i < ports.length; i++) {
     if (!used_ports[ports[i].id]) continue
     if (ports[i].dir === 'left') { used_left_ports.push(ports[i]); left_port_set[ports[i].id] = true }
+    else if (ports[i].dir === 'top') { used_top_ports.push(ports[i]); vport_by_pid[ports[i].id] = ports[i] }
+    else if (ports[i].dir === 'bottom') { used_bottom_ports.push(ports[i]); vport_by_pid[ports[i].id] = ports[i] }
     else { used_right_ports.push(ports[i]); right_port_set[ports[i].id] = true }
   }
+  used_top_ports.sort(function(a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0 })
+  used_bottom_ports.sort(function(a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0 })
 
   // Shift real layers by +1 to make room for left port layer at index 0
   var real_layer_count = layers.length
@@ -541,10 +551,16 @@ export function layout(topology, options) {
   var all_edges = []       // { id, from_id, to_id }
   var reversed_set = {}    // conn_id → true if back-edge was reversed
   var self_loops = []      // self-loop connections
+  var vport_conns = []     // connections touching a vertical port
 
   for (var i = 0; i < connections.length; i++) {
     var c = connections[i]
     var fid = c.from.id, tid = c.to.id
+
+    if (vport_by_pid[fid] || vport_by_pid[tid]) {
+      vport_conns.push(c)
+      continue
+    }
 
     if (is_comp(fid) && is_comp(tid) && fid === tid) {
       // Self-loop
@@ -731,6 +747,104 @@ export function layout(topology, options) {
     total_rows = next_row
   }
 
+  // ── Vertical ports: leg analysis ────────────────────────────────────
+  // Every wire at a vertical port flows north or south: at a bottom port
+  // ships fall south into the v cell and responses leave north from the ^
+  // cell; a top port mirrors this. Legs toward a DEST (port → comp) want
+  // the pair anchored over the gap left of the dest's layer so the border
+  // leg runs straight and the approach is a clean horizontal. Legs from a
+  // SRC (comp → port) are flexible — they drop at the source's fan trunk
+  // and travel via a band (top ports) or the floor band (bottom ports).
+  // A bottom-port round trip with a single station partner instead
+  // attaches at a ^v pair on the station's bottom edge and both wires
+  // drop straight to the floor, when the corridor below is clear.
+
+  var vports = []       // records in key order: bottom ports then top ports
+  var vport_rec = {}    // port id → record
+  function vp_add(p, border) {
+    var rec = { port: p, border: border, dest_legs: [], src_legs: [], straight: null, pair_gap: -1 }
+    vports.push(rec)
+    vport_rec[p.id] = rec
+  }
+  for (var i = 0; i < used_bottom_ports.length; i++) vp_add(used_bottom_ports[i], 'bottom')
+  for (var i = 0; i < used_top_ports.length; i++) vp_add(used_top_ports[i], 'top')
+
+  for (var i = 0; i < vport_conns.length; i++) {
+    var c = vport_conns[i]
+    var rec = vport_rec[c.from.id] || vport_rec[c.to.id]
+    if (!rec) continue
+    // port → X is a dest leg; X → port is a src leg (for either border)
+    if (c.from.id === rec.port.id) rec.dest_legs.push(c)
+    else rec.src_legs.push(c)
+  }
+
+  // Straight round trip: bottom port, one src leg and one dest leg, both
+  // partnered with the same station, corridor below the station clear of
+  // components (layers never overlap in x, so only same-layer lower rows
+  // can block; margin of one cell on each side).
+  for (var i = 0; i < vports.length; i++) {
+    var rec = vports[i]
+    if (rec.border !== 'bottom') continue
+    if (rec.src_legs.length !== 1 || rec.dest_legs.length !== 1) continue
+    var sid = rec.src_legs[0].from.id
+    if (sid !== rec.dest_legs[0].to.id) continue
+    if (!station_by_id[sid]) continue
+    var sw = comp_w(sid)
+    var co = (sw >> 1) - 1  // corridor offset: ^ at layer_x+co, v at +co+1
+    var blocked = false
+    var lyr = layer_of[sid]
+    for (var li = 0; li < layers[lyr].length; li++) {
+      var oid = layers[lyr][li]
+      if (oid === sid || dummy_set[oid]) continue
+      if (row_of[oid] > row_of[sid] && comp_w(oid) + 1 >= co) { blocked = true; break }
+    }
+    if (!blocked) rec.straight = { station: sid, offset: co }
+  }
+
+  // Anchor gap for non-straight ports, and registration bookkeeping.
+  // gap_of(dest) = gap left of the dest's layer; sources drop into the gap
+  // right of their own layer (gap index == layer index).
+  var last_gap = layers.length - 2
+  function vp_gap_of_dest(id) {
+    if (station_by_id[id] || subspace_set[id]) return layer_of[id] - 1
+    if (port_by_id[id]) return port_by_id[id].dir === 'left' ? 0 : last_gap
+    return last_gap
+  }
+  function vp_gap_of_src(id) {
+    if (station_by_id[id] || subspace_set[id]) return layer_of[id]
+    if (port_by_id[id]) return port_by_id[id].dir === 'left' ? 0 : last_gap
+    return last_gap
+  }
+  var gap_vport_pairs = {}  // gap → [rec] in vports order
+  for (var i = 0; i < vports.length; i++) {
+    var rec = vports[i]
+    if (rec.straight) continue
+    var g
+    if (rec.dest_legs.length) g = vp_gap_of_dest(rec.dest_legs[0].to.id)
+    else if (rec.src_legs.length) g = vp_gap_of_src(rec.src_legs[0].from.id)
+    else continue
+    g = Math.max(0, Math.min(last_gap, g))
+    rec.pair_gap = g
+    if (!gap_vport_pairs[g]) gap_vport_pairs[g] = []
+    rec.pair_index = gap_vport_pairs[g].length
+    gap_vport_pairs[g].push(rec)
+  }
+
+  // Src legs that can't reach the pair directly need a drop column at the
+  // source (sharing its down-fan trunk) plus band travel: top ports via
+  // the band below the source's row, bottom ports via the floor band.
+  for (var i = 0; i < vports.length; i++) {
+    var rec = vports[i]
+    if (rec.straight) continue
+    for (var j = 0; j < rec.src_legs.length; j++) {
+      var leg = rec.src_legs[j]
+      var sid = leg.from.id
+      var sgap = vp_gap_of_src(sid)
+      leg.vp_direct = (sgap === rec.pair_gap)
+      leg.vp_needs_drop = !leg.vp_direct
+    }
+  }
+
   // ── Gap sizing: count distinct fan groups per gap ───────────────
   // Hops from the same source (fan-out) or to the same dest (fan-in)
   // share one channel, so count groups not individual hops.
@@ -783,6 +897,15 @@ export function layout(topology, options) {
   for (var i = 0; i < self_loops.length; i++) {
     var fk = layer_of[self_loops[i].from.id] + '|dn|' + self_loops[i].from.id
     from_group_n[fk] = (from_group_n[fk] || 0) + 1
+  }
+  // Vertical-port src legs that need a drop column count the same way
+  for (var i = 0; i < vports.length; i++) {
+    for (var j = 0; j < vports[i].src_legs.length; j++) {
+      var leg = vports[i].src_legs[j]
+      if (!leg.vp_needs_drop) continue
+      var fk = vp_gap_of_src(leg.from.id) + '|dn|' + leg.from.id
+      from_group_n[fk] = (from_group_n[fk] || 0) + 1
+    }
   }
   for (var i = 0; i < all_edges.length; i++) {
     var e = all_edges[i]
@@ -869,6 +992,24 @@ export function layout(topology, options) {
         ch_list.push({ key: fk, from_row: row_of[sl_id], to_row: row_of[sl_id] })
       }
     }
+    // Vertical-port src legs needing band travel drop at their source's
+    // down-fan trunk too
+    for (var i = 0; i < vports.length; i++) {
+      for (var j = 0; j < vports[i].src_legs.length; j++) {
+        var leg = vports[i].src_legs[j]
+        if (!leg.vp_needs_drop) continue
+        var vsid = leg.from.id
+        if (vp_gap_of_src(vsid) !== g) continue
+        var hop_key = 'vp_' + leg.id
+        var fk = 'from_dn_' + vsid
+        if (!group_hops[fk]) group_hops[fk] = []
+        group_hops[fk].push(hop_key)
+        if (!group_seen[fk]) {
+          group_seen[fk] = true
+          ch_list.push({ key: fk, from_row: row_of[vsid], to_row: row_of[vsid] })
+        }
+      }
+    }
     if (ch_list.length === 0) continue
     ch_list.sort(function(a, b) { return a.from_row - b.from_row || a.to_row - b.to_row })
     for (var j = 0; j < ch_list.length; j++) {
@@ -939,6 +1080,22 @@ export function layout(topology, options) {
     gap_row_hops[g][r].push({ key: 'sl_' + self_loops[i].id, from: sl_id, to: sl_id,
                               ord: channel_ordinal['sl_' + self_loops[i].id], arriving: false })
   }
+  // Vertical-port src drop legs occupy [out_x, drop_x] on their source's
+  // wire row — departing segments, same as reversed-edge drops. (Pair
+  // arrivals sit right of every spread channel, so they never conflict.)
+  for (var i = 0; i < vports.length; i++) {
+    for (var j = 0; j < vports[i].src_legs.length; j++) {
+      var leg = vports[i].src_legs[j]
+      if (!leg.vp_needs_drop || port_by_id[leg.from.id]) continue
+      var vsid = leg.from.id
+      var g = vp_gap_of_src(vsid)
+      var r = row_of[vsid]
+      if (!gap_row_hops[g]) gap_row_hops[g] = {}
+      if (!gap_row_hops[g][r]) gap_row_hops[g][r] = []
+      gap_row_hops[g][r].push({ key: 'vp_' + leg.id, from: vsid, to: leg.to.id,
+                                ord: channel_ordinal['vp_' + leg.id], arriving: false })
+    }
+  }
 
   var needs_approach = {}  // hop key → { to_node, band, gap }
   for (var g in gap_row_hops) {
@@ -1000,7 +1157,21 @@ export function layout(topology, options) {
   function gap_units(g) {
     var units = (gap_channels[g] || 0) + (arrival_count[g] || 0)
     if (g === 0 && left_port_return && units > 0) units++
+    units += 2 * ((gap_vport_pairs[g] || []).length)
     return units
+  }
+
+  // Top-border pairs must clear the space-name label ( _ name _ occupies
+  // x=2..name.length+3); the leftmost pair cell in a gap must start at
+  // label_min or later.
+  var label_min = name.length + 5
+  function gap_min_right_x(g) {
+    var pairs = gap_vport_pairs[g] || []
+    var has_top = false
+    for (var i = 0; i < pairs.length; i++)
+      if (pairs[i].border === 'top') has_top = true
+    if (!has_top) return 0
+    return label_min + 5 + 2 * (arrival_count[g] || 0) + 3 * (pairs.length - 1)
   }
 
   // ── Compute layer_x ──────────────────────────────────────────────
@@ -1015,14 +1186,14 @@ export function layout(topology, options) {
       // Gap from left port layer to first real layer
       var nc = gap_units(0)
       var port_gap = Math.max(5, nc > 0 ? 2 * nc + 5 : 5)
-      layer_x.push(port_gap)
+      layer_x.push(Math.max(port_gap, gap_min_right_x(0)))
     } else if (i === layers.length - 1) {
       // Right port layer: placeholder, set after width is known
       layer_x.push(0)
     } else {
       var nc = gap_units(i - 1)
       var gap = Math.max(HLINE_GAP, nc > 0 ? 2 * nc + 5 : HLINE_GAP)
-      layer_x.push(layer_x[i - 1] + layer_width[i - 1] + gap)
+      layer_x.push(Math.max(layer_x[i - 1] + layer_width[i - 1] + gap, gap_min_right_x(i - 1)))
     }
   }
 
@@ -1050,6 +1221,23 @@ export function layout(topology, options) {
     var right_gap = Math.max(HLINE_GAP, nc > 0 ? 2 * nc + 5 : HLINE_GAP)
     var rx = layer_x[last_real] + layer_width[last_real] + right_gap + 1
     if (rx > max_right_x) max_right_x = rx
+  }
+  // Vertical-port pairs in the gap right of the last real layer need the
+  // same room even without right ports
+  if (used_right_ports.length === 0 && real_layer_count > 0 &&
+      (gap_vport_pairs[real_layer_count] || []).length > 0) {
+    var rx = layer_x[real_layer_count] + layer_width[real_layer_count] + 2 * gap_units(real_layer_count) + 6
+    if (rx > max_right_x) max_right_x = rx
+  }
+  // Vertical-port src drop columns need the same room as reversed-edge drops
+  for (var i = 0; i < vports.length; i++) {
+    for (var j = 0; j < vports[i].src_legs.length; j++) {
+      var leg = vports[i].src_legs[j]
+      if (!leg.vp_needs_drop || port_by_id[leg.from.id]) continue
+      var lyr = layer_of[leg.from.id]
+      var rx = layer_x[lyr] + layer_width[lyr] + 2 * gap_units(lyr) + 4
+      if (rx > max_right_x) max_right_x = rx
+    }
   }
   // Self-loop right margin (drop column in the gap right of the station)
   for (var i = 0; i < self_loops.length; i++) {
@@ -1079,6 +1267,22 @@ export function layout(topology, options) {
   // order. The last 2*arrival_count columns before the next layer are
   // reserved for the arrival ladder.
 
+  // Vertical-port pair columns sit at the right end of their gap's track
+  // region (just left of the arrival ladder), one pair per 3 columns:
+  // ^ at s-1, v at s. The spread below stays clear of this region.
+  var vport_x = {}   // port id → { n, s }
+  for (var g in gap_vport_pairs) {
+    var gi = parseInt(g, 10)
+    var pairs = gap_vport_pairs[g]
+    var pt_max = layer_x[gi + 1] - 4 - 2 * (arrival_count[gi] || 0)
+    // key order reads left-to-right, so a parsed render relabels ports
+    // without moving them
+    for (var i = 0; i < pairs.length; i++) {
+      var s = pt_max - 3 * (pairs.length - 1 - i)
+      vport_x[pairs[i].port.id] = { n: s - 1, s: s }
+    }
+  }
+
   var v_channel_x = {}
   var group_x = {}         // gap + '|' + fan_group_key → x (for reversed-leg trunk reuse)
   for (var g in gap_groups) {
@@ -1089,6 +1293,7 @@ export function layout(topology, options) {
     var track_min = gap_left + 3
     if (gi === 0 && left_port_return) track_min += 1  // clear of the return lane at x=2
     var track_max = gap_right - 4 - 2 * (arrival_count[gi] || 0)
+                  - 3 * ((gap_vport_pairs[gi] || []).length)
     // Ensure track_max >= track_min
     if (track_max < track_min) track_max = track_min
     var usable = track_max - track_min
@@ -1145,6 +1350,19 @@ export function layout(topology, options) {
   for (var i = 0; i < self_loops.length; i++) {
     var band = row_of[self_loops[i].from.id]
     alloc_slot(band, 'sl|' + band + '|' + self_loops[i].id)
+  }
+
+  // Vertical-port src legs to TOP ports travel leftward via the band
+  // below their source's row, sharing the source's reversed-edge channel
+  // (both carry only that source's flow — a legal fan)
+  for (var i = 0; i < vports.length; i++) {
+    if (vports[i].border !== 'top') continue
+    for (var j = 0; j < vports[i].src_legs.length; j++) {
+      var leg = vports[i].src_legs[j]
+      if (!leg.vp_needs_drop) continue
+      var band = row_of[leg.from.id]
+      alloc_slot(band, 'rev|' + band + '|' + leg.from.id)
+    }
   }
 
   // ── Row heights ─────────────────────────────────────────────────────
@@ -1395,11 +1613,14 @@ export function layout(topology, options) {
 
   var left_standalone = []
   var right_standalone = []
+  var vert_standalone = []
   for (var i = 0; i < ports.length; i++) {
     if (used_ports[ports[i].id]) continue
     if (ports[i].dir === 'left') left_standalone.push(ports[i])
+    else if (ports[i].dir === 'top' || ports[i].dir === 'bottom') vert_standalone.push(ports[i])
     else right_standalone.push(ports[i])
   }
+  vert_standalone.sort(function(a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0 })
 
   // ── Compute content_y ──────────────────────────────────────────────
 
@@ -1416,12 +1637,47 @@ export function layout(topology, options) {
     if (el.type === 'port' && el.y > max_fan_y)
       max_fan_y = el.y
   }
+  // Vertical-port band travel (top-port src legs, routed after the height
+  // is known) counts toward content too
+  for (var i = 0; i < vports.length; i++) {
+    if (vports[i].border !== 'top') continue
+    for (var j = 0; j < vports[i].src_legs.length; j++) {
+      var leg = vports[i].src_legs[j]
+      if (!leg.vp_needs_drop) continue
+      var r = row_of[leg.from.id]
+      var by = slot_y(r, 'rev|' + r + '|' + leg.from.id)
+      if (by > max_fan_y) max_fan_y = by
+    }
+  }
   var content_y = max_fan_y > 0 ? max_fan_y + 1 : cum_y
+
+  // ── Floor band slots ────────────────────────────────────────────────
+  // Bottom-port legs that can't run straight travel horizontally just
+  // below the content, one run per port (shared by all that port's
+  // travelling legs — a legal fan through the port), two rows apart.
+
+  var floor_slot = {}    // port id → slot index
+  var n_floor_slots = 0
+  var wired_bottom = false
+  for (var i = 0; i < vports.length; i++) {
+    var rec = vports[i]
+    if (rec.border !== 'bottom') continue
+    if (rec.straight || rec.src_legs.length || rec.dest_legs.length) wired_bottom = true
+    if (rec.straight) continue
+    var travels = false
+    for (var j = 0; j < rec.src_legs.length; j++)
+      if (rec.src_legs[j].vp_needs_drop) travels = true
+    for (var j = 0; j < rec.dest_legs.length; j++)
+      if (vp_gap_of_dest(rec.dest_legs[j].to.id) !== rec.pair_gap) travels = true
+    if (travels) floor_slot[rec.port.id] = n_floor_slots++
+  }
+  var floor_rows = n_floor_slots > 0 ? 2 * n_floor_slots : 0
+  function floor_run_y(pid) { return content_y + 1 + 2 * floor_slot[pid] }
 
   // ── Standalone port rows ───────────────────────────────────────────
 
   var port_rows = Math.max(left_standalone.length, right_standalone.length)
-  var sy = content_y
+  var sy = content_y + floor_rows
   var li = 0, ri = 0
   while (li < left_standalone.length || ri < right_standalone.length) {
     if (li < left_standalone.length) {
@@ -1449,8 +1705,135 @@ export function layout(topology, options) {
 
   // ── Height and box ─────────────────────────────────────────────────
 
-  var height = content_y + port_rows + state_rows + 1
-  if (total_rows === 0 && port_rows === 0 && state_rows === 0 && max_fan_y === 0) height = 3
+  var floor_pad = wired_bottom ? 2 : 0
+  var height = content_y + floor_rows + port_rows + state_rows + floor_pad + 1
+  if (total_rows === 0 && port_rows === 0 && state_rows === 0 && max_fan_y === 0 &&
+      floor_rows === 0 && floor_pad === 0) height = 3
+
+  // ── Vertical port wires and elements ────────────────────────────────
+  // Routed last: floor legs end one row above the bottom border, which
+  // needs the final height. Glyph cells sit ON the border rows (y=0 /
+  // height-1) or a station's bottom edge; wire endpoints stop one cell
+  // short, mirroring the side-port o / wire_x convention.
+
+  var floor_y = height - 1
+  function vp_wy(id) { return wire_y(row_of[id]) }
+  function vp_in_x(id) {
+    if (port_by_id[id]) return port_by_id[id].dir === 'left' ? 1 : width - 2
+    return layer_x[layer_of[id]]
+  }
+  function vp_out_x(id) {
+    if (port_by_id[id]) return port_by_id[id].dir === 'left' ? 1 : width - 2
+    return layer_x[layer_of[id]] + comp_w(id)
+  }
+  function vp_path(conn_id, pts) {
+    // drop consecutive duplicate waypoints (degenerate straight legs)
+    var out = [pts[0]]
+    for (var k = 1; k < pts.length; k++)
+      if (pts[k].x !== out[out.length - 1].x || pts[k].y !== out[out.length - 1].y) out.push(pts[k])
+    conn_paths[conn_id] = out
+  }
+
+  for (var i = 0; i < vports.length; i++) {
+    var rec = vports[i]
+    var p = rec.port
+    if (rec.straight) {
+      // Round trip attached at a ^v pair on the station's bottom edge,
+      // both wires dropping straight to the floor pair below it
+      var sid = rec.straight.station
+      var sx0 = layer_x[layer_of[sid]] + rec.straight.offset
+      var edge_y = comp_y(row_of[sid]) + 4
+      var st_el = null
+      for (var ei = 0; ei < elements.length; ei++)
+        if (elements[ei].id === sid && elements[ei].type === 'station') st_el = elements[ei]
+      if (st_el) {
+        st_el.down = { n: sx0, s: sx0 + 1 }
+        st_el.down_out = { x: sx0 + 1, y: edge_y + 1 }
+        st_el.down_in = { x: sx0, y: edge_y + 1 }
+      }
+      vp_path(rec.src_legs[0].id, [{ x: sx0 + 1, y: edge_y + 1 }, { x: sx0 + 1, y: floor_y - 1 }])
+      vp_path(rec.dest_legs[0].id, [{ x: sx0, y: floor_y - 1 }, { x: sx0, y: edge_y + 1 }])
+      elements.push({ type: 'port', dir: 'bottom', key: p.key, id: p.id, glyph: '^v',
+                      x: sx0, y: floor_y, north_x: sx0, south_x: sx0 + 1,
+                      in: { x: sx0 + 1, y: floor_y - 1 }, out: { x: sx0, y: floor_y - 1 } })
+      continue
+    }
+    if (rec.pair_gap < 0) continue  // unwired (handled with standalone x ports)
+    var px = vport_x[p.id]
+    var border_y = rec.border === 'top' ? 0 : floor_y
+    var attach_y = rec.border === 'top' ? 1 : floor_y - 1
+    elements.push({ type: 'port', dir: rec.border, key: p.key, id: p.id, glyph: '^v',
+                    x: px.n, y: border_y, north_x: px.n, south_x: px.s,
+                    in: { x: rec.border === 'top' ? px.n : px.s, y: attach_y },
+                    out: { x: rec.border === 'top' ? px.s : px.n, y: attach_y } })
+
+    // Dest legs: port → component. The pair is anchored over the gap left
+    // of the first dest's layer, so these run straight along the pair
+    // column and turn once into the dest. (Dests in other layers travel
+    // via the floor run for bottom ports; top ports route them naively —
+    // no fixture exercises that shape yet.)
+    for (var j = 0; j < rec.dest_legs.length; j++) {
+      var leg = rec.dest_legs[j]
+      var did = leg.to.id
+      var dx = rec.border === 'top' ? px.s : px.n
+      var same_gap = vp_gap_of_dest(did) === rec.pair_gap
+      if (rec.border === 'bottom' && !same_gap) {
+        var rx = vp_in_x(did) - 3
+        vp_path(leg.id, [{ x: dx, y: attach_y }, { x: dx, y: floor_run_y(p.id) },
+                         { x: rx, y: floor_run_y(p.id) }, { x: rx, y: vp_wy(did) },
+                         { x: vp_in_x(did), y: vp_wy(did) }])
+      } else {
+        vp_path(leg.id, [{ x: dx, y: attach_y }, { x: dx, y: vp_wy(did) },
+                         { x: vp_in_x(did), y: vp_wy(did) }])
+      }
+    }
+
+    // Src legs: component → port. Direct when the source sits beside the
+    // pair's gap (one turn); otherwise drop at the source's down-fan
+    // trunk and travel — top ports via the band below the source's row,
+    // bottom ports via the floor run.
+    for (var j = 0; j < rec.src_legs.length; j++) {
+      var leg = rec.src_legs[j]
+      var sid2 = leg.from.id
+      var sx2 = rec.border === 'top' ? px.n : px.s
+      if (leg.vp_direct) {
+        vp_path(leg.id, [{ x: vp_out_x(sid2), y: vp_wy(sid2) }, { x: sx2, y: vp_wy(sid2) },
+                         { x: sx2, y: attach_y }])
+      } else {
+        var dropx = v_channel_x['vp_' + leg.id]
+        if (dropx === undefined) dropx = vp_out_x(sid2) + 2
+        var travel_y = rec.border === 'top'
+          ? slot_y(row_of[sid2], 'rev|' + row_of[sid2] + '|' + sid2)
+          : floor_run_y(p.id)
+        vp_path(leg.id, [{ x: vp_out_x(sid2), y: vp_wy(sid2) }, { x: dropx, y: vp_wy(sid2) },
+                         { x: dropx, y: travel_y }, { x: sx2, y: travel_y },
+                         { x: sx2, y: attach_y }])
+      }
+    }
+  }
+
+  // Standalone vertical ports: a single x glyph on the border, placed
+  // after the name label on top, spaced 2 apart, skipping wired cells
+  var vp_taken = { top: {}, bottom: {} }
+  for (var i = 0; i < elements.length; i++) {
+    var el = elements[i]
+    if (el.type !== 'port' || el.glyph !== '^v') continue
+    var side = el.y === 0 ? 'top' : 'bottom'
+    vp_taken[side][el.north_x] = true
+    vp_taken[side][el.south_x] = true
+  }
+  var vsx = { top: label_min, bottom: 3 }
+  for (var i = 0; i < vert_standalone.length; i++) {
+    var vp = vert_standalone[i]
+    var side = vp.dir === 'top' ? 'top' : 'bottom'
+    var x = vsx[side]
+    while ((vp_taken[side][x] || vp_taken[side][x - 1] || vp_taken[side][x + 1]) && x < width - 3) x += 2
+    x = Math.min(x, width - 3)
+    vp_taken[side][x] = true
+    vsx[side] = x + 2
+    elements.push({ type: 'port', dir: vp.dir, key: vp.key, glyph: 'x',
+                    x: x, y: side === 'top' ? 0 : floor_y })
+  }
 
   elements.unshift({ type: 'box', x: 0, y: 0, width: width, height: height, name: name })
 
@@ -1545,13 +1928,16 @@ function check_layout_invariants(laid) {
       var from_el = comp_by_id[tc.from.id], to_el = comp_by_id[tc.to.id]
       if (!from_el || !to_el) continue
       var first = pts[0], last = pts[pts.length - 1]
-      // FROM check: path starts at the component's outgoing point
+      // FROM check: path starts at the component's outgoing point (or its
+      // bottom-edge down attach for station round trips to a floor port)
       var from_pt = from_el.out || { x: from_el.wire_x, y: from_el.y }
-      if (first.x !== from_pt.x || first.y !== from_pt.y)
+      var from_down = from_el.down_out && first.x === from_el.down_out.x && first.y === from_el.down_out.y
+      if (!from_down && (first.x !== from_pt.x || first.y !== from_pt.y))
         throw new Error('Invariant endpoint: ' + conn + ' starts at (' + first.x + ',' + first.y + ') but FROM ' + tc.from.id + ' out is (' + from_pt.x + ',' + from_pt.y + ')')
       // TO check: path ends at the component's incoming point
       var to_pt = to_el.in || { x: to_el.wire_x, y: to_el.y }
-      if (last.x !== to_pt.x || last.y !== to_pt.y)
+      var to_down = to_el.down_in && last.x === to_el.down_in.x && last.y === to_el.down_in.y
+      if (!to_down && (last.x !== to_pt.x || last.y !== to_pt.y))
         throw new Error('Invariant endpoint: ' + conn + ' ends at (' + last.x + ',' + last.y + ') but TO ' + tc.to.id + ' in is (' + to_pt.x + ',' + to_pt.y + ')')
 
       // Invariant 6: attach clearance. A station's in-paren is drawn one
@@ -1560,14 +1946,14 @@ function check_layout_invariants(laid) {
       // dash; a departing wire must run to out.x+2 or further before
       // turning. Subspaces draw 'o' at the attach cell (in needs 2).
       // Ports are exempt (contract returns T-junction into the port wire).
-      if (to_el.type !== 'port') {
+      if (to_el.type !== 'port' && !to_down) {
         var need_in = to_el.type === 'station' ? 3 : 2
         var prev = pts[pts.length - 2]
         if (prev.y !== last.y || last.x - prev.x < need_in)
           throw new Error('Invariant attach: ' + conn + ' enters ' + tc.to.id + ' with last turn at (' +
                           prev.x + ',' + prev.y + ') — needs a horizontal of ' + need_in + '+ into (' + last.x + ',' + last.y + ')')
       }
-      if (from_el.type === 'station') {
+      if (from_el.type === 'station' && !from_down) {
         var second = pts[1]
         if (second.y !== first.y || second.x - first.x < 2)
           throw new Error('Invariant attach: ' + conn + ' leaves ' + tc.from.id + ' with first turn at (' +
@@ -1689,16 +2075,32 @@ function check_layout_invariants(laid) {
     for (var j = 0; j < pts.length - 1; j++) {
       var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
       if (x0 === x1 && y0 !== y1)
-        all_v.push({ conn: paths[i].conn, x: x0, min: Math.min(y0, y1), max: Math.max(y0, y1) })
+        all_v.push({ conn: paths[i].conn, from: paths[i].from, to: paths[i].to,
+                     x: x0, min: Math.min(y0, y1), max: Math.max(y0, y1) })
       else if (y0 === y1 && x0 !== x1)
         all_h.push({ conn: paths[i].conn, y: y0, min: Math.min(x0, x1), max: Math.max(x0, x1) })
     }
+  }
+  // A vertical port's ^ and v cells are adjacent by design, so the two
+  // opposite-flowing wires of one round trip may run side by side —
+  // exempt vline pairs whose connections pass through the same vertical
+  // port in opposite roles.
+  var vport_ids = {}
+  for (var i = 0; i < laid.elements.length; i++) {
+    var el = laid.elements[i]
+    if (el.type === 'port' && el.id && (el.dir === 'top' || el.dir === 'bottom')) vport_ids[el.id] = true
+  }
+  function vport_pair_ok(a, b) {
+    for (var pid in vport_ids)
+      if ((a.from === pid && b.to === pid) || (a.to === pid && b.from === pid)) return true
+    return false
   }
   for (var i = 0; i < all_v.length; i++) {
     for (var j = i + 1; j < all_v.length; j++) {
       var a = all_v[i], b = all_v[j]
       if (Math.abs(a.x - b.x) !== 1) continue
       if (a.min > b.max || b.min > a.max) continue
+      if (vport_pair_ok(a, b)) continue
       throw new Error('Invariant spacing-v: ' + a.conn + ' vline x=' + a.x + ' and ' + b.conn +
                       ' vline x=' + b.x + ' are adjacent (y ' + Math.max(a.min, b.min) + '..' + Math.min(a.max, b.max) + ')')
     }

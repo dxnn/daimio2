@@ -271,25 +271,15 @@ function parse_block_data(lines) {
   var top_str = lines[0]
   var name_match = top_str.match(/_ (.+?) _/)
   var name = name_match ? name_match[1] : ''
+  var name_end = name_match ? top_str.indexOf(name_match[0]) + name_match[0].length : left_col + 1
 
   var stations = find_stations(grid, h, left_col, right_col)
   var subspaces = find_subspaces(grid, h, left_col, right_col, stations)
-  var ports = find_ports(grid, h, left_col, right_col, subspaces)
+  var ports = find_ports(grid, h, left_col, right_col, subspaces, name_end)
   var state = find_state(grid, h, left_col, right_col, stations)
   var connections = trace_all(grid, stations, subspaces, ports, left_col, right_col)
 
-  // Build port labels for route generation
-  var left_ports = ports.filter(function(p) { return p.side === 'left' })
-  var right_ports = ports.filter(function(p) { return p.side === 'right' })
-  var port_labels = {}
-  for (var i = 0; i < left_ports.length; i++) {
-    var pi = ports.indexOf(left_ports[i])
-    port_labels[pi] = left_ports.length === 1 ? 'in' : (i === 0 ? 'in' : 'in:' + String.fromCharCode(97 + i - 1))
-  }
-  for (var i = 0; i < right_ports.length; i++) {
-    var pi = ports.indexOf(right_ports[i])
-    port_labels[pi] = right_ports.length === 1 ? 'out' : (i === 0 ? 'out' : 'out:' + String.fromCharCode(97 + i - 1))
-  }
+  var port_labels = label_ports(ports)
 
   var source = emit(name, stations, subspaces, ports, state, connections)
   return { source: source, stations: stations, subspaces: subspaces, ports: ports, port_labels: port_labels }
@@ -333,7 +323,17 @@ function find_stations(grid, h, left_col, right_col) {
       var nm = name_raw.match(/_ (.+?) _/)
       var sname = nm ? nm[1] : ''
 
-      stations.push({ name: sname, source: source, paren_x: x, close_x: rx, body_y: y })
+      var st = { name: sname, source: source, paren_x: x, close_x: rx, body_y: y }
+      // A ^v pair on the bottom edge is the station's down attach — a
+      // round trip to a floor port (inside the box footprint, so wire
+      // chars can't occur here)
+      for (var j = x + 2; j < rx - 1; j++) {
+        if (grid[y + 1][j] === '^' && grid[y + 1][j + 1] === 'v') {
+          st.down = { nx: j, vx: j + 1, y: y + 1 }
+          break
+        }
+      }
+      stations.push(st)
     }
   }
   return stations
@@ -359,7 +359,7 @@ function find_subspaces(grid, h, left_col, right_col, stations) {
   return subspaces
 }
 
-function find_ports(grid, h, left_col, right_col, subspaces) {
+function find_ports(grid, h, left_col, right_col, subspaces, name_end) {
   var sub_pos = {}
   for (var i = 0; i < subspaces.length; i++) {
     sub_pos[subspaces[i].left_x + ',' + subspaces[i].port_y] = true
@@ -372,7 +372,39 @@ function find_ports(grid, h, left_col, right_col, subspaces) {
     if (grid[y][right_col] === 'o' && !sub_pos[right_col + ',' + y])
       ports.push({ side: 'right', x: right_col, y: y })
   }
+  // Vertical ports live on the border rows: 'x' when unwired, '^v' when
+  // wired (^ = north-flowing wire's cell, v = south-flowing). The top scan
+  // starts after the name label, which may itself contain these letters.
+  function scan_border(y, x0, x1, side) {
+    for (var x = x0; x <= x1; x++) {
+      var ch = x < grid[y].length ? grid[y][x] : ' '
+      if (ch === 'x') ports.push({ side: side, x: x, y: y, wired: false })
+      else if (ch === '^' && x + 1 <= x1 && grid[y][x + 1] === 'v') {
+        ports.push({ side: side, x: x, y: y, nx: x, vx: x + 1, wired: true })
+        x++
+      }
+    }
+  }
+  scan_border(0, name_end, right_col - 1, 'top')
+  scan_border(h - 1, left_col + 1, right_col - 1, 'bottom')
   return ports
+}
+
+// Shared port labelling: left → in series, right → out series, top → up
+// series, bottom → down series; within a side, order follows detection
+// order (top-to-bottom for walls, left-to-right for borders).
+function label_ports(ports) {
+  var labels = {}
+  var series = { left: 'in', right: 'out', top: 'up', bottom: 'down' }
+  for (var side in series) {
+    var group = []
+    for (var i = 0; i < ports.length; i++)
+      if (ports[i].side === side) group.push(i)
+    for (var i = 0; i < group.length; i++)
+      labels[group[i]] = group.length === 1 ? series[side]
+        : (i === 0 ? series[side] : series[side] + ':' + String.fromCharCode(97 + i - 1))
+  }
+  return labels
 }
 
 function find_state(grid, h, left_col, right_col, stations) {
@@ -575,10 +607,18 @@ function get_exits(grid, x, y, dir, flows) {
     //    the horizontal where the vertical ends (both h sides — the h flow
     //    isn't encoded here)
     //  - arriving against the vertical flow: dead end
+    // A ^v pair (adjacent opposite arrows) is a round-trip port's two
+    // cells — opposite-flowing wires that must never connect to each
+    // other, so a horizontal step onto the paired arrow is forbidden.
     var flow_dy = ch === 'v' ? 1 : -1
     var flow_vdir = ch === 'v' ? 'down' : 'up'
+    function onto_pair(dx) {
+      var nx = x + dx
+      if (nx < 0 || nx >= grid[y].length) return false
+      return (ch === '^' && grid[y][nx] === 'v') || (ch === 'v' && grid[y][nx] === '^')
+    }
     if (dir === 'left' || dir === 'right') {
-      try_exit(dir === 'left' ? -1 : 1, 0, dir)
+      if (!onto_pair(dir === 'left' ? -1 : 1)) try_exit(dir === 'left' ? -1 : 1, 0, dir)
       try_exit(0, flow_dy, flow_vdir)
     } else if (dir === flow_vdir) {
       try_exit(0, flow_dy, flow_vdir)
@@ -592,8 +632,8 @@ function get_exits(grid, x, y, dir, flows) {
         if (ch === '^' && x >= 2 && grid[y][x - 2] === 'o' && is_h_connectable(grid[y][x - 1])) {
           try_exit(-1, 0, 'left')
         } else {
-          try_exit(1, 0, 'right')
-          try_exit(-1, 0, 'left')
+          if (!onto_pair(1)) try_exit(1, 0, 'right')
+          if (!onto_pair(-1)) try_exit(-1, 0, 'left')
         }
       }
     }
@@ -693,6 +733,13 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
     add(s.close_x, s.body_y, { kind: 'station_out', index: i })
     add(s.paren_x, s.body_y, { kind: 'station_in', index: i })
     sources.push({ x: s.close_x, y: s.body_y, dir: 'right', info: { kind: 'station_out', index: i } })
+    if (s.down) {
+      // A round trip to a floor port attaches at the station's bottom edge:
+      // ^ (north) is _in fed from below, v (south) is _out dropping down.
+      add(s.down.nx, s.down.y, { kind: 'station_in', index: i })
+      add(s.down.vx, s.down.y, { kind: 'station_out', index: i })
+      sources.push({ x: s.down.vx, y: s.down.y, dir: 'down', info: { kind: 'station_out', index: i } })
+    }
   }
   for (var i = 0; i < subspaces.length; i++) {
     var sub = subspaces[i]
@@ -700,6 +747,21 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
     add(sub.right_x, sub.port_y, { kind: 'subspace_out', index: i })
     sources.push({ x: sub.right_x, y: sub.port_y, dir: 'right',
                    info: { kind: 'subspace_out', index: i } })
+  }
+  // Vertical ports (top/bottom borders). A wired round-trip port has an
+  // out cell (a wire leaves the port toward a component) and an in cell (a
+  // wire arrives from a component). The glyph marks flow: ^ flows up, v
+  // flows down — so at a TOP port the up-wire (^) arrives and the down-wire
+  // (v) leaves; at a BOTTOM port it mirrors.
+  for (var i = 0; i < ports.length; i++) {
+    var p = ports[i]
+    if ((p.side !== 'top' && p.side !== 'bottom') || !p.wired) continue
+    var out_x, out_dir, in_x
+    if (p.side === 'top') { out_x = p.vx; out_dir = 'down'; in_x = p.nx }
+    else { out_x = p.nx; out_dir = 'up'; in_x = p.vx }
+    add(in_x, p.y, { kind: 'vport_in', index: i })
+    add(out_x, p.y, { kind: 'vport_out', index: i })
+    sources.push({ x: out_x, y: p.y, dir: out_dir, info: { kind: 'vport_out', index: i } })
   }
 
   // BFS from each source
@@ -721,6 +783,7 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
         for (var ai = 0; ai < here.length; ai++) {
           var a = here[ai]
           var is_sink = a.kind === 'station_in' || a.kind === 'subspace_in' ||
+                        a.kind === 'vport_in' ||
                         (a.kind === 'port' && a.side === 'right') ||
                         (a.kind === 'port' && a.side === 'left' && contract_set[a.index])
           if (is_sink) { connections.push({ from: src.info, to: a }); found_sink = true }
@@ -729,6 +792,7 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
         // At a source-only attachment: stop
         var is_source = here.some(function(a) {
           return a.kind === 'station_out' || a.kind === 'subspace_out' ||
+                 a.kind === 'vport_out' ||
                  (a.kind === 'port' && a.side === 'left' && !contract_set[a.index])
         })
         if (is_source) continue
@@ -767,7 +831,8 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
 
   // Sort connections by position: source (x,y) then dest (x,y)
   function pos_of(ep) {
-    if (ep.kind === 'port') return { x: ports[ep.index].x, y: ports[ep.index].y }
+    if (ep.kind === 'port' || ep.kind === 'vport_in' || ep.kind === 'vport_out')
+      return { x: ports[ep.index].x, y: ports[ep.index].y }
     if (ep.kind === 'station_in') return { x: stations[ep.index].paren_x, y: stations[ep.index].body_y }
     if (ep.kind === 'station_out') return { x: stations[ep.index].close_x, y: stations[ep.index].body_y }
     if (ep.kind === 'subspace_in') return { x: subspaces[ep.index].left_x, y: subspaces[ep.index].port_y }
@@ -787,21 +852,8 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
 function emit(name, stations, subspaces, ports, state, connections) {
   var lines = [name]
 
-  // Label ports
-  var left_ports = ports.filter(function(p) { return p.side === 'left' })
-  var right_ports = ports.filter(function(p) { return p.side === 'right' })
-
-  var port_label = {}  // port index → label string (without @)
-  for (var i = 0; i < left_ports.length; i++) {
-    var pi = ports.indexOf(left_ports[i])
-    if (left_ports.length === 1) port_label[pi] = 'in'
-    else port_label[pi] = i === 0 ? 'in' : 'in:' + String.fromCharCode(97 + i - 1)
-  }
-  for (var i = 0; i < right_ports.length; i++) {
-    var pi = ports.indexOf(right_ports[i])
-    if (right_ports.length === 1) port_label[pi] = 'out'
-    else port_label[pi] = i === 0 ? 'out' : 'out:' + String.fromCharCode(97 + i - 1)
-  }
+  // Label ports (left→in, right→out, top→up, bottom→down series)
+  var port_label = label_ports(ports)
 
   // Declare ports
   for (var i = 0; i < ports.length; i++)
@@ -847,7 +899,8 @@ function build_routes(connections, stations, subspaces, ports, port_label) {
   }
 
   function ep_name(ep) {
-    if (ep.kind === 'port') return '@' + port_label[ep.index]
+    if (ep.kind === 'port' || ep.kind === 'vport_in' || ep.kind === 'vport_out')
+      return '@' + port_label[ep.index]
     if (ep.kind === 'station_in' || ep.kind === 'station_out')
       return stations[ep.index].name || stations[ep.index].source
     if (ep.kind === 'subspace_in') return subspaces[ep.index].name + '.in'

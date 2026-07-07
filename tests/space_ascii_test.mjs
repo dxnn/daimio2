@@ -341,6 +341,38 @@ var r_turn = render(turn_layout)
 test('turn convention: merge at crossing renders arrow', r_turn.indexOf('^') >= 0, true)
 test('turn convention: no O at the merge cell', r_turn.indexOf('O') < 0, true)
 
+// === Vertical ports: up → top border, down → bottom border ===
+// Round-trip ports render as 'x' when unwired, '^v' when wired
+// (^ = north-flowing wire's cell, v = south-flowing wire's cell).
+var def_vport = 'vp\n  @up:req\n  @down:svc\n  @in\n  @out'
+var sl_vport = D.seedlikes_from_string(def_vport)
+var topo_vp = extract('vp', sl_vport.vp)
+test('vport: up dir is top', topo_vp.ports.filter(function(p) { return p.key === 'up:req' })[0].dir, 'top')
+test('vport: down dir is bottom', topo_vp.ports.filter(function(p) { return p.key === 'down:svc' })[0].dir, 'bottom')
+test('vport: in stays left', topo_vp.ports.filter(function(p) { return p.key === 'in' })[0].dir, 'left')
+
+var r_vp = render_space('vp', sl_vport.vp)
+var r_vp_lines = r_vp.split('\n')
+test('vport: unwired up renders x on top border', r_vp_lines[0].indexOf('x') >= 0, true)
+test('vport: unwired down renders x on bottom border', r_vp_lines[r_vp_lines.length - 1].indexOf('x') >= 0, true)
+
+// Wired down-port contract: ^v on the bottom border AND on the station's
+// bottom edge; no side-wall port at all.
+var def_dpc = 't\n  @down:svc\n  A {a}\n  @down:svc <-> A'
+var sl_dpc = D.seedlikes_from_string(def_dpc)
+var r_dpc = render_space('t', sl_dpc.t)
+var dpc_lines = r_dpc.split('\n')
+test('down contract: ^v on bottom border', /\^v/.test(dpc_lines[dpc_lines.length - 1]), true)
+test('down contract: no o anywhere', r_dpc.indexOf('o') < 0, true)
+test('down contract: station bottom has ^v', dpc_lines.some(function(l) { return /\\_*\^v_*\//.test(l) }), true)
+
+// Wired up-port contract: ^v on the top border, station keeps paren attach
+var def_upc = 'cs\n  @up:req\n  hdl {handle}\n  @up:req <-> hdl'
+var sl_upc = D.seedlikes_from_string(def_upc)
+var r_upc = render_space('cs', sl_upc.cs)
+test('up contract: ^v on top border', /\^v/.test(r_upc.split('\n')[0]), true)
+test('up contract: no port o', r_upc.indexOf('o') < 0, true)
+
 // === Fixture tests ===
 var fixture_dir = 'tests/space_ascii'
 var fixtures = readdirSync(fixture_dir, { withFileTypes: true })

@@ -5,7 +5,7 @@
     {
       "id": "p0",
       "key": "down:svc",
-      "dir": "right",
+      "dir": "bottom",
       "flavour": "down:svc"
     }
   ],

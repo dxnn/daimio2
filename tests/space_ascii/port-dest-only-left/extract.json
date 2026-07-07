@@ -5,7 +5,7 @@
     {
       "id": "p0",
       "key": "up:q",
-      "dir": "left",
+      "dir": "top",
       "flavour": "up:q"
     }
   ],

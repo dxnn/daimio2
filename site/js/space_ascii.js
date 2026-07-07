@@ -36,10 +36,11 @@ export function render(laid_out) {
     }
   }
 
-  // 2. Stamp ports, labels, text
+  // 2. Stamp side ports, labels, text (vertical port glyphs stamp after
+  // stations — they live on border rows and station bottom edges)
   for (var i = 0; i < elements.length; i++) {
     var el = elements[i]
-    if (el.type === 'port') grid[el.y][el.x] = 'o'
+    if (el.type === 'port' && !el.glyph) grid[el.y][el.x] = 'o'
     else if (el.type === 'label' || el.type === 'text')
       for (var j = 0; j < el.text.length; j++) grid[el.y][el.x + j] = el.text[j]
   }
@@ -122,6 +123,20 @@ export function render(laid_out) {
       for (var x = sx + 1; x <= sx + sw - 2; x++) grid[sy + 3][x] = '_'
       grid[sy + 3][sx + sw - 1] = '|'
     }
+  }
+
+  // 6. Stamp vertical port glyphs: 'x' when unwired, '^v' when wired
+  // (^ = north-flowing wire's cell, v = south-flowing). Station round
+  // trips to a floor port carry a ^v pair on the station's bottom edge.
+  for (var i = 0; i < elements.length; i++) {
+    var el = elements[i]
+    if (el.type === 'station' && el.down) {
+      grid[el.y + 3][el.down.n] = '^'
+      grid[el.y + 3][el.down.s] = 'v'
+    }
+    if (el.type !== 'port' || !el.glyph) continue
+    if (el.glyph === 'x') grid[el.y][el.x] = 'x'
+    else { grid[el.y][el.north_x] = '^'; grid[el.y][el.south_x] = 'v' }
   }
 
   var lines = []
