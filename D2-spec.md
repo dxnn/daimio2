@@ -391,9 +391,9 @@ all sub-processes.
 
 **I5. Serial exclusion.** At most one process is active in a
 space at any time. A waiting process holds the space -- no other
-ship can dock until the active process completes. The queue is
-FIFO. (This invariant may be relaxed per-space in a future
-concurrent model.)
+ship can dock until the active process completes. The queue docks in
+key order (I17), not by arrival. (This invariant may be relaxed
+per-space in a future concurrent model.)
 
 **I6. Space variable atomicity.** Within a single process
 execution (including all sub-processes), space variable access
@@ -1347,10 +1347,11 @@ flavour   -- the port's behaviour (e.g. "dom-on-click", "in")
 
 ### Spaces
 ```
-space = (spaceseed, state, queue, active, subspaces, parent?, dialect)
+space = (spaceseed, state, queue, counter, active, subspaces, parent?, dialect)
   where spaceseed     : Spaceseed       -- the compiled topology
         state         : SVar -> Val     -- live space variable store
-        queue         : [(Ship, StationId)]  -- pending ships with target station (FIFO)
+        queue         : [(Ship, StationId)]  -- pending ships, docked in key order (§5)
+        counter       : Nat             -- highest ship number the space has issued (§5)
         active        : bool            -- true when a process is executing
         subspaces     : [Space]         -- live subspace instances
         parent        : Space?          -- enclosing space (null for outer space)
@@ -1780,7 +1781,7 @@ all async round-trips), the space dequeues the next ship:
 COMPLETE(space):
   space.active <- false
   if space.queue is non-empty:
-    (ship, station) <- space.queue.pop_min()             -- lowest key first
+    (ship, station) <- space.queue.pop_min()             -- lowest key first (advance rule, §5)
     space.active <- true
     DEFER(DOCK(space, ship, station))                  -- deferred execution [queue-deferred-dock]
 ```
@@ -1791,12 +1792,12 @@ routed ships carry its dock number, above everything in its causal
 past, so causally-prior queued ships dock first; ships from other
 sources order by number. [queue-priority-routing]
 
-Among deferred ships from a single process, arrival order matches
-**execution order**: `>@foo` sent before `>@bar` arrives first;
-the implicit `_out` ship arrives after all `>@portname` ships.
-[routing-deferred-order] This is deterministic — two conforming
-implementations produce the same routing order from the same
-inputs.
+A single process's emissions all carry its number. Ships it sends onto
+one wire arrive in emission order -- wires are FIFO
+[routing-deferred-order]. Ships it sends to different wires that
+converge at one destination queue dock in the wires' declaration order
+[sched-tie-wire]. Both are fixed by the source and the schedule, so
+two conforming implementations produce the same order.
 
 ### Deterministic scheduling
 
@@ -2474,7 +2475,7 @@ mechanics" for the full round-trip lifecycle.
   args' = fillImplicit(args, process.v)       -- same filling as PureCmd
   p = resolveOrCreatePort(space, portType)    -- see section 6
   payload = merge({handler: name.handler, method: name.method}, args')  -- keyed list [effcmd-request-val]
-  request = ship(payload, process.sender)     -- a proper ship(FinalVal, sender)
+  request = ship(payload, process.sender, process.number)   -- FinalVal, sender, vtime
   ---
   send request through p                      -- dispatch to handler/sibling/parent
   (process, state) --[EffCmd(c, args)]--> WAIT(p, process, continuation)
@@ -3499,7 +3500,7 @@ DAML.
 ### Processes
 ```
 process = (space, block, v, state, pipeline_vars, current,
-           sender?, effective_dialect)
+           sender?, effective_dialect, number)
   where space             : Space          -- the enclosing space
         block             : Block          -- the block being executed
         v                 : Val | absent   -- current pipe value (absent = no value
@@ -3509,6 +3510,8 @@ process = (space, block, v, state, pipeline_vars, current,
         current           : int            -- current segment index
         sender            : Sender?        -- who sent the originating ship
         effective_dialect : Dialect         -- sender.dialect intersection space.dialect
+        number            : Nat            -- the process's virtual time (§5); its
+                                         --   emissions carry it, its id is qname#number
 ```
 
 A process is the unit of execution. It is created when a ship docks
@@ -4086,7 +4089,7 @@ resolved to direct edges in the block's flow graph — see §10
   v' = finalize(val(process.v))          -- evaluate blocks, pass others through
   ---
   (process, state) --[PortSend(portname)]--> (process, state)
-  schedule deferred: ship(v', process.sender) -> portname    [portsend-finalize]
+  schedule deferred: ship(v', process.sender, process.number) -> portname    [portsend-finalize]
 
   portname does not exist on this station
   ---
