@@ -97,16 +97,41 @@ export function render(laid_out, options) {
     parts.push('<text x="' + (sx + sw / 2) + '" y="' + (sy + sh / 2 + 5) + '" text-anchor="middle" font-size="14" font-weight="bold" fill="#5a9a5a">' + esc(el.name) + '</text>')
   }
 
-  // 5. Ports
+  // 5a. Down-edge ^v markers on stations and subspace boxes
+  function down_marker(gx, gy) {
+    parts.push('<circle cx="' + cx(gx) + '" cy="' + cy(gy) + '" r="' + (PORT_R - 1) + '" fill="#8e44ad" stroke="#5b2c6f" stroke-width="1"/>')
+  }
+  for (var i = 0; i < elements.length; i++) {
+    var el = elements[i]
+    if ((el.type === 'station' || el.type === 'subspace_box') && el.down) {
+      var pairs = el.type === 'station' ? [el.down] : el.down
+      for (var d = 0; d < pairs.length; d++) {
+        down_marker(pairs[d].n, el.y + 3)
+        down_marker(pairs[d].s, el.y + 3)
+      }
+    }
+  }
+
+  // 5b. Ports. Side ports are single circles at the wall; vertical ports
+  // sit on the top/bottom border — one circle when unwired ('x'), a ^v
+  // pair (two circles) when wired.
   for (var i = 0; i < elements.length; i++) {
     var el = elements[i]
     if (el.type !== 'port') continue
-    var px = cx(el.x), py = cy(el.y)
-    parts.push('<circle cx="' + px + '" cy="' + py + '" r="' + PORT_R + '" fill="#e67e22" stroke="#c0392b" stroke-width="1"/>')
+    if (el.dir === 'top' || el.dir === 'bottom') {
+      var cols = el.glyph === '^v' ? [el.north_x, el.south_x] : [el.x]
+      for (var c = 0; c < cols.length; c++)
+        parts.push('<circle cx="' + cx(cols[c]) + '" cy="' + cy(el.y) + '" r="' + PORT_R + '" fill="#e67e22" stroke="#c0392b" stroke-width="1"/>')
+      var ly = el.dir === 'top' ? cy(el.y) - PORT_R - 3 : cy(el.y) + PORT_R + 12
+      parts.push('<text x="' + (cx(el.x) + 2) + '" y="' + ly + '" text-anchor="start" font-size="12" fill="#c0392b">' + esc(el.key) + '</text>')
+      continue
+    }
+    var pxc = cx(el.x), pyc = cy(el.y)
+    parts.push('<circle cx="' + pxc + '" cy="' + pyc + '" r="' + PORT_R + '" fill="#e67e22" stroke="#c0392b" stroke-width="1"/>')
     // Port label — above the wire, tucked toward the wall
-    var label_x = el.dir === 'left' ? px + 2 : px - 2
+    var label_x = el.dir === 'left' ? pxc + 2 : pxc - 2
     var anchor = el.dir === 'left' ? 'start' : 'end'
-    parts.push('<text x="' + label_x + '" y="' + (py - PORT_R - 3) + '" text-anchor="' + anchor + '" font-size="12" fill="#c0392b">' + esc(el.key) + '</text>')
+    parts.push('<text x="' + label_x + '" y="' + (pyc - PORT_R - 3) + '" text-anchor="' + anchor + '" font-size="12" fill="#c0392b">' + esc(el.key) + '</text>')
   }
 
   // 6. Text elements (state vars, labels)

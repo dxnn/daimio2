@@ -227,17 +227,36 @@ s0, s1, ... by rank among anonymous sources (skipping names taken by
 declared stations) — so declaration and route order never affect the
 picture, and a parsed render reproduces it exactly.
 
+Vertical (round-trip) ports render on the top/bottom borders, not the side
+walls: up-flavour → top border, down-flavour → bottom, drawn as `x` when
+unwired or `^v` when wired (^ = north-flowing wire's cell, v = south-flowing).
+This keeps down-port responses off the right wall, where they used to collide
+with out-ports. A wall pair is anchored over the gap left of its dest's layer;
+legs that can't reach it directly drop at the source's down-fan trunk and
+travel a top-band (up ports) or the floor band (down ports). A station's
+down-port round trip attaches at a `^v` pair on its bottom edge and drops
+straight to the floor pair when the corridor is clear. A subspace's `down:*`
+port renders as `^v` on the box's bottom edge and routes through the band
+below the subspace's row (request rises into ^, response drops from v).
+Subspace `up:*` ports (top edge, above-row band) are not yet implemented —
+see TODO. `extract` maps up→top, down→bottom; custom-named ports still infer
+left/right from connection usage.
+
 Junction convention: O is a pure crossing. A wire turning at a cell where
 wires pass through in both axes renders as the turn's arrow (v ^ > <) —
 the wire merges into the crossing wire, one direction only.
 
 Seven invariant checks (all fixtures passing):
-- No wire through station body interior
+- No wire through station body interior (a down-port leg may touch a box's
+  own bottom border at its `^v` attach — it runs downward into the band,
+  never up into the interior)
 - No opposing-direction wires (unless shared endpoint, or at a port's
   mouth between two wires that both attach to that port — requests leave
   and returns T-junction in over the same 1-2 cells)
 - No shared-wire false connectivity (unless shared endpoint)
-- One empty space between parallel wires (no adjacent same-axis runs)
+- One empty space between parallel wires (no adjacent same-axis runs;
+  exempt: the two opposite-flowing legs of a `^v` pair — a wall vertical
+  port or a subspace down port — are adjacent by design)
 - Wall clearance: no vline flush against a side wall, no hline flush under
   the top border (bottom border exempt — the underscore floor reads as space)
 - Attach clearance: arriving wires turn >= 3 cells before a station's in.x
@@ -255,7 +274,7 @@ Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render
 `site/js/space_ascii_parse.js` — parses render.txt back to source.dm format.
 Round-trip: `render.txt → parse_ascii() → source.dm → seedlikes_from_string → extract → layout → render`.
 
-All 41 fixtures round-trip exactly. The wire tracer is flow-aware at two
+All fixtures round-trip exactly. The wire tracer is flow-aware at two
 levels, both guaranteed faithful by the layout invariants:
 - junction chars encode flow (v/^/>/<), so traversal never runs against
   a drawn junction; at through-cells the merge is one-directional
@@ -265,10 +284,16 @@ levels, both guaranteed faithful by the layout invariants:
   cells beside a left port stay unmarked for the contract T-junction)
 
 Contract returns are recognized by their T-junction (a ^ on the port wire
-fed from below); down-port responses by the mirrored v beside a right
-port. At a left port's mouth T (a ^ exactly two cells right of the wall o)
-a rising return exits only toward the port — riding onward along the
-port's outgoing wire would read the return as feeding the port's fan. All stations are emitted as declarations — anonymous ones under
+fed from below). At a left port's mouth T (a ^ exactly two cells right of
+the wall o) a rising return exits only toward the port — riding onward
+along the port's outgoing wire would read the return as feeding the
+port's fan. Vertical ports are read straight off the glyph: `x`/`^v` on
+the top/bottom borders (up/down space ports), `^v` on a station's or
+subspace box's bottom edge (down round trips). Each `^v` is two
+opposite-flowing wires, and the tracer never hops between the paired
+cells (they would read as one wire). Vertical-port legs emit as plain FAF
+routes (`@down -> S`, `S -> @down`), which render identically to `<->`.
+All stations are emitted as declarations — anonymous ones under
 their rendered rank-name — since an inline {…} reference would mint a new
 station per occurrence. Each block is refined independently against its
 own render, with the other blocks' sources kept in scope (a subspace
@@ -289,10 +314,12 @@ renders are identical because labels never reach the picture.
 - node_code: 83/83 pass
 - security_test: 179/179 pass
 - space_test: 124/148 pass (24 known spec-gap failures)
-- space_ascii_test: 376/376 pass (53/53 fixtures round-trip, 0 failures;
-  as of 2026-07-06: seven layout invariants enforced, canonical layout,
-  turn-arrow junction convention, flow-aware parser; 12 adversarial
-  fixtures added incl. K6, port edge cases, anon-name collisions)
+- space_ascii_test: 403/403 pass (56/56 fixtures round-trip, 0 failures;
+  as of 2026-07-07: vertical (up/down) round-trip ports render on top/bottom
+  borders and station/subspace bottom edges instead of the side walls;
+  three fixtures added (subspace-down-proc, subspace-down-station,
+  vport-unwired). As of 2026-07-06: seven layout invariants enforced,
+  canonical layout, turn-arrow junction convention, flow-aware parser)
 - example_test: 104/104 pass
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass
