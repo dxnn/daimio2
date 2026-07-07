@@ -48,6 +48,9 @@ var known_failures = new Set([
   'up-port: no down port involved, pure station coordination',
   'up-port: chained A -> X.up -> Y.up -> B',
   'signal-flip-up: up port acts as round-trip processor from outside',
+  // §3 Contract direction: backwards `<->` not yet rejected (parser mints
+  // a bogus port from any LHS token) — RED until direction is validated
+  'malformed contract: station on LHS borks [spacedef-hard-error] [roundtrip-enex-lhs]',
   // Spec gaps: behaviors not yet implemented
   '[err-match-by-name] error routed to @out:err',
   // svar-read-unbound returns false instead of "" (spec says sploot to empty)
@@ -278,6 +281,27 @@ function assert_eq(label, actual, expected) {
   } else {
     fail++
     failures.push({ label: label, expected: e, actual: a })
+  }
+}
+
+// ── Parse/bork test ──────────────────────────────────────────────────
+// Synchronous: asserts make_some_space either borks (should_bork=true)
+// or compiles cleanly (should_bork=false). For compile-time contract
+// checks that never reach the runtime queue.
+
+function parse_test(label, seedlike, should_bork) {
+  seedlike = dedent(seedlike)
+  var threw = false, msg = ''
+  try { D.make_some_space(seedlike) } catch(e) { threw = true; msg = e.message }
+  if(threw === !!should_bork) {
+    pass++
+  } else {
+    fail++
+    failures.push({
+      label: label,
+      expected: should_bork ? 'bork (compile error)' : 'parses OK',
+      actual: threw ? ('threw: ' + msg) : 'parsed without error'
+    })
   }
 }
 
@@ -2495,6 +2519,41 @@ space_test(
     // 1 -> stationA (add 10 = 11) -> stationB (add 100 = 111) -> @out
     assert_eq('[spacesyn-no-arrow-in-daml]', collected.out[0], '111')
   }
+)
+
+
+// ── §3 Contract direction (parser) ───────────────────────────────────
+// A contract `<->` requires an Enter-N-Exit port on the LHS
+// [roundtrip-enex-lhs]. A station name on the LHS is a signal-type
+// violation and must bork [spacedef-hard-error]. Currently the parser
+// mints a bogus port from any LHS token, so the backwards form is
+// silently accepted — RED until the contract direction is validated.
+parse_test(
+  'malformed contract: station on LHS borks [spacedef-hard-error] [roundtrip-enex-lhs]',
+  `outer
+    @init from-js
+    @out  collect
+    handler {:hello}
+    caller {var read-out name :x}
+    handler <-> caller@cmd:var:read-out
+    @init -> caller.in
+    caller.out -> @out`,
+  true
+)
+
+// Green control: the well-formed direction (port on LHS, station RHS)
+// must keep compiling — guards against the fix over-rejecting.
+parse_test(
+  'valid contract: port on LHS, station RHS parses [wire-contract]',
+  `outer
+    @init from-js
+    @out  collect
+    handler {:hello}
+    caller {var read-out name :x}
+    caller@cmd:var:read-out <-> handler
+    @init -> caller.in
+    caller.out -> @out`,
+  false
 )
 
 

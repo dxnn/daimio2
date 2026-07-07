@@ -199,6 +199,11 @@ already does for the space_test spec-gaps.
   Test: station-on-LHS (and other non-`port <-> station` shapes) errors/borks
   per the §3 contract signal-type rule; a valid `@up:svc <-> A` still round-trips;
   a port-on-RHS contract (`S@down <-> T@up`) parses to the right two routes. [now]
+  — **DONE** (RED guide `[spacedef-hard-error][roundtrip-enex-lhs]` + green
+  control in `space_test.mjs`, via a new `parse_test(label, seedlike, should_bork)`
+  helper). Confirmed via probe that station-on-LHS currently parses without
+  error. Other non-`port <-> station` shapes and the round-trip route-pair
+  assertion remain for a follow-up.
 
 ## Performance regression
 
