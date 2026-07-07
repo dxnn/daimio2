@@ -20,8 +20,7 @@ var known_failures = new Set([
   // pre-existing spec-gap RED tests
   'is-in: keyed list finds matching value [coerce-list] [P-total]',
   'effectful command with unwired port sploots to empty [effectful-unwired-sploot] [P-liveness]',
-  'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
-  'poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
+  // (the two [WRONG:poke-key-scalar-affine] svar-coercion cases moved to det_test.mjs)
   // new RED guides (this session)
   'var write then var read by computed name [var-read] [var-write]',
 ])
@@ -1139,22 +1138,9 @@ test(
 // §1 Poke: scalar base destroyed
 // =====================================================
 
-// Note: list poke coerces scalar to [scalar] via list type before D.poke sees it.
-// The scalar-destroy behavior applies when D.poke receives a raw scalar (e.g. >$x.path).
-// Through list poke, the string is wrapped as ["hello"], so poke operates on an array.
-test(
-  'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
-  '{:hello | list poke path :a value 99}',
-  '{"a":99}'
-)
-
-// >$x.path desugars to list poke, which coerces string to [string].
-// So string scalars are preserved (wrapped), unlike blocks which coerce to [].
-test(
-  'poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
-  '{:hello | >$sp1 || 99 | >$sp1.a || $sp1}',
-  '{"a":99}'
-)
+// The two [WRONG:poke-key-scalar-affine] svar-coercion cases (scalar base
+// via `list poke`, string base via `>$x.path`) moved to tests/det_test.mjs
+// — they need per-test svar isolation to run deterministically.
 
 // Block base is destroyed because list type coerces Block to []
 test(

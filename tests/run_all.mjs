@@ -20,6 +20,7 @@ const suites = [
   ['node_code.mjs',        'internal JS-level',                       0],
   ['security_test.mjs',    'dialect, pollution, regex, senders',       0],
   ['space_test.mjs',       'space/topology',                           0],  // self-manages known failures (its own known_failures set)
+  ['det_test.mjs',         'determinism (isolation/replay/scheduler)',  0],  // self-manages known failures
   ['space_ascii_test.mjs', 'ASCII topology renderer',                  0],
   ['example_test.mjs',     'command examples (auto-discovered)',       0],
   ['perf_test.mjs',        'performance benchmarks',                   0],

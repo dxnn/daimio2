@@ -228,12 +228,13 @@ already does for the space_test spec-gaps.
   that document intended behavior ahead of the port/space machinery.
 - **Harness determinism (d2_spec_test).** `test()` fans out every `D.run`
   during registration and space variables persist globally across runs, so
-  tests that mutate the same svar (the `>$x.path` poke cases) are
-  order-dependent; async interleaving can occasionally flip a result
-  (observed once: 4 vs 5 failures, always a *known*-failing test, never a
-  false green→red). Benign today but fragile. Fix: either reset svar state
-  between tests, or serialize the `D.run` calls so only one runs at a time.
-  Do this before the suite grows more stateful tests.
+  tests that mutate the same svar are order-dependent. The two `>$x.path`
+  poke cases that surfaced this **moved to `det_test.mjs`** (each gets a
+  fresh isolated space via `D.make_execution_space`). The general fragility
+  remains for any future stateful d2 test; if the suite grows more of them,
+  serialize the `D.run` calls or reset svar state between tests. New
+  determinism-sensitive tests should go in the **deterministic harness**
+  (`tests/det_harness.mjs`, design in `tests/DET_HARNESS.md`) instead.
 - Depends on `TODO.md`: `{var read}/{var write}` needs impl item 1;
   everything under effectful port-routing / cross-boundary needs the
   port-async machinery (impl item 2 + backlog).
