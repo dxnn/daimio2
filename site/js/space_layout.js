@@ -1127,16 +1127,18 @@ export function layout(topology, options) {
     alloc_slot(na.band, 'app|' + na.band + '|' + na.to_node)
   }
 
-  // Reversed-edge h-channels: one per edge. Sharing a channel between
-  // edges hides whichever turn ends up mid-channel (it renders as a plain
-  // crossing), so channels stay per-edge; only the vertical drop/rise
-  // trunks are shared.
+  // Reversed-edge h-channels, merged by source: every cell of the shared
+  // channel carries only that source's flow, so any reading is a true
+  // flow of it, and each dest's rise off the channel renders visibly —
+  // as a corner where the channel ends, or as the turn's arrow where it
+  // continues (the turn-arrow convention; pre-convention these mid-channel
+  // turns masked as O crossings, which is why channels used to be per-edge).
   for (var i = 0; i < all_edges.length; i++) {
     if (!reversed_set[all_edges[i].id]) continue
     var chain = edge_chain[all_edges[i].id]
     var orig_from = chain[chain.length - 1], orig_to = chain[0]
     var band = Math.max(row_of[orig_from], row_of[orig_to])
-    alloc_slot(band, 'rev|' + band + '|' + all_edges[i].id)
+    alloc_slot(band, 'rev|' + band + '|' + orig_from)
   }
 
   // Self-loop channels
@@ -1300,7 +1302,7 @@ export function layout(topology, options) {
     path.push({ x: from_out_x, y: from_wy })
 
     var max_row = Math.max(row_of[orig_from], row_of[orig_to])
-    var below_y = slot_y(max_row, 'rev|' + max_row + '|' + e.id)
+    var below_y = slot_y(max_row, 'rev|' + max_row + '|' + orig_from)
     // Drop column allocated by the channel system (shares the source's
     // forward down-trunk when one exists)
     var from_clear_x = v_channel_x['rev_' + e.id] !== undefined

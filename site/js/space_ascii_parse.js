@@ -586,8 +586,15 @@ function get_exits(grid, x, y, dir, flows) {
       // ends; at a v-through cell the arrow marks a horizontal wire
       // merging IN (cross-and-merge is one-directional)
       if (!check_v_thru(grid, x, y)) {
-        try_exit(1, 0, 'right')
-        try_exit(-1, 0, 'left')
+        // A ^ exactly two cells right of a wall port is the port-mouth
+        // T-junction: the rising return merges INTO the port, never
+        // onward along the port's outgoing wire
+        if (ch === '^' && x >= 2 && grid[y][x - 2] === 'o' && is_h_connectable(grid[y][x - 1])) {
+          try_exit(-1, 0, 'left')
+        } else {
+          try_exit(1, 0, 'right')
+          try_exit(-1, 0, 'left')
+        }
       }
     }
   } else if (ch === '>' || ch === '<') {
