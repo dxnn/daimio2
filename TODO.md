@@ -51,6 +51,16 @@ Add items freely.
   (1_daimio.js:3234) assumes `port <-> station`: it mints a port from *any* LHS token (with a
   garbage direction) and always appends `.in`/`.out` to the RHS as if it were a station. So
   station-first `A <-> @down:svc` silently mints a bogus port `A` + malformed routes (no error),
-  and port-on-RHS contracts (`S@down <-> T@up`, per §6) also misparse. Fix: reject a `<->` whose
-  LHS isn't a valid Enter-N-Exit port, and handle RHS ports — enforce the §3 contract
+  and port-on-RHS contracts (`S@down <-> T@up`, per §6) also misparse. A **subspace-qualified
+  LHS** (`worker.down:svc <-> proc`, per §6) hits the same path: it mints a bogus port named
+  `worker.down:svc` with direction `worker.down` — confirmed 2026-07-07 while adding subspace
+  down ports to the layout engine (had to wire fixtures with FAF `->` instead). Fix: reject a
+  `<->` whose LHS isn't a valid Enter-N-Exit port, and handle RHS ports — enforce the §3 contract
   signal-type bork instead of failing silently. Fail loud, not silent.
+- **Inline block on `<->` RHS is silently dropped** (found 2026-07-07) — the `<->` branch of
+  `seedlikes_from_string` (1_daimio.js:3234) pushes routes referencing `{…}.in`/`.out` but,
+  unlike the FAF `->` branch (line ~3259), never registers the anonymous `{…}` as a station. So
+  `@up:svc <-> {__ | add 1}` produces routes to a station that doesn't exist; `resolve_endpoint`
+  returns null, the connection is skipped, and the contract vanishes with no error (the port
+  renders as an unwired standalone). Fix: mint a `station-<n>` for a `{…}` RHS (and LHS) in the
+  `<->` branch, mirroring the FAF branch. Fail loud or, better, just handle it.
