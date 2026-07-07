@@ -90,6 +90,12 @@ is a requirement on command definitions). The empty value coerces to
 `""`, `0`, or `[]` as needed, so it always flows cleanly through subsequent
 commands.
 
+Block-evaluation depth is bounded; exceeding the bound sploots the
+innermost evaluation (§11, "Recursion depth" [depth-exceeded-sploot]).
+With the bound in place, termination is a theorem rather than an
+assumption: total commands, bounded depth, bounded breadth (values are
+finite), and finite pipelines mean every process terminates.
+
 
 ### Copy semantics [P-copy]
 Values flowing through pipelines are functionally pure from the
@@ -344,7 +350,9 @@ these is a bug.
 **I1. Totality.** Every command invocation produces a value. Every
 path access produces a value. Every port request eventually resolves
 (via response, timeout, or unwired default). No pipeline diverges
-or crashes. The empty value is always a valid result.
+or crashes: block-evaluation depth is bounded, and exceeding the bound
+sploots (§11, "Recursion depth"). The empty value is always a valid
+result.
 
 **I2. Dialect monotonicity.** A process's effective dialect is
 always a subset of the outer space's base dialect. A sender's
@@ -1416,6 +1424,8 @@ The outer application creates an outer space by:
   4. Providing a PRNG seed (or accepting the default)
   5. Providing a default timeout in ms (or accepting the system
      default of 10000ms)
+  6. Providing a block-evaluation depth bound (or accepting the
+     system default of 100) [depth-bound-instance]
 
 The outermost ports get their behavior from their **port
 flavours** (see "Port flavours" below). An in-port with
@@ -4117,6 +4127,35 @@ pipeline ::= seg1 pipe seg2 pipe ...  -- sequential composition
 pipe     ::= '|' or '||'             -- normal pipe or barrier pipe
 ```
 
+### Recursion depth
+
+Sub-process creation is the only unbounded-depth construct in the
+model: a named block can invoke itself, and a block can unquote and
+run itself. Implementations MUST bound block-evaluation depth
+[depth-bound]. The bound is set per outer space at creation time, with
+a system default of 100 [depth-bound-instance] -- the spatial
+counterpart of the down-port timeout (P-liveness, §7.2): a normative
+default, an instance-level knob, and normative behavior at the limit.
+
+Depth counts sub-process nesting only [depth-nesting-only]. Applying a
+block to a thousand items at depth k runs every application at depth
+k+1 -- breadth costs nothing. Depth is a property of nesting, not
+time: it persists across async boundaries. Deferred port routing
+starts fresh processes through the queue, so routed ships begin again
+at depth zero [depth-reset-routing] (§5, "Port routing and deferred
+entry").
+
+The bound is enforced at the evaluation demand: an `apply` of a block
+([blockeval-demand], §7) that would nest a sub-process beyond the
+bound instead sploots the innermost evaluation [depth-exceeded-sploot]
+-- a value-producing sploot: soft error to `@out:err`, the evaluation
+yields empty, and the enclosing pipeline continues (§12). The unwind
+is ordinary: each enclosing level completes normally with the empty
+flowing through. Given the bound, the behavior is fully deterministic.
+Because every evaluation vector -- block params, named blocks,
+`process run`, end-of-pipeline evaluation, finalization -- creates a
+sub-process (P-uniformeval), this single check covers them all.
+
 ### Finalization
 
 Ships carry only final values (`[ship-final-only]`). The
@@ -4125,7 +4164,8 @@ Ships carry only final values (`[ship-final-only]`). The
 ```
 finalize(Block(b))  = finalize(evaluate b as a sub-process)       [finalize-block]
                       -- recurse: the sub-process may produce a Block
-                      -- terminates: nesting depth bounded by finite source
+                      -- terminates: depth bounded (§11, "Recursion
+                      -- depth" [depth-exceeded-sploot])
 finalize(List(xs))  = List([fin_elem(x) for x in xs])             [finalize-list]
 finalize(v)         = v                  -- Number, String, Empty  [finalize-passthru]
 
@@ -4177,6 +4217,7 @@ Value-producing sploots (continue with empty):
   - timeout on down-port response                           [timeout-resume-empty]
   - unbound space variable read                             [svar-read-unbound-sploot]
   - required param missing                                  [param-required-sploot]
+  - block-evaluation depth bound exceeded                   [depth-exceeded-sploot]
 
 Pass-through sploots (continue with unchanged value):
   - port send to nonexistent port                           [portsend-missing-sploot]
@@ -4192,6 +4233,15 @@ When splooting:
   3. The pipeline continues — with empty for value-producing
      operations, or with the unchanged value for pass-through
      operations.
+
+Sploots also serve as the floor for host-level failures:
+implementations MUST catch whatever host runtime errors they can and
+convert them to value-producing sploots rather than crashes
+[host-error-sploot]. This generalizes the port-flavour rule
+[flavour-error-soft] to all execution contexts. A conforming command
+never throws (totality is a requirement on definitions); if one does
+anyway, or the host fails in a recoverable way, the failure surfaces
+as a sploot, not a crash.
 
 ### Ghost (ship soft error)
 
@@ -4332,10 +4382,14 @@ would mitigate this by capping CPU time per sender.
 infinite loops via space variable manipulation, or massive data
 construction.
 
-**Defense (partial):** Totality (I1) prevents crashes but not
-resource exhaustion. Liveness (I9) guarantees effectful operations
-resolve via timeout. But pure computation has no built-in limit --
-a tight loop of pure commands can consume unbounded CPU.
+**Defense (partial):** Recursion is bounded: block-evaluation depth
+is capped per outer space (§11, "Recursion depth"), so deep recursion
+sploots deterministically instead of exhausting the host stack
+[depth-exceeded-sploot]. Liveness (I9) guarantees effectful operations
+resolve via timeout. But pure computation still has no built-in limit
+-- a tight loop of pure commands, a map over a massive list, or ship
+ping-pong between stations (deferred routing resets depth
+[depth-reset-routing]) can consume unbounded CPU.
 
 **Mitigation:** Resource limits are deferred to section 14 (Future Work).
 Currently, the outer application is responsible for monitoring
