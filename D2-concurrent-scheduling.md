@@ -5,6 +5,12 @@ model that would allow multiple ships to execute concurrently within
 a single space. This is NOT the current behavior. The current model
 is fully serialized per space (see §9 of D2-spec.md).
 
+The deterministic scheduler (D2-spec.md §5, "Deterministic
+scheduling") is designed to carry over: determinism derives from queue
+discipline (key order), not from serialization, so the
+segment-interleaving model below inherits [sched-advance] and
+[sched-deterministic] with keys at segment granularity.
+
 ## Motivation
 
 The current one-ship-at-a-time model is simple and safe but limits

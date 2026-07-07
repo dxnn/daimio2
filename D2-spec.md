@@ -127,6 +127,11 @@ A process that reads `$foo`, waits at an async boundary, and reads
 `$foo` again after resumption is guaranteed to see the same value
 (unless its own execution modified it in between).
 
+Serial execution is per space. Across spaces, execution order is
+governed by deterministic scheduling (§5): sibling spaces may
+interleave, but every observable ordering is fixed by ship numbers,
+not by host timing.
+
 ### Fresh reads [P-fresh]
 Under the current serial model, fresh reads are trivially
 satisfied -- no other process can modify space state during your execution.
@@ -298,7 +303,8 @@ longer substitute handlers freely because you wouldn't know what the
 > recursively.
 
 ### Handler parametricity [P-handlersub]
-Given the same effect responses, initial space state, and PRNG
+Given the same input schedule -- external arrivals and effect
+responses, with their numbers (§5) -- initial space state, and PRNG
 seed, a DAML program produces the same effect requests regardless
 of which handlers produced those responses. The pure parts of a
 pipeline cannot observe handler identity — they see only the
@@ -338,8 +344,9 @@ Follows from: no closures in DAML, deterministic evaluation, and
 uniform evaluation.
 
 Deterministic identity (I16) extends this from "same requests" to
-"same bytes": two runs with identical topology and inputs produce
-byte-identical observable output, identifiers included.
+"same bytes": two runs with the same topology, state, PRNG seed, and
+input schedule (§5, "Deterministic scheduling") produce byte-identical
+observable output, identifiers included.
 
 
 ### Invariants
@@ -428,10 +435,11 @@ chain is the minimum of all nominal timeouts along the chain. No
 inner wire can extend the wait time beyond what an outer wire
 allows. The outermost space always controls the maximum wait.
 
-**I13. Queue priority.** When a process completes, queued ships
-dock before ships produced by the completing process's output
-routing. Ships already waiting have priority over newly routed
-ships.
+**I13. Queue priority.** A space docks its pending ships in ascending
+key order (I17), not by arrival. A completing process's routed ships
+carry its dock number, which exceeds every number in its own causal
+past, so ships causally prior to it dock before its output; ships from
+independent sources order by number.
 
 **I14. Copy semantics.** A command receives its own copy of any
 collection it intends to mutate. Values flowing through pipelines
@@ -445,12 +453,17 @@ state affects which parameter receives the implicit value.
 
 **I16. Deterministic identity.** Every identifier that reaches an
 observable surface -- sender ids, error ship contents, ships exiting a
-runtime boundary -- is a deterministic function of the source topology
-and the execution inputs (ship arrivals, effect responses, PRNG seed).
-Runtime-generated handles are implementation-internal and never
-observable [id-deterministic]. Like serial exclusion (I5), this
-determinism is a property of the current serial model; a future
-concurrent scheduler would relax it.
+runtime boundary -- is a deterministic function of the source topology,
+the initial state and PRNG seed, and the input schedule (§5,
+"Deterministic scheduling"). Runtime-generated handles are
+implementation-internal and never observable [id-deterministic].
+
+**I17. Scheduling determinism.** Given the source topology, initial
+state, PRNG seed, and input schedule, a space's observable trace is a
+unique function of those inputs [sched-deterministic]. No space docks a
+ship at number k while a lower-keyed ship could still reach it
+[sched-advance]. Each queue docks its pending ships in ascending key
+order (§5, "Deterministic scheduling").
 
 
 ## 2. Design Decisions Record
@@ -826,6 +839,9 @@ Borks include:
   Socket errors:
   - A `socket-load` port on the outer (root) space [socket-load-not-root]
 
+  Scheduling errors:
+  - A wiring cycle that passes through no station [sched-cycle-station]
+
 These are all detectable at parse/compile time. The compiler
 rejects the definition and reports the error. No spaceseed is
 produced.
@@ -908,7 +924,7 @@ s in SVar       -- space variable names ($foo, $bar)
 c in Cmd        -- command identifiers: c.handler (e.g. math) and c.method (e.g. add)
 p in PortId     -- runtime port handle (internal, never observable)
 q in QName      -- qualified names: spaces, stations, ports [qname-structure]
-pr in ProcessId -- process ids: space qname '#' sequence [procid-sequence]
+pr in ProcessId -- process ids: space qname '#' number (virtual time, §5) [procid-sequence]
 ```
 
 **Qualified names.** Every space, station, and port has a qualified
@@ -937,20 +953,22 @@ named with a port; a bare endpoint name is a station -- §3.) Qualified
 names are scoped to one outer space; the App disambiguates between
 outer spaces externally [outer-independent].
 
-**Process ids.** Each space keeps a process sequence. Every process
-created in the space -- docked ships and sub-processes alike -- takes
-the next number: `game/player1#42` [procid-sequence]. Under serial
-execution and depth-first sub-process evaluation, the sequence is
-deterministic given the same inputs.
+**Process ids.** A process's id is its space's qualified name, `#`,
+and the process's number (its virtual time, §5): `game/player1#42`
+[procid-sequence]. The number is assigned when the ship docks (§5,
+"Deterministic scheduling"), is unique within the space, and is
+deterministic given the schedule. A sub-process shares its root
+process's id; it is located within that process by its block and
+segment, not numbered separately.
 
 **Content-addressed ids.** Spaceseed ids and block ids are content
 hashes -- deterministic by construction [id-content-hash].
 
 **Runtime handles.** Implementations may use internal handles
-(counters, pointers) for ports, processes, and ships. Handles are
-never observable [id-internal-handles]; anywhere an identifier appears
-on an observable surface, it is a qualified name, a process id, or a
-content hash (I16).
+(counters, pointers) for ports, processes, and ships -- distinct from
+the observable process ids above. These handles are never observable
+[id-internal-handles]; anywhere an identifier appears on an observable
+surface, it is a qualified name, a process id, or a content hash (I16).
 
 ### Dialect
 ```
@@ -1079,14 +1097,20 @@ per-subspace dialects could separate them.
 
 ### Ships
 ```
-ship = (value, sender?)
+ship = (value, sender?, number)
   where value    : FinalVal         -- the payload (no blocks — see §10)
         sender   : Sender?          -- who sent this ship (optional)
+        number   : Nat              -- virtual time (§5) [sched-ship-vtime]
 ```
 
 A ship is a final value being ferried between ports, optionally
 carrying a sender. Ships carry only final values (see §10) —
 blocks are evaluated before leaving a station.
+
+Every ship also carries a number -- its virtual time (§5,
+"Deterministic scheduling"). Numbers are set at entry boundaries and
+at docks; wires and boundary crossings never change them. Like the
+sender, the number is carrier metadata, not payload.
 
 When a ship arrives at a station's in-port, a process is
 created to handle it (see §5 for the process lifecycle, §10 for the
@@ -1722,14 +1746,17 @@ its precondition was the App's to supply.
 
 Each space processes **one ship at a time**. [serial-one-at-a-time] When a ship arrives at
 a space (via any in-port on any station), it either docks immediately
-(creating a process) or is placed in a FIFO queue. [queue-fifo] No two processes
-ever execute concurrently within the same space.
+(creating a process) or is placed in the space's queue, ordered by
+ship number. [queue-fifo] No two processes ever execute concurrently
+within the same space.
 
 This applies regardless of which station the ship targets. A space
 with stations A and B will never process a ship at A and a ship at
 B at the same time. The serialization is per-space, not per-station
-or per-port. [serial-per-space] Sibling subspaces are independent -- each is its own
-space with its own queue, and they can process ships concurrently.
+or per-port. [serial-per-space] Sibling subspaces are independent --
+each is its own space with its own queue. They may process ships
+concurrently; the scheduling rules (below) fix every observable
+ordering, so concurrency introduces no nondeterminism (I17).
 
 ### The queue
 
@@ -1739,7 +1766,7 @@ when it arrives at a space that already has an active process.
 ```
 ARRIVE(space, ship, station):
   if space.active:
-    space.queue <- space.queue ++ [(ship, station)]     -- FIFO append
+    space.queue <- insert (ship, station) by key         -- ordered by number (§5)
     return                                             -- ship waits
   else:
     space.active <- true
@@ -1753,15 +1780,16 @@ all async round-trips), the space dequeues the next ship:
 COMPLETE(space):
   space.active <- false
   if space.queue is non-empty:
-    (ship, station) <- space.queue.shift()              -- FIFO dequeue
+    (ship, station) <- space.queue.pop_min()             -- lowest key first
     space.active <- true
     DEFER(DOCK(space, ship, station))                  -- deferred execution [queue-deferred-dock]
 ```
 
 Both the dequeue and the completing process's output routing are
-**deferred**. The dequeue fires first: queued ships have priority
-over ships produced by the completing process's output routing.
-[queue-priority-routing]
+**deferred**, and both enter the queue by key. A completing process's
+routed ships carry its dock number, above everything in its causal
+past, so causally-prior queued ships dock first; ships from other
+sources order by number. [queue-priority-routing]
 
 Among deferred ships from a single process, arrival order matches
 **execution order**: `>@foo` sent before `>@bar` arrives first;
@@ -1769,6 +1797,63 @@ the implicit `_out` ship arrives after all `>@portname` ships.
 [routing-deferred-order] This is deterministic — two conforming
 implementations produce the same routing order from the same
 inputs.
+
+### Deterministic scheduling
+
+**Numbers.** Every ship carries a number [sched-ship-vtime]. A ship
+entering from outside the runtime -- an outermost in-port arrival, a
+black hole emission, an App-provided down-port response, a timeout
+firing -- is numbered at its entry boundary's **frontier**: the
+highest number processed anywhere in that boundary's subtree
+[sched-entry-frontier]. The sequence of externally-entering ships with
+their numbers is the **input schedule**, the complete external input of
+an execution [sched-input-schedule]. No external ship is numbered below
+work already processed downstream.
+
+**Docking.** When a ship docks at a station, the process's number
+becomes max(space counter, ship number) + 1, and the space counter
+rises to it [sched-dock-max]; the counter is the highest number the
+space has issued. Every emission of the process -- and of its
+sub-processes -- carries the process's number. A down-port response
+docks into its held station by the same rule, with the response's
+number as the incoming number [sched-reentry-uniform].
+
+**Order.** Each space docks its lowest-numbered pending ship next
+[sched-dock-lowest]. Equal numbers resolve by the declaration order of
+the carrying wire in the space's source [sched-tie-wire], then by FIFO
+position within that wire [sched-wire-fifo]; a ship delivered with no
+carrying wire -- an error ship sent directly to `@out:err` (§12) --
+sorts after all wired ships at its number, by emission order. This key
+is total per queue. Ships keep their numbers across every boundary
+crossing; subspace entry and exit are free hops [sched-hop-free].
+
+**Advance.** No ship docks at number k while a lower-numbered ship can
+still reach the same space [sched-advance]. This is an as-if rule:
+implementations may execute in any order whose observable behavior
+matches. Independent equal-number work commutes; only convergence
+points constrain execution.
+
+**Progress.** Every wiring cycle passes through a station
+[sched-cycle-station], so every routing loop advances numbers. With the
+recursion-depth bound and down-port timeouts bounding the work at any
+single number, numbers always advance -- the advance rule cannot
+deadlock or livelock.
+
+**Two axes of concurrency.** Cross-space ordering is deterministic:
+sibling spaces may interleave, but ship numbers fix every observable
+ordering. Within a space, execution stays strictly serial (I5) -- one
+ship at a time. Relaxing that into segment-level interleaving is a
+separate direction (§14).
+
+> **Implementation.** The reference implementation is one priority
+> queue per outer space: all pending docks in a single queue, popped in
+> key order, external arrivals stamped with the key of the last popped
+> item. A distributed implementation may instead enforce the advance
+> rule with per-boundary lookahead. The frontier and promise signals it
+> passes across space boundaries are scheduler substrate -- they carry
+> no DAML value and are invisible from inside any space; space boundary
+> opacity (I8) governs DAML-level communication (ports), which the
+> scheduler does not use.
 
 ### Process lifecycle
 
@@ -1840,9 +1925,10 @@ This means `>@portname` does not block the sender's process.
 The routed ship arrives at the target station after the current
 process completes, entering through the normal queue mechanism. [routing-after-complete]
 
-This also applies to the implicit `_out` routing. [routing-out-deferred] Ships produced
-by output routing arrive after ships already in the queue -- queued
-ships have priority over newly routed ships.
+This also applies to the implicit `_out` routing. [routing-out-deferred]
+Routed ships carry their process's number and dock in key order (§5,
+"Deterministic scheduling"); deferral fixes the mechanism, numbers fix
+the order.
 
 ### Other Daimio instances
 
@@ -1853,9 +1939,11 @@ concern.
 
 ### Future: concurrent scheduling
 
-The serial model could be relaxed to allow multiple processes to
-execute concurrently within a space, interleaving at segment
-boundaries. This is not currently specified and would have
+The per-space serial model could be relaxed to allow multiple
+processes to execute concurrently within a single space, interleaving
+at segment boundaries. (Cross-space scheduling is already
+deterministic -- see "Deterministic scheduling" above; this is the
+separate within-space axis.) This is not currently specified and would have
 significant consequences: the clean composition of effectful
 programs with space state (see §4 Programs) depends on serial
 execution guaranteeing exclusive access to state. Under
@@ -2413,6 +2501,14 @@ unchanged from the time of waiting -- no other process can modify space state
 while this process holds the space. The "fresh reads" property is
 trivially satisfied (see section 1).
 
+The response docks into the held station by the entry rule
+[sched-reentry-uniform]: the process's number becomes max(space
+counter, response number) + 1, and the space counter follows -- a
+process's number can jump forward across an async boundary. Waiting
+holds the space [serial-wait-holds], not the clock: the rest of the
+tree continues, and queued ships that dock after the wait re-number
+via [sched-dock-max].
+
 **Block-evaluating command execution:**
 ```
   c in effective_dialect.commands
@@ -2498,6 +2594,12 @@ The request is marked completed.
 If a response later arrives for an already-completed request, it
 is a ghost ship (see §6 "Ghost ships") and is dropped with a
 soft error to `@out:err`. [timeout-ghost-drop]
+
+A timeout firing is an external event: a clock ship numbered at its
+boundary frontier and entered into the input schedule
+[sched-timeout-event]. Whether a response or its timeout arrives first
+is decided by their positions in the schedule; ghost handling is then
+deterministic.
 
 #### Unwired ports
 
@@ -2617,12 +2719,13 @@ or `socket-load smash` -- decides how the old content gives way.
 socket-load ports.
 
 **Drain** [socket-drain]. The old content finishes its active process
-and every ship already in its queue, one at a time in FIFO order. No
-new ship enters the old content; ships that arrive during the drain
-**buffer** at the socket. When the old content is done, it is replaced
-and the buffered ships flow into the new content. Nothing in flight is
-lost; the cost is latency during the drain window. Only one definition
-is ever live at a time.
+and every ship already in its queue, one at a time in key order (§5).
+No new ship enters the old content; ships that arrive during the drain
+**buffer** at the socket with their numbers unchanged [sched-hop-free].
+When the old content is done, it is replaced and the buffered ships
+release into the new content in key order, re-numbering at their docks
+via [sched-dock-max]. Nothing in flight is lost; the cost is latency
+during the drain window. Only one definition is ever live at a time.
 
 **Smash** [socket-smash]. The new content replaces the old at once.
 The old content is destroyed: its space variables are gone, and every
@@ -2635,6 +2738,11 @@ Nothing blocks, but in-flight work is lost.
 Either way, space variables do not survive a transition -- persistent
 state lives Outside, via ports to external storage. The socket is a
 hot-swappable execution slot, not a state container.
+
+Socket transitions are deterministic: both the old and new content are
+spaces with their own queues and counters, and the drain order and
+every convergence follow the scheduling rules of §5
+[sched-transition-keys]. No transition ordering depends on host timing.
 
 ### Cross-boundary space variable access
 
@@ -4516,6 +4624,22 @@ relaxed to allow segment-level interleaving within a space. This
 would increase throughput when ships are waiting on effects, at
 the cost of introducing TOCTOU hazards on shared space variables.
 Concurrency would be a per-space opt-in.
+
+### Deterministic scheduling: formalization
+
+Cross-space scheduling is deterministic given the input schedule (§5,
+I17), and the reference implementation -- one priority queue per outer
+space -- realizes it directly. A distributed implementation enforces
+the same advance rule with per-boundary lookahead; that it produces the
+identical observable trace rests on a confluence argument (independent
+equal-key steps commute, and no rule assigns a key below one already
+processed) whose edge cases -- key mutation at docking, and frontier
+numbering under mid-step callbacks -- remain to be fully proven. The
+same proof covers flat sub-process numbering: a sub-process shares its
+root's number, so a process tree's emissions and error attribution must
+be shown deterministic under the schedule, and whether a root id plus
+block/segment location names a failing sub-process uniquely (versus a
+hierarchical id) is settled there.
 
 ### Content-addressed editor
 
