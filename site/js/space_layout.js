@@ -548,8 +548,31 @@ export function layout(topology, options) {
   // All edges (forward comp→comp, reversed back-edges, port↔station) in one list.
   // Self-loops handled separately.
 
+  // Subspace down ports: a connection whose subspace endpoint uses a
+  // down:* port renders on the subspace box's BOTTOM edge (as ^v) and
+  // routes through the band below the subspace's row — the mirror of a
+  // station's floor drop, but the "floor" is the band under the box.
+  // (Subspace up ports — top edge, above-row band — are not yet built.)
+  var sub_down_info = {}    // conn id → { sub_id, is_from, port }
+  var sub_down_ports = {}   // sub_id → ordered list of port names
+  for (var i = 0; i < connections.length; i++) {
+    var c = connections[i]
+    var sd = null
+    if (subspace_set[c.from.id] && /^down/.test(c.from.port || ''))
+      sd = { sub_id: c.from.id, is_from: true, port: c.from.port }
+    else if (subspace_set[c.to.id] && /^down/.test(c.to.port || ''))
+      sd = { sub_id: c.to.id, is_from: false, port: c.to.port }
+    if (!sd) continue
+    sub_down_info[c.id] = sd
+    if (!sub_down_ports[sd.sub_id]) sub_down_ports[sd.sub_id] = []
+    if (sub_down_ports[sd.sub_id].indexOf(sd.port) < 0) sub_down_ports[sd.sub_id].push(sd.port)
+  }
+  for (var k in sub_down_ports)
+    sub_down_ports[k].sort()
+
   var all_edges = []       // { id, from_id, to_id }
   var reversed_set = {}    // conn_id → true if back-edge was reversed
+  var sub_down_set = {}    // conn_id → true if a subspace-down leg
   var self_loops = []      // self-loop connections
   var vport_conns = []     // connections touching a vertical port
 
@@ -559,6 +582,15 @@ export function layout(topology, options) {
 
     if (vport_by_pid[fid] || vport_by_pid[tid]) {
       vport_conns.push(c)
+      continue
+    }
+
+    if (sub_down_info[c.id]) {
+      // Kept in all_edges for row/layer purposes but flagged reversed so
+      // the gap-channel machinery skips it; routed via route_subdown_chain.
+      all_edges.push({ id: c.id, from_id: fid, to_id: tid })
+      reversed_set[c.id] = true
+      sub_down_set[c.id] = true
       continue
     }
 
@@ -887,7 +919,7 @@ export function layout(topology, options) {
   // count them so a lone forward hop from the same source still groups
   // with them instead of taking its own column
   for (var i = 0; i < all_edges.length; i++) {
-    if (!reversed_set[all_edges[i].id]) continue
+    if (!reversed_set[all_edges[i].id] || sub_down_set[all_edges[i].id]) continue
     var chain = edge_chain[all_edges[i].id]
     var orig_from = chain[chain.length - 1]
     if (port_by_id[orig_from]) continue
@@ -965,7 +997,7 @@ export function layout(topology, options) {
     // source's down-fan key: it merges with a forward down-trunk when one
     // exists, and otherwise gets its own properly spaced column.
     for (var i = 0; i < all_edges.length; i++) {
-      if (!reversed_set[all_edges[i].id]) continue
+      if (!reversed_set[all_edges[i].id] || sub_down_set[all_edges[i].id]) continue
       var chain = edge_chain[all_edges[i].id]
       var orig_from = chain[chain.length - 1]
       if (port_by_id[orig_from]) continue
@@ -1060,7 +1092,7 @@ export function layout(topology, options) {
   // row — include them as departing segments so unrelated arrivals at that
   // row get approach tracks.
   for (var i = 0; i < all_edges.length; i++) {
-    if (!reversed_set[all_edges[i].id]) continue
+    if (!reversed_set[all_edges[i].id] || sub_down_set[all_edges[i].id]) continue
     var chain = edge_chain[all_edges[i].id]
     var orig_from = chain[chain.length - 1], orig_to = chain[0]
     if (port_by_id[orig_from]) continue
@@ -1135,7 +1167,7 @@ export function layout(topology, options) {
   // Reversed-edge rises: one column per dest, shared by all edges into it
   // (ports are exempt — contract returns T-junction into the port wire)
   for (var i = 0; i < all_edges.length; i++) {
-    if (!reversed_set[all_edges[i].id]) continue
+    if (!reversed_set[all_edges[i].id] || sub_down_set[all_edges[i].id]) continue
     var orig_to = edge_chain[all_edges[i].id][0]
     if (port_by_id[orig_to]) continue
     alloc_arrival(layer_of[orig_to] - 1, 'rev|' + orig_to)
@@ -1149,7 +1181,7 @@ export function layout(topology, options) {
   // starts clear of the lane
   var left_port_return = false
   for (var i = 0; i < all_edges.length; i++) {
-    if (!reversed_set[all_edges[i].id]) continue
+    if (!reversed_set[all_edges[i].id] || sub_down_set[all_edges[i].id]) continue
     var orig_to = edge_chain[all_edges[i].id][0]
     if (port_by_id[orig_to] && port_by_id[orig_to].dir === 'left') left_port_return = true
   }
@@ -1248,7 +1280,7 @@ export function layout(topology, options) {
   // Reversed edges need room for their drop columns in the gap right of
   // the source layer (track region plus wall margin)
   for (var i = 0; i < all_edges.length; i++) {
-    if (!reversed_set[all_edges[i].id]) continue
+    if (!reversed_set[all_edges[i].id] || sub_down_set[all_edges[i].id]) continue
     var chain = edge_chain[all_edges[i].id]
     var orig_from = chain[chain.length - 1]
     if (port_by_id[orig_from]) continue
@@ -1280,6 +1312,24 @@ export function layout(topology, options) {
     for (var i = 0; i < pairs.length; i++) {
       var s = pt_max - 3 * (pairs.length - 1 - i)
       vport_x[pairs[i].port.id] = { n: s - 1, s: s }
+    }
+  }
+
+  // Subspace down ports: a ^v pair per port on the box's bottom edge,
+  // spread left-to-right in port-name order (canonical, so a parsed
+  // render relabels without moving them). ^ = wire rising into the box
+  // (a request arriving), v = wire dropping out (a response leaving).
+  var sub_down_col = {}   // sub_id|port → { up_x, dn_x }
+  for (var sid in sub_down_ports) {
+    var plist = sub_down_ports[sid]
+    var cx0 = layer_x[layer_of[sid]]
+    var cw0 = comp_w(sid)
+    var span = cw0 - 4               // usable interior for pairs
+    var step = plist.length > 1 ? Math.floor(span / plist.length) : 0
+    for (var pi = 0; pi < plist.length; pi++) {
+      var center = plist.length === 1 ? cx0 + (cw0 >> 1)
+                 : cx0 + 2 + step * pi + (step >> 1)
+      sub_down_col[sid + '|' + plist[pi]] = { up_x: center - 1, dn_x: center }
     }
   }
 
@@ -1339,7 +1389,7 @@ export function layout(topology, options) {
   // continues (the turn-arrow convention; pre-convention these mid-channel
   // turns masked as O crossings, which is why channels used to be per-edge).
   for (var i = 0; i < all_edges.length; i++) {
-    if (!reversed_set[all_edges[i].id]) continue
+    if (!reversed_set[all_edges[i].id] || sub_down_set[all_edges[i].id]) continue
     var chain = edge_chain[all_edges[i].id]
     var orig_from = chain[chain.length - 1], orig_to = chain[0]
     var band = Math.max(row_of[orig_from], row_of[orig_to])
@@ -1363,6 +1413,15 @@ export function layout(topology, options) {
       var band = row_of[leg.from.id]
       alloc_slot(band, 'rev|' + band + '|' + leg.from.id)
     }
+  }
+
+  // Subspace down-port legs travel in the band below the subspace's row.
+  // One slot per leg (request and response are separate wires and must
+  // not share a row — near the box their columns are adjacent).
+  for (var ci = 0; ci < connections.length; ci++) {
+    if (!sub_down_info[connections[ci].id]) continue
+    var band = row_of[sub_down_info[connections[ci].id].sub_id]
+    alloc_slot(band, 'sd|' + band + '|' + connections[ci].id)
   }
 
   // ── Row heights ─────────────────────────────────────────────────────
@@ -1413,8 +1472,21 @@ export function layout(topology, options) {
         if (sname && sname.indexOf('station-') !== 0) el.name = sname
         elements.push(el)
       } else {
-        elements.push({ type: 'subspace_box', id: cid, x: cx, y: cy, width: cw, height: 4,
-                         name: cid, in: { x: cx, y: wy }, out: { x: cx + cw, y: wy } })
+        var subel = { type: 'subspace_box', id: cid, x: cx, y: cy, width: cw, height: 4,
+                      name: cid, in: { x: cx, y: wy }, out: { x: cx + cw, y: wy } }
+        if (sub_down_ports[cid]) {
+          // ^v glyphs on the bottom border (row cy+3); wires attach one
+          // row below (cy+4, clear of the box). down_pts are the wire
+          // endpoints the layout invariant checks accept.
+          subel.down = []
+          subel.down_pts = []
+          for (var pi = 0; pi < sub_down_ports[cid].length; pi++) {
+            var cols = sub_down_col[cid + '|' + sub_down_ports[cid][pi]]
+            subel.down.push({ n: cols.up_x, s: cols.dn_x })
+            subel.down_pts.push({ x: cols.up_x, y: cy + 3 }, { x: cols.dn_x, y: cy + 3 })
+          }
+        }
+        elements.push(subel)
       }
     }
   }
@@ -1558,9 +1630,47 @@ export function layout(topology, options) {
     return path
   }
 
+  // Subspace down-port leg: routes through the band below the subspace's
+  // row, attaching at a ^v pair on the box's bottom edge. The partner
+  // attaches normally (a port at the wall, a comp at its side).
+  function partner_attach(id, role) {
+    // role: 'out' (leaving the partner) or 'in' (arriving at the partner)
+    if (port_by_id[id]) {
+      var px = port_by_id[id].dir === 'left' ? 1 : width - 2
+      return { x: px, y: wire_y(row_of[id]), port: true, left: port_by_id[id].dir === 'left' }
+    }
+    var x = role === 'out' ? layer_x[layer_of[id]] + comp_w(id) : layer_x[layer_of[id]]
+    return { x: x, y: wire_y(row_of[id]), port: false }
+  }
+  function route_subdown_chain(e) {
+    var sd = sub_down_info[e.id]
+    var S = sd.sub_id
+    var rowS = row_of[S]
+    var cols = sub_down_col[S + '|' + sd.port]
+    var sedge_y = comp_y(rowS) + 4           // the box's bottom border (glyph row)
+    var band_y = slot_y(rowS, 'sd|' + rowS + '|' + e.id)
+    if (sd.is_from) {
+      // dest_leg S → P: box v drops to band, travels to P, into P.in
+      var P = partner_attach(e.to_id, 'in')
+      var rise_x = P.port ? (P.left ? P.x + 1 : P.x - 1) : Math.max(2, P.x - 3)
+      var path = [{ x: cols.dn_x, y: sedge_y }, { x: cols.dn_x, y: band_y }, { x: rise_x, y: band_y },
+                  { x: rise_x, y: P.y }]
+      if (rise_x !== P.x) path.push({ x: P.x, y: P.y })
+      return path
+    } else {
+      // src_leg P → S: P.out drops to band, travels to box ^, up into edge
+      var P = partner_attach(e.from_id, 'out')
+      var drop_x = P.port ? (P.left ? P.x + 1 : P.x - 1) : P.x + 2
+      return [{ x: P.x, y: P.y }, { x: drop_x, y: P.y }, { x: drop_x, y: band_y },
+              { x: cols.up_x, y: band_y }, { x: cols.up_x, y: sedge_y }]
+    }
+  }
+
   for (var i = 0; i < all_edges.length; i++) {
     var e = all_edges[i]
-    if (reversed_set[e.id]) {
+    if (sub_down_set[e.id]) {
+      conn_paths[e.id] = route_subdown_chain(e)
+    } else if (reversed_set[e.id]) {
       conn_paths[e.id] = route_reversed_chain(e)
     } else {
       conn_paths[e.id] = route_forward_chain(e)
@@ -1905,7 +2015,12 @@ function check_layout_invariants(laid) {
         for (var si = 0; si < stations.length; si++) {
           var s = stations[si]
           if (x0 < s.x || x0 > s.x + s.width - 1) continue
-          if (ymax >= s.y && ymin <= s.y + 3)
+          // A down-port leg attaches at a ^v cell on the bottom border and
+          // runs downward into the band — it touches only s.y+3 (the
+          // border), never the interior above.
+          var down_attach = ymin === s.y + 3 && s.down_pts &&
+            s.down_pts.some(function(p) { return p.x === x0 && p.y === s.y + 3 })
+          if (!down_attach && ymax >= s.y && ymin <= s.y + 3)
             throw new Error('Invariant 1: ' + conn + ' vline at x=' + x0 + ' enters ' + (s.name || s.id || s.source))
         }
       }
@@ -1928,15 +2043,26 @@ function check_layout_invariants(laid) {
       var from_el = comp_by_id[tc.from.id], to_el = comp_by_id[tc.to.id]
       if (!from_el || !to_el) continue
       var first = pts[0], last = pts[pts.length - 1]
-      // FROM check: path starts at the component's outgoing point (or its
-      // bottom-edge down attach for station round trips to a floor port)
+      // A down-edge attach point: bottom edge of a station (floor round
+      // trip) or subspace (down-port leg). Endpoints there are exempt from
+      // the side out/in and horizontal-approach-clearance checks.
+      function down_attach(el, pt) {
+        if (el.down_out && pt.x === el.down_out.x && pt.y === el.down_out.y) return true
+        if (el.down_in && pt.x === el.down_in.x && pt.y === el.down_in.y) return true
+        if (el.down_pts)
+          for (var d = 0; d < el.down_pts.length; d++)
+            if (pt.x === el.down_pts[d].x && pt.y === el.down_pts[d].y) return true
+        return false
+      }
+      // FROM check: path starts at the component's outgoing point (or a
+      // bottom-edge down attach)
       var from_pt = from_el.out || { x: from_el.wire_x, y: from_el.y }
-      var from_down = from_el.down_out && first.x === from_el.down_out.x && first.y === from_el.down_out.y
+      var from_down = down_attach(from_el, first)
       if (!from_down && (first.x !== from_pt.x || first.y !== from_pt.y))
         throw new Error('Invariant endpoint: ' + conn + ' starts at (' + first.x + ',' + first.y + ') but FROM ' + tc.from.id + ' out is (' + from_pt.x + ',' + from_pt.y + ')')
       // TO check: path ends at the component's incoming point
       var to_pt = to_el.in || { x: to_el.wire_x, y: to_el.y }
-      var to_down = to_el.down_in && last.x === to_el.down_in.x && last.y === to_el.down_in.y
+      var to_down = down_attach(to_el, last)
       if (!to_down && (last.x !== to_pt.x || last.y !== to_pt.y))
         throw new Error('Invariant endpoint: ' + conn + ' ends at (' + last.x + ',' + last.y + ') but TO ' + tc.to.id + ' in is (' + to_pt.x + ',' + to_pt.y + ')')
 
@@ -2081,14 +2207,16 @@ function check_layout_invariants(laid) {
         all_h.push({ conn: paths[i].conn, y: y0, min: Math.min(x0, x1), max: Math.max(x0, x1) })
     }
   }
-  // A vertical port's ^ and v cells are adjacent by design, so the two
+  // A ^v pair's two cells are adjacent by design, so the two
   // opposite-flowing wires of one round trip may run side by side —
-  // exempt vline pairs whose connections pass through the same vertical
-  // port in opposite roles.
+  // exempt vline pairs whose connections pass through the same round-trip
+  // port in opposite roles. Covers wall vertical ports (id is the port)
+  // and subspace down ports (both legs reference the subspace id).
   var vport_ids = {}
   for (var i = 0; i < laid.elements.length; i++) {
     var el = laid.elements[i]
     if (el.type === 'port' && el.id && (el.dir === 'top' || el.dir === 'bottom')) vport_ids[el.id] = true
+    if (el.type === 'subspace_box' && el.down) vport_ids[el.id] = true
   }
   function vport_pair_ok(a, b) {
     for (var pid in vport_ids)

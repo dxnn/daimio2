@@ -352,7 +352,14 @@ function find_subspaces(grid, h, left_col, right_col, stations) {
       if (grid[y - 1][lx] !== '|' || grid[y - 1][rx] !== '|') continue
       var raw = ''
       for (var j = lx + 1; j < rx; j++) raw += grid[y - 1][j]
-      subspaces.push({ name: raw.trim(), left_x: lx, right_x: rx, port_y: y })
+      var sub = { name: raw.trim(), left_x: lx, right_x: rx, port_y: y }
+      // Down ports: ^v pairs on the box's bottom border (row y+1)
+      sub.down = []
+      var by = y + 1
+      if (by < h)
+        for (var j = lx + 1; j < rx; j++)
+          if (grid[by][j] === '^' && grid[by][j + 1] === 'v') { sub.down.push({ up_x: j, dn_x: j + 1, y: by }); j++ }
+      subspaces.push(sub)
       i++  // consume both o's so adjacent boxes can't pair across the gap
     }
   }
@@ -747,6 +754,15 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
     add(sub.right_x, sub.port_y, { kind: 'subspace_out', index: i })
     sources.push({ x: sub.right_x, y: sub.port_y, dir: 'right',
                    info: { kind: 'subspace_out', index: i } })
+    // Down ports on the box bottom edge: ^ (up_x) a wire rises INTO the
+    // box (sink), v (dn_x) a wire drops OUT (source). Indexed by pair.
+    for (var d = 0; d < (sub.down || []).length; d++) {
+      var dp = sub.down[d]
+      add(dp.up_x, dp.y, { kind: 'subspace_down_in', index: i, port: d })
+      add(dp.dn_x, dp.y, { kind: 'subspace_down_out', index: i, port: d })
+      sources.push({ x: dp.dn_x, y: dp.y, dir: 'down',
+                     info: { kind: 'subspace_down_out', index: i, port: d } })
+    }
   }
   // Vertical ports (top/bottom borders). A wired round-trip port has an
   // out cell (a wire leaves the port toward a component) and an in cell (a
@@ -783,7 +799,7 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
         for (var ai = 0; ai < here.length; ai++) {
           var a = here[ai]
           var is_sink = a.kind === 'station_in' || a.kind === 'subspace_in' ||
-                        a.kind === 'vport_in' ||
+                        a.kind === 'vport_in' || a.kind === 'subspace_down_in' ||
                         (a.kind === 'port' && a.side === 'right') ||
                         (a.kind === 'port' && a.side === 'left' && contract_set[a.index])
           if (is_sink) { connections.push({ from: src.info, to: a }); found_sink = true }
@@ -792,7 +808,7 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
         // At a source-only attachment: stop
         var is_source = here.some(function(a) {
           return a.kind === 'station_out' || a.kind === 'subspace_out' ||
-                 a.kind === 'vport_out' ||
+                 a.kind === 'vport_out' || a.kind === 'subspace_down_out' ||
                  (a.kind === 'port' && a.side === 'left' && !contract_set[a.index])
         })
         if (is_source) continue
@@ -837,6 +853,8 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
     if (ep.kind === 'station_out') return { x: stations[ep.index].close_x, y: stations[ep.index].body_y }
     if (ep.kind === 'subspace_in') return { x: subspaces[ep.index].left_x, y: subspaces[ep.index].port_y }
     if (ep.kind === 'subspace_out') return { x: subspaces[ep.index].right_x, y: subspaces[ep.index].port_y }
+    if (ep.kind === 'subspace_down_in' || ep.kind === 'subspace_down_out')
+      return { x: subspaces[ep.index].down[ep.port].up_x, y: subspaces[ep.index].down[ep.port].y }
     return { x: 0, y: 0 }
   }
   deduped.sort(function(a, b) {
@@ -905,6 +923,10 @@ function build_routes(connections, stations, subspaces, ports, port_label) {
       return stations[ep.index].name || stations[ep.index].source
     if (ep.kind === 'subspace_in') return subspaces[ep.index].name + '.in'
     if (ep.kind === 'subspace_out') return subspaces[ep.index].name + '.out'
+    if (ep.kind === 'subspace_down_in' || ep.kind === 'subspace_down_out') {
+      var pname = ep.port === 0 ? 'down' : 'down:' + String.fromCharCode(97 + ep.port - 1)
+      return subspaces[ep.index].name + '.' + pname
+    }
     return '?'
   }
 

@@ -1,0 +1,100 @@
+{
+  "id": "vp",
+  "name": "vp",
+  "width": 31,
+  "height": 8,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 31,
+      "height": 8,
+      "name": "vp"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 3,
+      "width": 18,
+      "height": 4,
+      "source": "{__ | add 1}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 23,
+        "y": 5
+      },
+      "name": "s0"
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "in",
+      "id": "p2",
+      "wire_x": 1
+    },
+    {
+      "type": "port",
+      "x": 30,
+      "y": 5,
+      "dir": "right",
+      "key": "out",
+      "id": "p3",
+      "wire_x": 29
+    },
+    {
+      "type": "port",
+      "dir": "bottom",
+      "key": "down:log",
+      "glyph": "x",
+      "x": 3,
+      "y": 7
+    },
+    {
+      "type": "port",
+      "dir": "top",
+      "key": "up:notify",
+      "glyph": "x",
+      "x": 7,
+      "y": 0
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c0",
+      "from": "p2",
+      "to": "s0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c1",
+      "from": "s0",
+      "to": "p3",
+      "path": [
+        {
+          "x": 23,
+          "y": 5
+        },
+        {
+          "x": 29,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "id": "vp",
+  "name": "vp",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "up:notify",
+      "dir": "top",
+      "flavour": "up:notify"
+    },
+    {
+      "id": "p1",
+      "key": "down:log",
+      "dir": "bottom",
+      "flavour": "down:log"
+    },
+    {
+      "id": "p2",
+      "key": "in",
+      "dir": "left",
+      "flavour": "in"
+    },
+    {
+      "id": "p3",
+      "key": "out",
+      "dir": "right",
+      "flavour": "out"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "s0",
+      "source": "{__ | add 1}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p2",
+        "port": "in"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p3",
+        "port": "out"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

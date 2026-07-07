@@ -1,0 +1,226 @@
+{
+  "worker": {
+    "id": "worker",
+    "name": "worker",
+    "width": 36,
+    "height": 9,
+    "elements": [
+      {
+        "type": "box",
+        "x": 0,
+        "y": 0,
+        "width": 36,
+        "height": 9,
+        "name": "worker"
+      },
+      {
+        "type": "station",
+        "id": "s0",
+        "x": 16,
+        "y": 3,
+        "width": 14,
+        "height": 4,
+        "source": "{handle}",
+        "in": {
+          "x": 16,
+          "y": 5
+        },
+        "out": {
+          "x": 30,
+          "y": 5
+        },
+        "name": "h"
+      },
+      {
+        "type": "port",
+        "dir": "top",
+        "key": "up:svc",
+        "id": "p0",
+        "glyph": "^v",
+        "x": 11,
+        "y": 0,
+        "north_x": 11,
+        "south_x": 12,
+        "in": {
+          "x": 11,
+          "y": 1
+        },
+        "out": {
+          "x": 12,
+          "y": 1
+        }
+      }
+    ],
+    "paths": [
+      {
+        "conn": "c0",
+        "from": "p0",
+        "to": "s0",
+        "path": [
+          {
+            "x": 12,
+            "y": 1
+          },
+          {
+            "x": 12,
+            "y": 5
+          },
+          {
+            "x": 16,
+            "y": 5
+          }
+        ]
+      },
+      {
+        "conn": "c1",
+        "from": "s0",
+        "to": "p0",
+        "path": [
+          {
+            "x": 30,
+            "y": 5
+          },
+          {
+            "x": 33,
+            "y": 5
+          },
+          {
+            "x": 33,
+            "y": 7
+          },
+          {
+            "x": 11,
+            "y": 7
+          },
+          {
+            "x": 11,
+            "y": 1
+          }
+        ]
+      }
+    ]
+  },
+  "outer": {
+    "id": "outer",
+    "name": "outer",
+    "width": 39,
+    "height": 11,
+    "elements": [
+      {
+        "type": "box",
+        "x": 0,
+        "y": 0,
+        "width": 39,
+        "height": 11,
+        "name": "outer"
+      },
+      {
+        "type": "station",
+        "id": "s0",
+        "x": 5,
+        "y": 3,
+        "width": 11,
+        "height": 4,
+        "source": "{p}",
+        "in": {
+          "x": 5,
+          "y": 5
+        },
+        "out": {
+          "x": 16,
+          "y": 5
+        },
+        "name": "proc"
+      },
+      {
+        "type": "subspace_box",
+        "id": "worker",
+        "x": 23,
+        "y": 3,
+        "width": 14,
+        "height": 4,
+        "name": "worker",
+        "in": {
+          "x": 23,
+          "y": 5
+        },
+        "out": {
+          "x": 37,
+          "y": 5
+        },
+        "down": [
+          {
+            "n": 29,
+            "s": 30
+          }
+        ],
+        "down_pts": [
+          {
+            "x": 29,
+            "y": 6
+          },
+          {
+            "x": 30,
+            "y": 6
+          }
+        ]
+      }
+    ],
+    "paths": [
+      {
+        "conn": "c0",
+        "from": "s0",
+        "to": "worker",
+        "path": [
+          {
+            "x": 16,
+            "y": 5
+          },
+          {
+            "x": 18,
+            "y": 5
+          },
+          {
+            "x": 18,
+            "y": 7
+          },
+          {
+            "x": 29,
+            "y": 7
+          },
+          {
+            "x": 29,
+            "y": 6
+          }
+        ]
+      },
+      {
+        "conn": "c1",
+        "from": "worker",
+        "to": "s0",
+        "path": [
+          {
+            "x": 30,
+            "y": 6
+          },
+          {
+            "x": 30,
+            "y": 9
+          },
+          {
+            "x": 2,
+            "y": 9
+          },
+          {
+            "x": 2,
+            "y": 5
+          },
+          {
+            "x": 5,
+            "y": 5
+          }
+        ]
+      }
+    ]
+  }
+}
