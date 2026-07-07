@@ -748,3 +748,371 @@ REVISION (claude): walkthrough's provisional merge key
   (vtime, wire declaration order). Kahn-network-with-timestamps shape.
   Same-wire same-vtime collisions resolve by within-wire order, which
   is deterministic upstream.
+
+### Round: the advance rule (2026-07-06)
+
+> "Suppose B runs first. And then suppose C runs next. That's very
+> different from A first then C, and from B then A then C (which is
+> the same as A then C)."
+
+User's probe exposes the missing second half: the merge rule cannot
+sort a ship that hasn't arrived. If C may dock B's t=1 ship while A's
+t=0 dock is still pending, determinism is lost regardless of queue
+discipline.
+
+[idea:sched-advance-rule] PROP (the second half of vtime): an event
+  may be processed only when no smaller-keyed event can still arrive
+  at its queue. Reference implementation: the universe's event list
+  is a priority queue popped in global key order — under which the
+  user's "B then C" schedule is UNSCHEDULABLE: after B runs, the
+  smallest pending key is A's dock at t=0 (< C's t=1), so A always
+  runs before C sees t=1 work. "B,A,C ≡ A,B,C" — which the user
+  already observed — is the equivalence the rule enforces: all legal
+  schedules agree; the advance rule outlaws the one that doesn't.
+
+REFINEMENT (claude): partial retraction of "nobody decides who runs
+  next." Base semantics: events process in key order — an AS-IF rule
+  (like memory models): observable behavior must equal key-order
+  processing. The interleaving freedom claimed earlier is a THEOREM
+  about safe reorderings (provably non-interfering regions may
+  deviate), not the base rule. In distributed/parallel settings the
+  advance rule is exactly conservative-DES synchronization
+  (Chandy-Misra lookahead) — consistent with the earlier honesty note.
+  X and V converge more than advertised: V's reference machine is a
+  priority-queue loop. The remaining V advantage stands: the ORDER is
+  defined by keys on the data (machine-free as-if statement,
+  conformance checkable per-queue), not by a machine's incidental
+  structure.
+
+[idea:sched-vtime-wellfounded] OBLIGATION: same-vtime work must be
+  finite for the advance rule to progress — sufficient condition:
+  every wiring cycle passes through a station (each dock is +1). Port
+  hops are free (same t), so a station-free port-to-port wiring cycle
+  would spin at one vtime forever. Check whether spacesyn can express
+  such a cycle; if yes, bork it or make port hops cost time. Relates
+  to depth bound (recursion) and queue (iteration) — this is the
+  third loop family (routing).
+
+### Round: locality of vtime (2026-07-06)
+
+> "Is vtime local to a given space, or does it need to account for
+> parents and/or subspaces to maintain determinacy?"
+
+Answer structure — vtime decomposes into three pieces of different
+locality:
+  1. SHIPS carry stamps (there is no per-space clock to be local or
+     global). One universal scale, rooted at the external input
+     schedule; space boundaries are invisible to stamps (port hops
+     free, parent/subspace crossings included). Comparability at any
+     fan-in requires the single scale — independent per-space clocks
+     would make merge keys incomparable and break determinacy.
+  2. SPACES carry exactly one temporal scalar: NEXT-FREE TIME
+     [idea:sched-space-ready-time]. Dock time = max(ship stamp,
+     space next-free); emissions stamp dock-time + 1; completion sets
+     next-free. Needed because a held space [serial-wait-holds]
+     dequeues LATE: without re-stamping, a ship stamped t=2 docking
+     after the space freed at t=8 would emit stale t=3 keys into a
+     world already past them — retroactive nondeterminism. Job-shop
+     rule: service time = max(arrival, server-free). Deterministic,
+     locally computed.
+  3. The ADVANCE RULE is cone-global: "no smaller key can still
+     arrive" quantifies over the queue's causal past (any space with
+     a wiring path here). Reference loop makes it universe-global
+     trivially.
+
+Async waits folded in (answers the teased internal-vs-external
+question): a WAIT blocks its SPACE, not the clock. Universe time
+flows past a waiting space. Response arrival: external responses are
+stamped at the frontier (input schedule); internal (sibling-handled
+up-port) responses carry their handler chain's deterministic stamp.
+The resumed process's subsequent emissions stamp from the RESPONSE
+time, not the original dock time — a process's time can jump forward
+at async boundaries. All deterministic given the input schedule.
+
+NOTE (claude): so "local or global?" resolves as: one universal
+SCALE (comparability), locally COMPUTED (max/+1 arithmetic on ships
+and the per-space scalar), globally SEQUENCED (advance rule / cone).
+Parents and subspaces need no special accounting — hierarchy enters
+only through wiring reachability (the cones).
+
+### Round: proof sketch requested (2026-07-06)
+
+> "I'm still not 100% convinced this achieves determinism. I know we're
+> in design mode, but can you sketch a proof of this? ... We have to
+> think about ships, spaces, stations, the outside, and more."
+
+[idea:sched-proof-sketch] Artifact: design/sched-determinism-sketch.md.
+  Structure: key construction (vtime, pid, ordinal) — NOTE
+  [procid-sequence] from the QNames patch is load-bearing (O4);
+  Lemma 1 process determinism (existing spec properties — PRNG
+  determinism becomes CONDITIONAL on scheduler determinism, carried in
+  the induction); Lemma 2 key uniqueness/totality; Lemma 3 commutation
+  of independent equal-key steps (where machine-independence cashes
+  out — queues as key-sorted sets, O6); Lemma 4 monotonicity/no
+  retroactive keys (needs O1 schedule-monotone, O2 no station-free
+  wiring cycles); main theorem by strong induction on key order.
+  Coverage: ships/spaces/stations/outside/timeouts/internal-responses
+  (E = exactly what crosses a runtime boundary inward — formalizes
+  #tension:sched-internal-vs-external)/senders/errors/socket-overlap.
+  Obligations O1–O6 enumerated for spec assertions.
+  WEAK SPOTS named: (1) effective-key mutation via f_s updates — most
+  delicate, believed sound via f_s-monotonicity; (2) frontier
+  definition under mid-step host callbacks; (3) Lemma 3 disjointness
+  requires global registries (D.BLOCKS/D.SPACESEEDS/D.Etc) carry no
+  observable cross-space state — implementation audit, ties to
+  #idea:runtime-isolation.
+
+### Round: user playback (2026-07-06)
+
+User restated the model in six bullets ("Is that more or less right?").
+Scorecard given:
+  ✓ ships carry numbers; ✓ space docks lowest-first; ✓ same-port ties
+  by wire declaration order; ✓ emission rule MAX(space, ship)+1 for
+  STATIONS.
+  CORRECTED: (1) "space tracks the lowest number it has issued" →
+  high-water mark: next-free time f_s, the time through which the
+  space has run (dock = max(ship, f_s), emit dock+1, completion
+  raises f_s). (2) Subspace EXITS do not re-stamp — the +1 happens at
+  docks (stations) only; boundary crossings are free hops; a ship
+  emerging from a subspace was already stamped by the stations inside
+  it. (Blackhole emissions are external events, stamped from E.)
+  ANSWERED (the "ties at different stations/subspaces...?" bullet):
+  (a) intra-space cross-station ties — generalize the wire rule to the
+  whole space definition: ALL ties within a space resolve by
+  declaration order of the carrying wire in the astroglot source
+  (subsumes same-port and cross-station cases; one rule). Extends the
+  #tension:sched-tiebreak resolution.
+  (b) cross-SPACE ties — need no answer: independent equal-key steps
+  commute (Lemma 3); the reference loop picks arbitrarily (qname) and
+  no observer can tell. The only ties that are semantic are those
+  contending for a shared serial resource (a space) or a shared queue
+  (a port).
+  MISSING RULE re-flagged: space-local lowest-first is NOT sufficient
+  — the advance rule (user's own B→C probe) must accompany it: don't
+  dock key k while smaller-keyed work is pending in the causal cone
+  (reference: one universe-wide priority loop).
+  Postcard summary given (6 rules). User convergence noted — model
+  shape near ratification; next checkpoint = ratify + draft.
+
+### Round: local advance rule / promise protocol (2026-07-06)
+
+User refines bullet 2: the HOSTING space enforces the advance rule
+over its own contents ("won't dock a ship at C if there's a lower one
+at A or B... within itself. The idea is to try to get this guarantee
+locally, instead of needing a universal priority loop."). Plus: is the
+input schedule per space? Does a high-numbered subspace emission raise
+the parent's mark? How is "can still reach" determined — seems complex.
+
+[idea:sched-promise-protocol] PROP: local advance IS achievable —
+  hierarchical conservative scheduling. One level of "look at my own
+  stations" is insufficient because subspaces are opaque [I8]; the fix
+  is each subspace exposes ONE monotone number per out-boundary: its
+  OUTPUT PROMISE ("I will never again emit below N"), computed locally
+  from its input bound (given by parent), queue minimum, high-water
+  mark, and its own children's promises, +1 per dock. Parent dock
+  rule: dock lowest ship k at a target only when k ≤ all relevant
+  upstream promises ∧ k ≤ parent's own input bound. Bounds flow down,
+  promises flow up; all numbers monotone.
+  PROGRESS: guaranteed exactly by O2 — every wiring cycle passes a
+  station (+1) = the textbook positive-lookahead condition
+  (Chandy-Misra). Our obligation O2 turns out to be the classical
+  liveness requirement; the pieces were already in place.
+  I8 note: the promise is scheduling metadata, not state — one number
+  per boundary, arguably the minimal leak; boundary timing is already
+  observable.
+
+Answers: (6a) the input schedule is PER UNIVERSE (exactly what crosses
+runtime boundaries inward); spaces have derived monotone INPUT BOUNDS,
+not schedules. (6b) a high-numbered subspace emission raises nothing
+at the crossing (free hop); it raises the parent's mark when DOCKED at
+a parent station, via the max() in the dock rule. ("Raised by docking,
+not by transit.")
+("How determined?"): two conforming implementations of the same
+semantics (by Lemma 3 confluence): flat priority loop (heap top —
+trivial) vs promise protocol (two monotone counters per boundary;
+real but confined complexity). User's "seems complex" instinct is
+correct and the complexity is exactly here — but it is optional
+machinery, not baseline semantics.
+
+[tension:sched-spec-formulation] what does the SPEC normatively say:
+  (α) as-if rule only (per-queue key order; loop and promises both
+      conforming implementations) — smallest spec, matches memory-
+      model style;
+  (β) promise protocol normative — compositional text (user's local
+      instinct as spec), bigger surface;
+  (γ) reference loop normative — operational, smallest proof, machine-
+      baked (previously argued against).
+  Lean (claude): α, with the promise protocol described informatively
+  as the local/distributed implementation and the loop as reference.
+
+DEEPENED WEAK SPOT 2: under LOCAL scheduling, production stamping of
+external arrivals must dominate the entry's forward cone (else a
+lagging local frontier injects retroactive keys downstream). Cheap
+sound rule even for local implementations: stamp at the UNIVERSE
+frontier — one lazily-maintained global max, a number rather than a
+scheduler. The dock-rule max() partially self-repairs lagging stamps,
+but same-queue order violations remain possible without the dominance
+rule — needs a worked example in the draft phase.
+
+### Round: playback 2 — near ratification (2026-07-06)
+
+User's 9-bullet restatement. Scorecard: mark/counter ✓, dock rule
+MAX+1 at ENTRY ✓ (accepted as cleaner than my exit formulation —
+equivalent: process number = dock number, all emissions inherit it),
+lowest-inside tracking ✓ ("queued on a local wire" correctly makes
+routed-but-undocked ships visible in the destination queue), dock
+lowest ✓, astroglot-order ties ✓, FIFO wires ✓, child reports lowest
+to parent ✓.
+
+CORRECTION — count-stamping → frontier-stamping (answers embedded Q1
+"why have the runtime do this globally, when the space could do it
+with its own counter?" and RESOLVES the sketch's Weak Spot 2):
+  The stamp must encode WHEN in logical time the event entered, not
+  its sequence position. Count-stamping (or any local counter that
+  can lag the forward cone) under-stamps, forcing a dilemma:
+  - without waiting: same E replays differently depending on physical
+    arrival timing vs internal progress → nondeterminism;
+  - with waiting (advance rule taken seriously): fan-ins downstream
+    can never dock hot ships, because the boundary's promise stays at
+    the low stamp floor for arrivals that may never come → permanent
+    stall.
+  LIVENESS FORCES FRONTIER-STAMPING: the external boundary's promise
+  IS the frontier; arrivals must be stamped at-or-above it. The
+  frontier is one lazily-maintained monotone number per universe —
+  the minimal global object (a number, not a machine).
+
+DECISION (new, small) — down-port re-entry: uniform rule. A
+  resumption is the response ship docking into the held station:
+  number := MAX(space-counter, response-number) + 1, same formula as
+  first dock. External responses carry schedule stamps; internal
+  (sibling-handled) responses carry their handler chain's stamp. One
+  entry rule for everything.
+
+MISSING TWIN RULE (completes the promise protocol): the playback has
+  upward reports only (parent waits on child's lowest). The
+  symmetric downward bound is required: a SUBSPACE must also wait
+  unless its lowest ≤ the parent's promised floor for its ports.
+  Counterexample: sibling A holds ship 2 (will emit 3 toward B); B
+  holds internal ship 50; B's local view shows lowest=50 → B docks 50
+  → ship 3 arrives later → retroactive. Ships INSIDE stations or
+  sibling subspaces yet-to-emit are invisible to B; only the parent
+  sees them. Unified statement: every space docks its lowest k only
+  when k ≤ every boundary promise — children's reports (up) AND the
+  parent's floor (down). One rule, seen from both sides of each
+  boundary.
+
+### Round: local stamping / locus / livelock (2026-07-07)
+
+User Q1: can entry stamping use the entry space's own counter instead
+of a universe max? Q2: does the recursive lowest-up/lowest-down
+protocol collapse to a single locus of activity? Q3: can it livelock?
+
+Q1 RESOLUTION — user is right with one refinement [idea:sched-frontier-up]:
+  local boundary stamping suffices, but the number must be the
+  boundary's FRONTIER (highest key processed in its subtree), not the
+  space's own dock counter. Discovery chain: (a) a space's own mark
+  lags its interior (pass-through topologies; internal chains); (b)
+  under-stamped arrivals race hot interiors → wall-clock
+  nondeterminism, or with honest gating → lockstep; (c) idle
+  boundaries must NOT promise ∞ (an ∞-promise followed by a low-
+  stamped emission is a promise violation — the retroactivity bug in
+  new clothes); (d) therefore frontiers must flow UP the tree (a
+  third monotone number per boundary: highest-processed, lazily
+  piggybacked), and entry points stamp at their boundary's max-seen
+  frontier. For the outermost boundary, subtree frontier = universe
+  frontier (the root's subtree is everything) — so the earlier
+  "universe frontier" rule was the degenerate root case, and the
+  user's localization is the correct general form. Black-hole entry
+  soundness: interiors can never outrun the hole-boundary's promise,
+  so hole stamps at the boundary frontier dominate their cones.
+  Protocol now: THREE monotone numbers per boundary — promise (lowest
+  future, up), floor (lowest future, down), frontier (highest
+  processed, up).
+
+Q2 ANSWER: semantically NO single locus — regions run concurrently
+  wherever mutual promises clear each other's pending minima (causal
+  independence = parallelism, Lemma 3). BUT a naive local
+  implementation trends toward lockstep because promises advance +1
+  per station-hop per exchange round (classical conservative-DES
+  TIME-CREEP). Escape: when a region is idle, the promise fixpoint is
+  computable in one pass (min-plus shortest path over topology) —
+  demand-driven advance. The flat reference loop sidesteps creep
+  entirely (its heap IS the fixpoint).
+
+Q3 ANSWER: no livelock, two-part argument: (1) waiting never blocks
+  promise advancement — promises are computed from queue minima and
+  path increments (structure), not from docking (work), so a
+  wait-for cycle cannot form: mutual waiters' promises still advance
+  each exchange round; (2) O2 (every cycle passes a station, +1) is
+  the classical positive-lookahead condition ⇒ time advances, each
+  round makes numeric progress, work per vtime is finite (O2 +
+  depth bound + timeouts). Cost is churn (creep), not stuckness.
+
+STRATEGIC NOTE (claude): this round priced the local protocol
+  honestly — three monotone numbers per boundary + frontier exchange
+  + fixpoint shortcuts — vs the flat loop's triviality. Strengthens
+  formulation α: normative as-if rule; flat loop as v1 reference;
+  local protocol as informative appendix (the distributed future).
+
+### RATIFIED (2026-07-07)
+
+> "Yes, let's do it."
+
+RESOLVE #tension:sched-spec-formulation — α: normative as-if rule
+(per-queue key order + boundary-frontier stamping); flat priority
+loop as v1 reference implementation; local promise protocol as
+informative appendix.
+  IMPORTANCE: HIGH — the scheduler model, whole-tree determinism.
+  CONFIDENCE: HIGH — survived five adversarial probes (self-send,
+    A/B/C tie, B-then-C advance, locality, local-stamping/livelock),
+    proof sketch with named obligations and weak spots.
+  RIGOR: CAREFUL.
+Draft: design/scheduler-spec-draft.md ([dd:scheduler] on merge).
+#tension:sched-socket-overlap closes with the draft (Edit on §8).
+
+## HEAD (graduated 2026-07-07 → gen3.md)
+
+Standing threads (deferred):
+- #idea:split-1-daimio
+- #idea:runtime-isolation — sched Lemma-3 registry audit + promise
+  protocol are new intersection points
+- #idea:alias-attenuation — first realized piece: per-port sender
+  attenuation (sender draft); bh-sender provisionality resolved
+- #idea:explore-topics
+- #idea:space-spec-gaps
+
+Awaiting merge (REALIZE on merge):
+- blockeval draft → [dd:blockeval]: #idea:hoc-finding,
+  #idea:hoc-uniformeval-anchor, #idea:hoc-covering-rule,
+  #idea:hoc-parametric-purity, #idea:hoc-derivable-category
+- depth draft → [dd:depthbound]: #idea:depth-finding,
+  #idea:depth-timeout-dual, #idea:depth-single-demand-site,
+  #idea:depth-instance-bound
+- sender draft → [dd:sender-entry]: #idea:sender-gap-finding,
+  #idea:sender-entry-rule, #idea:port-qualified-name,
+  #idea:sender-carrier-not-payload, #idea:sender-registry-app-side,
+  #idea:qname-all-runtime-ids
+- scheduler draft → [dd:scheduler]: #idea:sched-goal, #idea:sched-vtime,
+  #idea:sched-advance-rule, #idea:sched-space-ready-time,
+  #idea:sched-promise-protocol, #idea:sched-frontier-up,
+  #idea:sched-convergence-only, #idea:sched-axes,
+  #idea:sched-input-schedule, #idea:sched-proof-sketch,
+  #idea:sched-qname-tiebreak, #idea:sched-choke-point,
+  #idea:sched-nondet-inventory, #idea:sched-vtime-wellfounded,
+  #tension:sched-socket-overlap
+
+Open tasks:
+- #idea:bh-render — renderers, parser, fixtures, labelled tests
+- #idea:hoc-ripples — remainder: optimizer notes, time.now family
+- #idea:depth-portable-test — test phase
+- #idea:bh-updown-ports — deferred (explicit bork in spec)
+- Test phase covers ~52 pending assertion IDs across four drafts
+
+Left HEAD this gen (resolved/merged/realized): black hole cluster →
+[dd:blackhole] (merged); tensions hoc-partition, hoc-taxonomy,
+depth-bound, sender-binding, sender-default, sched-internal-vs-
+external, sched-time, sched-granularity, sched-fairness-liveness,
+sched-loop-vs-stamps, sched-tiebreak, sched-spec-formulation (all
+resolved); sender-port-identity + sender-enter-hook (merged →
+sender-entry-rule); sender-socket-slot-name (moot via
+[blackhole-no-socket-load]); bh-spec-today (retired).

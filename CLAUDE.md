@@ -208,8 +208,10 @@ expired/          — old commands/demos for reference
 9. Channel ordinals per gap, then ordinal-based approach-conflict detection
    (dep/arr x-ranges overlap iff dep channel ordinal >= arr ordinal)
 10. Gap sizing (channels + arrival ladder columns) + channel x allocation
-11. Band slot allocator: approach tracks, reversed-edge h-channels (one per
-    edge), and self-loop channels share per-band y slots, two rows apart
+11. Band slot allocator: approach tracks, reversed-edge h-channels (merged
+    by source per band — every cell of a shared channel carries only that
+    source's flow, and each rise off it renders as a corner or turn arrow),
+    and self-loop channels share per-band y slots, two rows apart
 12. Reversed-edge and self-loop drop legs register as pseudo-hops under the
     source's down-fan key (shared trunk columns)
 13. Contract returns to a left port rise one column off the wall and
@@ -264,7 +266,9 @@ levels, both guaranteed faithful by the layout invariants:
 
 Contract returns are recognized by their T-junction (a ^ on the port wire
 fed from below); down-port responses by the mirrored v beside a right
-port. All stations are emitted as declarations — anonymous ones under
+port. At a left port's mouth T (a ^ exactly two cells right of the wall o)
+a rising return exits only toward the port — riding onward along the
+port's outgoing wire would read the return as feeding the port's fan. All stations are emitted as declarations — anonymous ones under
 their rendered rank-name — since an inline {…} reference would mint a new
 station per occurrence. Each block is refined independently against its
 own render, with the other blocks' sources kept in scope (a subspace
@@ -307,6 +311,19 @@ renders are identical because labels never reach the picture.
   if it was live when the space was serialized. Reviving requires `process
   unquote`. Marked `[serialize-block-dead]` in D2-spec.md §8. Revisit if/when
   live-block persistence is wanted (interacts with the unquote privilege gate).
+
+## Pending spec drafts (design/)
+
+Four draft patches await review/merge — decision trail in design/gen1.md +
+gen2.md, working file gen3.md:
+- blockeval-spec-draft.md — ternary effect partition + covering rule
+- depth-spec-draft.md — recursion depth bound (composes with blockeval)
+- sender-spec-draft.md — sender-at-entry + QNames/deterministic ids
+- scheduler-spec-draft.md — vtime deterministic scheduler (REQUIRES sender
+  patch first; proof sketch in sched-determinism-sketch.md)
+
+After merges: test-suite phase (~52 new assertion IDs) + black hole
+renderer/parser/fixture work (site/js, tests/).
 
 ## Git policy (overrides global)
 You manage git directly in this project. The global "manual git" rule does
