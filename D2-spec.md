@@ -1824,7 +1824,8 @@ A sub-process:
   - Bypasses the queue (it is part of the active process's work) [subprocess-bypass-queue]
   - Executes synchronously and depth-first: the parent process
     waits for the sub-process to complete before continuing [subprocess-sync-dfs]
-  - Can nest to arbitrary depth (sub-sub-processes, etc.)
+  - Can nest to arbitrary depth in the model (sub-sub-processes,
+    etc.), bounded in practice — see §11, "Recursion depth"
 
 Sub-processes are nested execution, not concurrent execution.
 
@@ -2429,9 +2430,11 @@ space, same sender (P-uniformeval; §5, "Sub-processes"). Non-block
 values at block-typed params are returned as-is, demanding nothing
 (§11) [blockeval-sync-when-pure].
 
-A block-evaluating command suspends only through its sub-processes.
-Sub-processes are nested, depth-first execution, not concurrent
-execution [subprocess-sync-dfs]: if a sub-process reaches an effectful
+A block-evaluating command suspends only through its sub-processes;
+in §4's terms its result is `Async(wait, cont)` with `wait` the
+suspended sub-process, and the only concrete port WAIT is the inner
+effectful command's. Sub-processes are nested, depth-first execution,
+not concurrent execution [subprocess-sync-dfs]: if a sub-process reaches an effectful
 command, that sub-process WAITs on its port by the effectful-command
 rule above, and the parent command is held by the depth-first nesting
 until the sub-process resumes and completes. When the response arrives,
@@ -3439,7 +3442,8 @@ spawned after the write will see the new binding.
 **Sub-processes** are synchronous and depth-first. When a command
 evaluates a block, the sub-process runs to completion (or waits)
 before the parent process continues. Sub-processes can nest to
-arbitrary depth. Each sub-process runs in the same space, has
+arbitrary depth in the model, bounded in practice (§11, "Recursion
+depth"). Each sub-process runs in the same space, has
 access to the same space variables, and inherits the parent's
 sender and effective dialect.
 
@@ -3901,16 +3905,16 @@ command executes as if they weren't there.
 
 
 **Dialect check:** if c is not in effective_dialect.commands, the
-command sploots instead of executing — regardless of whether it
-is pure or effectful. [dialect-cmd-sploot] The dialect check
-happens before the pure/effectful distinction. This is a
+command sploots instead of executing — regardless of its category
+(pure, block-evaluating, or effectful). [dialect-cmd-sploot] The
+dialect check happens before that distinction. This is a
 value-producing sploot: the blocked command produces nothing, so
 the pipeline gets the empty value.
 
 ```
   c not in effective_dialect.commands
   ---
-  (process, state) --[PureCmd(c, args) or EffCmd(c, args)]--> (process{v := empty}, state)
+  (process, state) --[PureCmd(c, args), BlockCmd(c, args), or EffCmd(c, args)]--> (process{v := empty}, state)
   emit soft error: {type: "dialect_blocked", command: c}
 ```
 
