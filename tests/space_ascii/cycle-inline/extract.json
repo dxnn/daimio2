@@ -17,7 +17,7 @@
     },
     {
       "id": "s2",
-      "name": "s2",
+      "name": "s0",
       "source": "{__ | sleep}",
       "ports": []
     }

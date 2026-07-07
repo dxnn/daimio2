@@ -20,7 +20,7 @@ const suites = [
   ['node_code.mjs',        'internal JS-level',                       0],
   ['security_test.mjs',    'dialect, pollution, regex, senders',       0],
   ['space_test.mjs',       'space/topology',                          24],  // unimplemented spec behaviors
-  ['space_ascii_test.mjs', 'ASCII topology renderer',                  4],  // round-trip: info not in render
+  ['space_ascii_test.mjs', 'ASCII topology renderer',                  0],
   ['example_test.mjs',     'command examples (auto-discovered)',       0],
   ['perf_test.mjs',        'performance benchmarks',                   0],
   ['editor_test.mjs',      'editor module (tokens, context, completions)', 0],

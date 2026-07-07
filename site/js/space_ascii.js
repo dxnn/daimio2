@@ -44,21 +44,31 @@ export function render(laid_out) {
       for (var j = 0; j < el.text.length; j++) grid[el.y][el.x + j] = el.text[j]
   }
 
-  // 3. Stamp path wire segments and track h/v directions for intersections
+  // 3. Stamp path wire segments and track h/v directions for intersections.
+  // Also record turn cells: where a path changes direction. A turn at a
+  // cell with through-wires in both axes renders the turn's arrow (the
+  // wire merges into the crossing wire); O is reserved for pure crossings.
   var h_dir = {}  // 'x,y' → direction
   var v_dir = {}
+  var turn_dir = {}  // 'x,y' → direction turned into
   for (var i = 0; i < paths.length; i++) {
     var pts = paths[i].path
+    var prev_dir = null
     for (var j = 0; j < pts.length - 1; j++) {
       var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
-      if (y0 === y1) {
+      var dir = null
+      if (y0 === y1 && x0 !== x1) {
         var xmin = Math.min(x0, x1), xmax = Math.max(x0, x1)
-        var dir = x1 >= x0 ? 'right' : 'left'
+        dir = x1 >= x0 ? 'right' : 'left'
         for (var x = xmin; x <= xmax; x++) { grid[y0][x] = '-'; h_dir[x + ',' + y0] = dir }
-      } else if (x0 === x1) {
+      } else if (x0 === x1 && y0 !== y1) {
         var ymin = Math.min(y0, y1), ymax = Math.max(y0, y1)
-        var dir = y1 >= y0 ? 'down' : 'up'
+        dir = y1 >= y0 ? 'down' : 'up'
         for (var y = ymin; y <= ymax; y++) { grid[y][x0] = '|'; v_dir[x0 + ',' + y] = dir }
+      }
+      if (dir) {
+        if (prev_dir && prev_dir !== dir) turn_dir[x0 + ',' + y0] = dir
+        prev_dir = dir
       }
     }
   }
@@ -71,7 +81,8 @@ export function render(laid_out) {
     var h_thru = !!h_dir[(x - 1) + ',' + y] && !!h_dir[(x + 1) + ',' + y]
     var v_thru = !!v_dir[x + ',' + (y - 1)] && !!v_dir[x + ',' + (y + 1)]
     var hd = h_dir[k], vd = v_dir[k]
-    grid[y][x] = h_thru && v_thru ? 'O' : h_thru ? dir_char[vd] : v_thru ? dir_char[hd] : dir_char[vd]
+    grid[y][x] = h_thru && v_thru ? (turn_dir[k] ? dir_char[turn_dir[k]] : 'O')
+               : h_thru ? dir_char[vd] : v_thru ? dir_char[hd] : dir_char[vd]
   }
 
   // 5. Stamp stations and subspace_boxes ON TOP of wires

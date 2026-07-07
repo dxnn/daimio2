@@ -53,9 +53,22 @@ export function extract(name, seedlike) {
         if (extra.indexOf(pname) < 0) extra.push(pname)
       }
     }
-    var stable_name = (sname.indexOf('station-') === 0) ? 's' + i : sname
-    stations.push({ id: 's' + i, name: stable_name, source: source, ports: extra })
+    stations.push({ id: 's' + i, name: sname, source: source, ports: extra })
   }
+
+  // Anonymous stations get order-independent stable names: rank among the
+  // anonymous stations by source text (declaration order breaks ties), so
+  // a parsed render — which can't know declaration order — names them the
+  // same way the original did.
+  var anon = []
+  for (var i = 0; i < stations.length; i++)
+    if (stations[i].name.indexOf('station-') === 0) anon.push(i)
+  anon.sort(function(a, b) {
+    var sa = stations[a].source, sb = stations[b].source
+    return sa < sb ? -1 : sa > sb ? 1 : a - b
+  })
+  for (var i = 0; i < anon.length; i++)
+    stations[anon[i]].name = 's' + i
 
   // Build lookup maps
   var port_key_to_id = {}
@@ -226,6 +239,18 @@ export function topo_sort(topology) {
     if (comp_set[c.from.id] && comp_set[c.to.id])
       in_edges[c.to.id].push(c.from.id)
   }
+  // Sort predecessor lists by name so cycle-breaking (which edge becomes
+  // the back-edge) is independent of declaration and route order
+  function pred_name(id) {
+    var s = station_by_id[id]
+    if (!s) return id
+    return /^s\d+$/.test(s.name) ? '~' + s.source : s.name
+  }
+  for (var id in in_edges)
+    in_edges[id].sort(function(a, b) {
+      var an = pred_name(a), bn = pred_name(b)
+      return an < bn ? -1 : an > bn ? 1 : 0
+    })
 
   // Longest-path layering via recursive DFS (three-state for cycle detection)
   var layer_of = {}
@@ -294,12 +319,6 @@ export function layout(topology, options) {
   var subspaces = topology.subspaces || []
   var elements = []
 
-  // Sort connections deterministically so path routing is independent of source order
-  connections.sort(function(a, b) {
-    return (a.from.id < b.from.id ? -1 : a.from.id > b.from.id ? 1 : 0) ||
-           (a.to.id < b.to.id ? -1 : a.to.id > b.to.id ? 1 : 0)
-  })
-
   // ── Lookups ──────────────────────────────────────────────────────────
 
   var port_by_id = {}
@@ -313,6 +332,24 @@ export function layout(topology, options) {
   var subspace_set = {}
   for (var i = 0; i < subspaces.length; i++)
     subspace_set[subspaces[i]] = true
+
+  // Sort connections by component NAME (source text for anonymous
+  // stations, key for ports), not id: ids follow declaration order, and
+  // the layout must be identical no matter how the source orders its
+  // declarations and routes (a parsed render can't reproduce the order).
+  function comp_sort_name(id) {
+    var s = station_by_id[id]
+    if (s) return /^s\d+$/.test(s.name) ? '~' + s.source : s.name
+    if (port_by_id[id]) return port_by_id[id].key
+    return id
+  }
+  connections.sort(function(a, b) {
+    var af = comp_sort_name(a.from.id), bf = comp_sort_name(b.from.id)
+    var at = comp_sort_name(a.to.id), bt = comp_sort_name(b.to.id)
+    return (af < bf ? -1 : af > bf ? 1 : 0) || (at < bt ? -1 : at > bt ? 1 : 0) ||
+           (a.from.port < b.from.port ? -1 : a.from.port > b.from.port ? 1 : 0) ||
+           (a.to.port < b.to.port ? -1 : a.to.port > b.to.port ? 1 : 0)
+  })
 
   function is_comp(id) { return !!station_by_id[id] || !!subspace_set[id] }
 
@@ -542,18 +579,20 @@ export function layout(topology, options) {
 
   var dummy_id_counter = 0
   var dummy_set = {}
+  var dummy_edge = {}   // dummy id → its edge (for chain straightening)
   var edge_chain = {}
 
   for (var i = 0; i < all_edges.length; i++) {
     var e = all_edges[i]
-    var fl = layer_of[e.from_id], tl = layer_of[e.to_id]
-    var span = tl - fl
-    if (span <= 1) {
+    if (reversed_set[e.id]) {
+      // Reversed edges route via below-station h-channels — dummies would
+      // only occupy layer slots and stretch rows for nothing
       edge_chain[e.id] = [e.from_id, e.to_id]
       continue
     }
-    if (span <= 0) {
-      // Same layer or wrong direction — shouldn't happen after reversal, but handle gracefully
+    var fl = layer_of[e.from_id], tl = layer_of[e.to_id]
+    var span = tl - fl
+    if (span <= 1) {
       edge_chain[e.id] = [e.from_id, e.to_id]
       continue
     }
@@ -561,6 +600,7 @@ export function layout(topology, options) {
     for (var l = fl + 1; l < tl; l++) {
       var did = '_d' + (dummy_id_counter++)
       dummy_set[did] = true
+      dummy_edge[did] = e
       layer_of[did] = l
       layers[l].push(did)
       chain.push(did)
@@ -610,6 +650,72 @@ export function layout(topology, options) {
     if (layers[i].length > total_rows) total_rows = layers[i].length
   }
 
+  // ── Straighten chains ───────────────────────────────────────────────
+  // Crossing minimization is free to zigzag a dummy chain outside the band
+  // between its endpoints' rows, which routes the wire away and back for
+  // nothing (a split that rejoins itself). Clamp dummy rows into that band
+  // when a slot is free: dummies may share a (layer, row) slot with
+  // dummies of same-source or same-dest edges (their horizontals merge
+  // into a legal trunk), never with real components or unrelated dummies.
+
+  var slot_nodes = {}   // layer|row → [node ids]
+  for (var i = 0; i < layers.length; i++) {
+    for (var j = 0; j < layers[i].length; j++) {
+      var sk = i + '|' + row_of[layers[i][j]]
+      if (!slot_nodes[sk]) slot_nodes[sk] = []
+      slot_nodes[sk].push(layers[i][j])
+    }
+  }
+  function slot_free_for(layer, row, e) {
+    var list = slot_nodes[layer + '|' + row]
+    if (!list) return true
+    for (var k = 0; k < list.length; k++) {
+      if (!dummy_set[list[k]]) return false
+      var oe = dummy_edge[list[k]]
+      if (oe.id !== e.id && oe.from_id !== e.from_id && oe.to_id !== e.to_id) return false
+    }
+    return true
+  }
+  for (var i = 0; i < all_edges.length; i++) {
+    var e = all_edges[i]
+    if (reversed_set[e.id]) continue
+    var chain = edge_chain[e.id]
+    if (chain.length <= 2) continue
+    var lo = Math.min(row_of[e.from_id], row_of[e.to_id])
+    var hi = Math.max(row_of[e.from_id], row_of[e.to_id])
+    for (var j = 1; j < chain.length - 1; j++) {
+      var d = chain[j]
+      var r = row_of[d]
+      if (r >= lo && r <= hi) continue
+      // Try band rows starting from the nearest boundary
+      var targets = []
+      if (r < lo) { for (var t = lo; t <= hi; t++) targets.push(t) }
+      else { for (var t = hi; t >= lo; t--) targets.push(t) }
+      for (var c = 0; c < targets.length; c++) {
+        if (!slot_free_for(layer_of[d], targets[c], e)) continue
+        var old_sk = layer_of[d] + '|' + r
+        slot_nodes[old_sk].splice(slot_nodes[old_sk].indexOf(d), 1)
+        row_of[d] = targets[c]
+        var new_sk = layer_of[d] + '|' + targets[c]
+        if (!slot_nodes[new_sk]) slot_nodes[new_sk] = []
+        slot_nodes[new_sk].push(d)
+        break
+      }
+    }
+  }
+
+  // Compact away rows emptied by straightening
+  var used_rows = {}
+  for (var id in row_of) used_rows[row_of[id]] = true
+  var row_remap = {}
+  var next_row = 0
+  for (var r = 0; r < total_rows; r++)
+    if (used_rows[r]) row_remap[r] = next_row++
+  if (next_row < total_rows) {
+    for (var id in row_of) row_of[id] = row_remap[row_of[id]]
+    total_rows = next_row
+  }
+
   // ── Gap sizing: count distinct fan groups per gap ───────────────
   // Hops from the same source (fan-out) or to the same dest (fan-in)
   // share one channel, so count groups not individual hops.
@@ -647,6 +753,21 @@ export function layout(topology, options) {
         to_group_n[tk] = (to_group_n[tk] || 0) + 1
       }
     }
+  }
+  // Reversed-edge and self-loop drop legs join their source's down-fan —
+  // count them so a lone forward hop from the same source still groups
+  // with them instead of taking its own column
+  for (var i = 0; i < all_edges.length; i++) {
+    if (!reversed_set[all_edges[i].id]) continue
+    var chain = edge_chain[all_edges[i].id]
+    var orig_from = chain[chain.length - 1]
+    if (port_by_id[orig_from]) continue
+    var fk = layer_of[orig_from] + '|dn|' + orig_from
+    from_group_n[fk] = (from_group_n[fk] || 0) + 1
+  }
+  for (var i = 0; i < self_loops.length; i++) {
+    var fk = layer_of[self_loops[i].from.id] + '|dn|' + self_loops[i].from.id
+    from_group_n[fk] = (from_group_n[fk] || 0) + 1
   }
   for (var i = 0; i < all_edges.length; i++) {
     var e = all_edges[i]
@@ -1556,6 +1677,30 @@ function check_layout_invariants(laid) {
       if (a.min > b.max || b.min > a.max) continue
       throw new Error('Invariant spacing-h: ' + a.conn + ' hline y=' + a.y + ' and ' + b.conn +
                       ' hline y=' + b.y + ' are adjacent (x ' + Math.max(a.min, b.min) + '..' + Math.min(a.max, b.max) + ')')
+    }
+  }
+
+  // Invariant 7: cross-and-merge in one direction only. A cell where a
+  // path turns may also carry through-wires (it renders as the turn's
+  // arrow), but two different turn directions at one cell are undrawable.
+  var turn_dir_at = {}
+  for (var i = 0; i < paths.length; i++) {
+    var pts = paths[i].path
+    var prev_dir = null
+    for (var j = 0; j < pts.length - 1; j++) {
+      var a = pts[j], b = pts[j + 1]
+      var d = (a.y === b.y && a.x !== b.x) ? (b.x > a.x ? 'right' : 'left')
+            : (a.x === b.x && a.y !== b.y) ? (b.y > a.y ? 'down' : 'up') : null
+      if (d) {
+        if (prev_dir && prev_dir !== d) {
+          var k = a.x + ',' + a.y
+          if (turn_dir_at[k] !== undefined && turn_dir_at[k] !== d)
+            throw new Error('Invariant turn: two turn directions at (' + k + '): ' +
+                            turn_dir_at[k] + ' and ' + d + ' (' + paths[i].conn + ')')
+          turn_dir_at[k] = d
+        }
+        prev_dir = d
+      }
     }
   }
 

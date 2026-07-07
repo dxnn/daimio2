@@ -24,13 +24,13 @@
   "stations": [
     {
       "id": "s0",
-      "name": "s0",
+      "name": "s1",
       "source": "{__ | add $count | >$count}",
       "ports": []
     },
     {
       "id": "s1",
-      "name": "s1",
+      "name": "s0",
       "source": "{__ | >$time}",
       "ports": []
     }

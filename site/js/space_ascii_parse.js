@@ -130,6 +130,28 @@ function refine(original, source, parsed_blocks, options) {
     }
     if (changed) continue
 
+    // Try joining routes that share an inline anonymous endpoint: the two
+    // occurrences parse as two different stations, but the diagram may
+    // show one chain through a single station
+    for (var a = 0; a < current.length && !changed; a++) {
+      for (var b = 0; b < current.length && !changed; b++) {
+        if (a === b) continue
+        var ma = current[a].match(/^(\s+)(.+)$/)
+        var mb = current[b].match(/^\s+(.+)$/)
+        if (!ma || !mb) continue
+        var pa = ma[2].split(' -> '), pb = mb[1].split(' -> ')
+        var tail = pa[pa.length - 1]
+        if (tail !== pb[0] || tail[0] !== '{') continue
+        var candidate = current.slice()
+        candidate[a] = ma[1] + pa.concat(pb.slice(1)).join(' -> ')
+        candidate.splice(b, 1)
+        var s = sc(candidate)
+        if (s === Infinity) return build(candidate)
+        if (s > best_score) { current = candidate; best_score = s; changed = true }
+      }
+    }
+    if (changed) continue
+
     // Top-down: try removing each route. Best-improvement, not first —
     // taking the first improving removal can delete a true route whose
     // absence still scores well, hiding the exact fix.
@@ -388,7 +410,115 @@ function char_dir(ch) {
   return ch === 'v' ? 'down' : ch === '^' ? 'up' : ch === '>' ? 'right' : ch === '<' ? 'left' : null
 }
 
-function get_exits(grid, x, y, dir) {
+// --- Flow inference ---
+// Junction chars fix flow only at their own cells; plain - and | runs are
+// directionless, letting a trace ride a wire backwards after a legal turn.
+// Infer each maximal run's direction from its evidence: arrow chars on the
+// run, attachments at its ends ( ')' departs right, '(' and wall-'o'
+// receive ), and corner chars at its ends (a corner whose vertical flows
+// away means the horizontal flows toward it, and vice versa). Cells of
+// runs with consistent evidence are marked; traversal rejects moves
+// against a marked flow. The two cells beside a left port stay unmarked —
+// a contract return T-junctions there and runs against the port's wire.
+function infer_h_flow(grid, left_col, right_col) {
+  var flow = {}
+  var run_chars = '-><Ov^'
+  for (var y = 0; y < grid.length; y++) {
+    var x = left_col + 1
+    while (x < right_col) {
+      if (run_chars.indexOf(grid[y][x]) < 0) { x++; continue }
+      var x0 = x
+      while (x < right_col && run_chars.indexOf(grid[y][x]) >= 0) x++
+      var x1 = x - 1
+      var has_dash = false
+      for (var j = x0; j <= x1; j++) if ('-><'.indexOf(grid[y][j]) >= 0) has_dash = true
+      if (!has_dash) continue
+      var dirs = {}
+      for (var j = x0; j <= x1; j++) {
+        if (grid[y][j] === '>') dirs.right = true
+        if (grid[y][j] === '<') dirs.left = true
+      }
+      var lt = x0 - 1 >= 0 ? grid[y][x0 - 1] : ' '
+      var rt = x1 + 1 < grid[y].length ? grid[y][x1 + 1] : ' '
+      if (lt === ')' || lt === 'o') dirs.right = true
+      if (rt === '(' || rt === 'o') dirs.right = true
+      if (rt === ')') dirs.left = true
+      // Corner evidence at run ends: v/^ with the vertical on one side only
+      function corner_dir(cx, at_right_end) {
+        var ch = grid[y][cx]
+        if (ch !== 'v' && ch !== '^') return null
+        var above = y > 0 && is_v_connectable(grid[y - 1][cx])
+        var below = y + 1 < grid.length && is_v_connectable(grid[y + 1][cx])
+        if (above === below) return null
+        var away = (ch === 'v' && below) || (ch === '^' && above)
+        // flow toward an away-corner, away from an into-corner
+        if (at_right_end) return away ? 'right' : 'left'
+        return away ? 'left' : 'right'
+      }
+      var cl = corner_dir(x0, false), cr = corner_dir(x1, true)
+      if (cl) dirs[cl] = true
+      if (cr) dirs[cr] = true
+      if (dirs.right && !dirs.left) {
+        for (var j = x0; j <= x1; j++) flow[j + ',' + y] = 'right'
+      } else if (dirs.left && !dirs.right) {
+        for (var j = x0; j <= x1; j++) flow[j + ',' + y] = 'left'
+      }
+    }
+    // Contract T-junction exemption: cells right beside a left-wall port
+    if (grid[y][left_col] === 'o') {
+      delete flow[(left_col + 1) + ',' + y]
+      delete flow[(left_col + 2) + ',' + y]
+    }
+  }
+  return flow
+}
+
+function infer_v_flow(grid, left_col, right_col) {
+  var flow = {}
+  var run_chars = '|v^O><'
+  var h = grid.length
+  for (var x = left_col + 1; x < right_col; x++) {
+    var y = 1
+    while (y < h - 1) {
+      if (run_chars.indexOf(grid[y][x]) < 0) { y++; continue }
+      var y0 = y
+      while (y < h - 1 && run_chars.indexOf(grid[y][x]) >= 0) y++
+      var y1 = y - 1
+      var has_bar = false
+      for (var j = y0; j <= y1; j++) if ('|v^'.indexOf(grid[j][x]) >= 0) has_bar = true
+      if (!has_bar) continue
+      var dirs = {}
+      for (var j = y0; j <= y1; j++) {
+        if (grid[j][x] === 'v') dirs.down = true
+        if (grid[j][x] === '^') dirs.up = true
+      }
+      // Corner evidence at run ends: >/< with the horizontal on one side only
+      function corner_dir(cy, at_bottom_end) {
+        var ch = grid[cy][x]
+        if (ch !== '>' && ch !== '<') return null
+        var left = x > 0 && is_h_connectable(grid[cy][x - 1])
+        var right = x + 1 < grid[cy].length && is_h_connectable(grid[cy][x + 1])
+        if (left === right) return null
+        var away = (ch === '>' && right) || (ch === '<' && left)
+        if (at_bottom_end) return away ? 'down' : 'up'
+        return away ? 'up' : 'down'
+      }
+      var ct = corner_dir(y0, false), cb = corner_dir(y1, true)
+      if (ct) dirs[ct] = true
+      if (cb) dirs[cb] = true
+      if (dirs.down && !dirs.up) {
+        for (var j = y0; j <= y1; j++) flow[x + ',' + j] = 'down'
+      } else if (dirs.up && !dirs.down) {
+        for (var j = y0; j <= y1; j++) flow[x + ',' + j] = 'up'
+      }
+    }
+  }
+  return flow
+}
+
+var opposite = { left: 'right', right: 'left', up: 'down', down: 'up' }
+
+function get_exits(grid, x, y, dir, flows) {
   var ch = grid[y][x]
   var results = []
 
@@ -398,8 +528,10 @@ function get_exits(grid, x, y, dir) {
     var nc = grid[ny][nx]
     if (new_dir === 'left' || new_dir === 'right') {
       if (!is_h_connectable(nc)) return
+      if (flows && flows.h[nx + ',' + ny] === opposite[new_dir]) return
     } else {
       if (!is_v_connectable(nc)) return
+      if (flows && flows.v[nx + ',' + ny] === opposite[new_dir]) return
     }
     results.push({ x: nx, y: ny, dir: new_dir })
   }
@@ -432,8 +564,13 @@ function get_exits(grid, x, y, dir) {
       try_exit(0, flow_dy, flow_vdir)
     } else if (dir === flow_vdir) {
       try_exit(0, flow_dy, flow_vdir)
-      try_exit(1, 0, 'right')
-      try_exit(-1, 0, 'left')
+      // Turning onto the horizontal is only possible where the vertical
+      // ends; at a v-through cell the arrow marks a horizontal wire
+      // merging IN (cross-and-merge is one-directional)
+      if (!check_v_thru(grid, x, y)) {
+        try_exit(1, 0, 'right')
+        try_exit(-1, 0, 'left')
+      }
     }
   } else if (ch === '>' || ch === '<') {
     // Horizontal-flow junction: the horizontal wire here flows in the
@@ -450,8 +587,12 @@ function get_exits(grid, x, y, dir) {
       try_exit(flow_dx, 0, flow_hdir)
     } else if (dir === flow_hdir) {
       try_exit(flow_dx, 0, flow_hdir)
-      try_exit(0, -1, 'up')
-      try_exit(0, 1, 'down')
+      // Same one-direction rule, transposed: at an h-through cell the
+      // arrow marks a vertical wire merging in, not a horizontal turning
+      if (!check_h_thru(grid, x, y)) {
+        try_exit(0, -1, 'up')
+        try_exit(0, 1, 'down')
+      }
     }
   } else if (ch === 'o') {
     if (dir !== 'left') try_exit(1, 0, 'right')
@@ -467,6 +608,8 @@ function get_exits(grid, x, y, dir) {
 }
 
 function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
+  var flows = { h: infer_h_flow(grid, left_col, right_col),
+                v: infer_v_flow(grid, left_col, right_col) }
   // Build lookup: (x,y) -> [{kind, index, role}]
   var attach_at = {}
   function add(x, y, info) {
@@ -550,7 +693,7 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
         if (is_source) continue
       }
 
-      var exits = get_exits(grid, cur.x, cur.y, cur.dir)
+      var exits = get_exits(grid, cur.x, cur.y, cur.dir, flows)
       for (var ei = 0; ei < exits.length; ei++) queue.push(exits[ei])
     }
   }

@@ -196,22 +196,36 @@ expired/          — old commands/demos for reference
 2. Topo sort with cycle detection (DFS, back-edge identification)
 3. Virtual port layers (left ports at layer 0, right ports at last layer)
 4. Back-edge reversal (swap from/to, route as forward, flip path at end)
-5. Dummy node insertion for all multi-layer edges
+5. Dummy node insertion for forward multi-layer edges (reversed edges route
+   via below-station h-channels and get no dummies)
 6. Barycentric crossing minimization (with dummies and ports)
-7. Hop-level fan grouping (final hop joins the dest's to-fan, other hops the
-   source's from-fan — whichever group is larger wins; split by direction)
-8. Channel ordinals per gap, then ordinal-based approach-conflict detection
+7. Chain straightening: dummy rows clamp into the band between the chain's
+   endpoint rows (dummies may share a slot with same-source/same-dest
+   dummies); emptied rows are compacted away
+8. Hop-level fan grouping (final hop joins the dest's to-fan, other hops the
+   source's from-fan — whichever group is larger wins; split by direction;
+   reversed/self-loop drop legs count toward the source's down-fan)
+9. Channel ordinals per gap, then ordinal-based approach-conflict detection
    (dep/arr x-ranges overlap iff dep channel ordinal >= arr ordinal)
-9. Gap sizing (channels + reserved jog columns) + channel x allocation
-10. Band slot allocator: approach tracks, reversed-edge h-channels (one per
+10. Gap sizing (channels + arrival ladder columns) + channel x allocation
+11. Band slot allocator: approach tracks, reversed-edge h-channels (one per
     edge), and self-loop channels share per-band y slots, two rows apart
-11. Reversed-edge and self-loop drop legs register as pseudo-hops under the
+12. Reversed-edge and self-loop drop legs register as pseudo-hops under the
     source's down-fan key (shared trunk columns)
-12. Contract returns to a left port rise one column off the wall and
+13. Contract returns to a left port rise one column off the wall and
     T-junction into the port's wire
-13. Post-processing: row/column collapsing
+14. Post-processing: row/column collapsing
 
-Six invariant checks (all fixtures passing):
+The layout is canonical: connections and cycle-breaking sort by component
+NAME (source text for anonymous stations), and anonymous stations are named
+s0, s1, ... by rank among anonymous sources — so declaration and route
+order never affect the picture, and a parsed render reproduces it exactly.
+
+Junction convention: O is a pure crossing. A wire turning at a cell where
+wires pass through in both axes renders as the turn's arrow (v ^ > <) —
+the wire merges into the crossing wire, one direction only.
+
+Seven invariant checks (all fixtures passing):
 - No wire through station body interior
 - No opposing-direction wires (unless shared endpoint, or a swapped pair
   beside a shared port — the contract T-junction)
@@ -222,6 +236,8 @@ Six invariant checks (all fixtures passing):
 - Attach clearance: arriving wires turn >= 3 cells before a station's in.x
   (the paren eats one cell), >= 2 for subspaces; departures run >= 2 cells
   past out.x before turning; ports exempt
+- Turn uniqueness: at most one turn direction per cell (cross-and-merge is
+  one-directional)
 
 Renderers: `space_ascii.js` (ASCII), `space_svg.js` (SVG). Both use same layout output.
 Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render-guided refinement.
@@ -231,19 +247,23 @@ Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render
 `site/js/space_ascii_parse.js` — parses render.txt back to source.dm format.
 Round-trip: `render.txt → parse_ascii() → source.dm → seedlikes_from_string → extract → layout → render`.
 
-37/41 fixtures round-trip exactly. The wire tracer is direction-aware:
-junction chars encode flow (v/^/>/< per renderer rules 5-8, guaranteed
-faithful by the layout invariants), so traversal never runs against a drawn
-flow. Contract returns are recognized by their T-junction (a ^ on the port
-wire fed from below). Refine tries cycle rotations first (the traced start
-of a cycle is arbitrary but decides the back-edge), then best-improvement
-removal/addition, then swaps.
+All 41 fixtures round-trip exactly. The wire tracer is flow-aware at two
+levels, both guaranteed faithful by the layout invariants:
+- junction chars encode flow (v/^/>/<), so traversal never runs against
+  a drawn junction; at through-cells the merge is one-directional
+- plain - and | runs get their direction inferred from run evidence
+  (arrows on the run, attachments and corner chars at its ends), so a
+  trace can't ride a wire backwards after a legal merge turn (the two
+  cells beside a left port stay unmarked for the contract T-junction)
 
-The 4 remaining failures need render-format changes, not parser work:
-- dense4, k5, multi-layer-cross: merged fan trunks make some joins render
-  as plain O crossings — that connectivity is genuinely absent from the ASCII
-- full-topology: custom port labels (@init, @touched) aren't rendered
-  (ports draw as bare 'o'), so labels can't be recovered
+Contract returns are recognized by their T-junction (a ^ on the port wire
+fed from below). Refine tries cycle rotations first (the traced start of a
+cycle is arbitrary but decides the back-edge), then joins routes sharing an
+inline anonymous endpoint (two {…} occurrences parse as two stations, but
+the diagram may show one), then best-improvement removal/addition, then
+swaps. Custom port labels and flavours are not rendered, so a parsed
+source uses canonical @in/@in:a/@out names — renders are identical because
+labels never reach the picture.
 
 ## Test status (as of 2026-04-05)
 
@@ -252,9 +272,9 @@ The 4 remaining failures need render-format changes, not parser work:
 - node_code: 83/83 pass
 - security_test: 179/179 pass
 - space_test: 124/148 pass (24 known spec-gap failures)
-- space_ascii_test: 309/313 pass (4 round-trip failures, 0 other failures, 41 fixture dirs;
-  as of 2026-07-06: spacing/wall/attach invariants enforced, fan trunks merged,
-  jogs minimized, direction-aware parser)
+- space_ascii_test: 315/315 pass (41/41 fixtures round-trip, 0 failures;
+  as of 2026-07-06: seven layout invariants enforced, canonical layout,
+  turn-arrow junction convention, flow-aware parser)
 - example_test: 104/104 pass
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass
