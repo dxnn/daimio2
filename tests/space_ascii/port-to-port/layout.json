@@ -1,0 +1,35 @@
+{
+  "id": "t",
+  "name": "t",
+  "width": 12,
+  "height": 7,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 12,
+      "height": 7,
+      "name": "t"
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "in",
+      "id": "p0",
+      "wire_x": 1
+    },
+    {
+      "type": "port",
+      "x": 11,
+      "y": 5,
+      "dir": "right",
+      "key": "out",
+      "id": "p1",
+      "wire_x": 10
+    }
+  ],
+  "paths": []
+}

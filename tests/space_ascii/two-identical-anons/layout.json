@@ -1,0 +1,87 @@
+{
+  "id": "t",
+  "name": "t",
+  "width": 32,
+  "height": 14,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 32,
+      "height": 14,
+      "name": "t"
+    },
+    {
+      "type": "station",
+      "id": "s1",
+      "x": 5,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{b}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 14,
+        "y": 5
+      },
+      "name": "B"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 9,
+      "width": 9,
+      "height": 4,
+      "source": "{a}",
+      "in": {
+        "x": 5,
+        "y": 11
+      },
+      "out": {
+        "x": 14,
+        "y": 11
+      },
+      "name": "A"
+    },
+    {
+      "type": "station",
+      "id": "s2",
+      "x": 21,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{x}",
+      "in": {
+        "x": 21,
+        "y": 5
+      },
+      "out": {
+        "x": 30,
+        "y": 5
+      },
+      "name": "s0"
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c0",
+      "from": "s1",
+      "to": "s2",
+      "path": [
+        {
+          "x": 14,
+          "y": 5
+        },
+        {
+          "x": 21,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

@@ -4,13 +4,20 @@
 // Round-trip: render.txt → parse_ascii() → source.dm → seedlikes_from_string → extract → layout → render
 
 import D from '../../daimio/daimio.js'
-import { render_space, render_all } from './space_ascii.js'
+import { render_space } from './space_ascii.js'
 
 export function parse_ascii(text, options) {
+  // Each block (space) is refined independently against its own render —
+  // refining the whole text at once would let the greedy search move one
+  // block's routes into another. The other blocks' sources stay in scope
+  // while rendering candidates: a subspace reference only registers when
+  // the referenced space is defined in the same source.
   var blocks = split_blocks(text)
   var parsed = blocks.map(parse_block_data)
-  var source = parsed.map(function(p) { return p.source }).join('\n')
-  return refine(text, source, parsed, options)
+  var sources = parsed.map(function(p) { return p.source })
+  for (var i = 0; i < blocks.length; i++)
+    sources[i] = refine(blocks[i].join('\n'), sources, i, parsed[i], options)
+  return sources.join('\n')
 }
 
 // Raw parse without refine (for debugging)
@@ -19,12 +26,15 @@ export function parse_ascii_raw(text) {
   return blocks.map(function(b) { return parse_block_data(b).source }).join('\n')
 }
 
-function try_render(source, options) {
-  var sl = D.seedlikes_from_string(source)
+// Render one block's candidate source with the other blocks' sources in
+// scope, returning only that block's render
+function try_block(sources, index, candidate, options) {
+  var all = sources.slice()
+  all[index] = candidate
+  var sl = D.seedlikes_from_string(all.join('\n'))
   var names = Object.keys(sl)
-  if (names.length === 0) return ''
-  if (names.length === 1) return render_space(names[0], sl[names[0]], options)
-  return render_all(sl, options)
+  if (index >= names.length) return ''
+  return render_space(names[index], sl[names[index]], options)
 }
 
 function render_score(rendered, original) {
@@ -52,7 +62,7 @@ function generate_all_routes(parsed_blocks) {
       else sinks.push('@' + pl)
     }
     for (var i = 0; i < p.stations.length; i++) {
-      var sn = /^s\d+$/.test(p.stations[i].name) ? p.stations[i].source : p.stations[i].name
+      var sn = p.stations[i].name || p.stations[i].source
       sources.push(sn)
       sinks.push(sn)
     }
@@ -69,8 +79,10 @@ function generate_all_routes(parsed_blocks) {
   return all_routes
 }
 
-function refine(original, source, parsed_blocks, options) {
-  if (try_render(source, options) === original) return source
+function refine(original, block_sources, index, parsed_block, options) {
+  var source = block_sources[index]
+  function render_candidate(src) { return try_block(block_sources, index, src, options) }
+  if (render_candidate(source) === original) return source
 
   // Split source into header (non-route) and routes + footer
   var lines = source.split('\n')
@@ -88,7 +100,7 @@ function refine(original, source, parsed_blocks, options) {
   }
 
   // Generate brute-force candidate routes
-  var extra = generate_all_routes(parsed_blocks)
+  var extra = generate_all_routes([parsed_block])
   var extra_seen = {}
   for (var i = 0; i < traced_routes.length; i++) extra_seen[traced_routes[i].trim()] = true
   var extras = []
@@ -97,7 +109,7 @@ function refine(original, source, parsed_blocks, options) {
 
   function build(routes) { return header.concat(routes).concat(footer).join('\n') }
   function sc(routes) {
-    var rendered = try_render(build(routes), options)
+    var rendered = render_candidate(build(routes))
     return rendered === original ? Infinity : render_score(rendered, original)
   }
 
@@ -208,7 +220,7 @@ function refine(original, source, parsed_blocks, options) {
         var sw = lines2.slice()
         var tmp = sw[si[a]]; sw[si[a]] = sw[si[b]]; sw[si[b]] = tmp
         var cand = sw.join('\n')
-        var rendered = try_render(cand, options)
+        var rendered = render_candidate(cand)
         if (rendered === original) return cand
         if (render_score(rendered, original) > best_score) {
           lines2 = sw; best_score = render_score(rendered, original); changed = true; break
@@ -464,10 +476,16 @@ function infer_h_flow(grid, left_col, right_col) {
         for (var j = x0; j <= x1; j++) flow[j + ',' + y] = 'left'
       }
     }
-    // Contract T-junction exemption: cells right beside a left-wall port
+    // Port-mouth exemption: the 1-2 cells beside a wall port carry both
+    // directions (contract returns T in on the left; down-port responses
+    // branch off on the right)
     if (grid[y][left_col] === 'o') {
       delete flow[(left_col + 1) + ',' + y]
       delete flow[(left_col + 2) + ',' + y]
+    }
+    if (grid[y][right_col] === 'o') {
+      delete flow[(right_col - 1) + ',' + y]
+      delete flow[(right_col - 2) + ',' + y]
     }
   }
   return flow
@@ -644,8 +662,24 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
   for (var i = 0; i < ports.length; i++) {
     var p = ports[i]
     add(p.x, p.y, { kind: 'port', index: i, side: p.side })
-    if (p.side === 'left')
+    if (p.side === 'left') {
       sources.push({ x: p.x, y: p.y, dir: 'right', info: { kind: 'port', index: i, side: 'left' } })
+    } else {
+      // A right port with a v branching off its mouth (fed downward) is a
+      // down-port response source — trace it leftward
+      for (var dx = 1; dx <= 3; dx++) {
+        var lx = p.x - dx
+        if (lx < 0) break
+        var nc = grid[p.y][lx]
+        if (nc === 'v' &&
+            p.y + 1 < grid.length && is_v_connectable(grid[p.y + 1][lx]) &&
+            !(p.y > 0 && is_v_connectable(grid[p.y - 1][lx]))) {
+          sources.push({ x: p.x, y: p.y, dir: 'left', info: { kind: 'port', index: i, side: 'right' } })
+          break
+        }
+        if (!is_h_connectable(nc)) break
+      }
+    }
   }
   for (var i = 0; i < stations.length; i++) {
     var s = stations[i]
@@ -770,17 +804,15 @@ function emit(name, stations, subspaces, ports, state, connections) {
   for (var i = 0; i < state.length; i++)
     lines.push('  $' + state[i].name + ' ' + state[i].value)
 
-  // Determine anonymous stations (s0, s1, ...)
-  var anon = {}
+  // Declare all stations — anonymous ones (s0, s1, ...) too. Declaring
+  // them under their rendered rank-name round-trips exactly (extract keeps
+  // declared sN names and rank-naming skips taken names), while an inline
+  // {…} reference would mint a new station per occurrence.
   for (var i = 0; i < stations.length; i++)
-    if (/^s\d+$/.test(stations[i].name)) anon[i] = true
-
-  // Declare named stations
-  for (var i = 0; i < stations.length; i++)
-    if (!anon[i]) lines.push('  ' + stations[i].name + ' ' + stations[i].source)
+    if (stations[i].name) lines.push('  ' + stations[i].name + ' ' + stations[i].source)
 
   // Build routes with chaining
-  var routes = build_routes(connections, stations, subspaces, ports, port_label, anon)
+  var routes = build_routes(connections, stations, subspaces, ports, port_label)
   for (var i = 0; i < routes.length; i++)
     lines.push('  ' + routes[i].join(' -> '))
 
@@ -792,7 +824,7 @@ function emit(name, stations, subspaces, ports, state, connections) {
   return lines.join('\n')
 }
 
-function build_routes(connections, stations, subspaces, ports, port_label, anon) {
+function build_routes(connections, stations, subspaces, ports, port_label) {
   // Build adjacency: station index → incoming/outgoing connection indices
   var in_by = {}, out_by = {}
   for (var i = 0; i < connections.length; i++) {
@@ -809,10 +841,8 @@ function build_routes(connections, stations, subspaces, ports, port_label, anon)
 
   function ep_name(ep) {
     if (ep.kind === 'port') return '@' + port_label[ep.index]
-    if (ep.kind === 'station_in' || ep.kind === 'station_out') {
-      if (anon[ep.index]) return stations[ep.index].source
-      return stations[ep.index].name
-    }
+    if (ep.kind === 'station_in' || ep.kind === 'station_out')
+      return stations[ep.index].name || stations[ep.index].source
     if (ep.kind === 'subspace_in') return subspaces[ep.index].name + '.in'
     if (ep.kind === 'subspace_out') return subspaces[ep.index].name + '.out'
     return '?'

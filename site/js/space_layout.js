@@ -59,16 +59,24 @@ export function extract(name, seedlike) {
   // Anonymous stations get order-independent stable names: rank among the
   // anonymous stations by source text (declaration order breaks ties), so
   // a parsed render — which can't know declaration order — names them the
-  // same way the original did.
+  // same way the original did. Names already used by declared stations are
+  // skipped, so a user station named s0 can't collide with an auto-name.
   var anon = []
-  for (var i = 0; i < stations.length; i++)
+  var taken = {}
+  for (var i = 0; i < stations.length; i++) {
     if (stations[i].name.indexOf('station-') === 0) anon.push(i)
+    else taken[stations[i].name] = true
+  }
   anon.sort(function(a, b) {
     var sa = stations[a].source, sb = stations[b].source
     return sa < sb ? -1 : sa > sb ? 1 : a - b
   })
-  for (var i = 0; i < anon.length; i++)
-    stations[anon[i]].name = 's' + i
+  var next_anon = 0
+  for (var i = 0; i < anon.length; i++) {
+    while (taken['s' + next_anon]) next_anon++
+    stations[anon[i]].name = 's' + next_anon
+    next_anon++
+  }
 
   // Build lookup maps
   var port_key_to_id = {}
@@ -552,8 +560,15 @@ export function layout(topology, options) {
     }
 
     if (port_by_id[fid] && is_comp(tid)) {
-      // Left port → station: forward edge (port is in layer 0, station in layer 1+)
-      all_edges.push({ id: c.id, from_id: fid, to_id: tid })
+      if (port_by_id[fid].dir === 'right') {
+        // Right port → station (a down-port response): flows right-to-left,
+        // so route it like a back-edge via a below-station h-channel
+        all_edges.push({ id: c.id, from_id: tid, to_id: fid })
+        reversed_set[c.id] = true
+      } else {
+        // Left port → station: forward edge (port in layer 0, station in 1+)
+        all_edges.push({ id: c.id, from_id: fid, to_id: tid })
+      }
       continue
     }
 
@@ -972,8 +987,20 @@ export function layout(topology, options) {
   for (var i = 0; i < self_loops.length; i++)
     alloc_arrival(layer_of[self_loops[i].from.id] - 1, 'rev|' + self_loops[i].from.id)
 
+  // Returns to a left port rise in a fixed lane at x=2 (the T-junction);
+  // when gap 0 also carries channels, reserve a unit so its track region
+  // starts clear of the lane
+  var left_port_return = false
+  for (var i = 0; i < all_edges.length; i++) {
+    if (!reversed_set[all_edges[i].id]) continue
+    var orig_to = edge_chain[all_edges[i].id][0]
+    if (port_by_id[orig_to] && port_by_id[orig_to].dir === 'left') left_port_return = true
+  }
+
   function gap_units(g) {
-    return (gap_channels[g] || 0) + (arrival_count[g] || 0)
+    var units = (gap_channels[g] || 0) + (arrival_count[g] || 0)
+    if (g === 0 && left_port_return && units > 0) units++
+    return units
   }
 
   // ── Compute layer_x ──────────────────────────────────────────────
@@ -1060,6 +1087,7 @@ export function layout(topology, options) {
     var gap_left = layer_x[gi] + layer_width[gi]
     var gap_right = layer_x[gi + 1]
     var track_min = gap_left + 3
+    if (gi === 0 && left_port_return) track_min += 1  // clear of the return lane at x=2
     var track_max = gap_right - 4 - 2 * (arrival_count[gi] || 0)
     // Ensure track_max >= track_min
     if (track_max < track_min) track_max = track_min
@@ -1293,7 +1321,10 @@ export function layout(topology, options) {
       path.push({ x: from_clear_x, y: from_wy })
       path.push({ x: from_clear_x, y: below_y })
     } else {
-      if (from_wy !== below_y) path.push({ x: from_out_x, y: below_y })
+      // Right-port source: branch off the port's mouth one column clear of
+      // the wall (mirror of the left-port T-junction) and drop below
+      path.push({ x: from_out_x - 1, y: from_wy })
+      path.push({ x: from_out_x - 1, y: below_y })
     }
 
     // Horizontal along below_y to TO clearance
@@ -1546,17 +1577,17 @@ function check_layout_invariants(laid) {
   // Invariant: no opposing directions on shared wire segments
   // Two connections sharing a cell must flow the same direction on each axis,
   // UNLESS they share an endpoint (fan-out/fan-in trunk splitting both ways),
-  // OR they are a swapped pair (A→B and B→A, e.g. a contract) overlapping on
-  // the 1-2 cells beside a shared port, where the return T-junctions into
-  // the port's wire.
+  // OR the cell is a port's mouth (within 1 of its wire_x) and both
+  // connections attach to that port in either role — requests leave and
+  // returns T-junction in over the same 1-2 cells.
   var check_ports = []
   for (var i = 0; i < laid.elements.length; i++)
     if (laid.elements[i].type === 'port' && laid.elements[i].id) check_ports.push(laid.elements[i])
   function port_pair_ok(x, y, a_from, a_to, b) {
-    if (!(a_from === b.to && a_to === b.from)) return false
     for (var i = 0; i < check_ports.length; i++) {
       var p = check_ports[i]
       if (p.id !== a_from && p.id !== a_to) continue
+      if (p.id !== b.from && p.id !== b.to) continue
       if (p.y === y && Math.abs(x - p.wire_x) <= 1) return true
     }
     return false
@@ -1682,7 +1713,10 @@ function check_layout_invariants(laid) {
 
   // Invariant 7: cross-and-merge in one direction only. A cell where a
   // path turns may also carry through-wires (it renders as the turn's
-  // arrow), but two different turn directions at one cell are undrawable.
+  // arrow), but two different turn directions at one cell are undrawable —
+  // UNLESS the turning wires share an endpoint: a fan's internal cells are
+  // interchangeable (every reading is a true flow of the shared endpoint),
+  // so whichever arrow renders, all destinations stay recoverable.
   var turn_dir_at = {}
   for (var i = 0; i < paths.length; i++) {
     var pts = paths[i].path
@@ -1694,10 +1728,12 @@ function check_layout_invariants(laid) {
       if (d) {
         if (prev_dir && prev_dir !== d) {
           var k = a.x + ',' + a.y
-          if (turn_dir_at[k] !== undefined && turn_dir_at[k] !== d)
+          var seen = turn_dir_at[k]
+          if (seen !== undefined && seen.dir !== d &&
+              seen.from !== paths[i].from && seen.to !== paths[i].to)
             throw new Error('Invariant turn: two turn directions at (' + k + '): ' +
-                            turn_dir_at[k] + ' and ' + d + ' (' + paths[i].conn + ')')
-          turn_dir_at[k] = d
+                            seen.dir + ' and ' + d + ' (' + seen.conn + ', ' + paths[i].conn + ')')
+          turn_dir_at[k] = { dir: d, from: paths[i].from, to: paths[i].to, conn: paths[i].conn }
         }
         prev_dir = d
       }

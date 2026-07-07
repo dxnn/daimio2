@@ -1,0 +1,36 @@
+{
+  "id": "t",
+  "name": "t",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "up:q",
+      "dir": "left",
+      "flavour": "up:q"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "A",
+      "source": "{a}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p0",
+        "port": "up:q"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

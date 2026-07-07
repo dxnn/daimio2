@@ -1,0 +1,50 @@
+{
+  "id": "t",
+  "name": "t",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "down:svc",
+      "dir": "right",
+      "flavour": "down:svc"
+    }
+  ],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "A",
+      "source": "{a}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "down:svc"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "contract",
+      "pair": "c1"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "p0",
+        "port": "down:svc"
+      },
+      "type": "contract",
+      "pair": "c0"
+    }
+  ],
+  "state": {}
+}

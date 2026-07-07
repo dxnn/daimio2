@@ -1,0 +1,35 @@
+{
+  "id": "t",
+  "name": "t",
+  "ports": [
+    {
+      "id": "p0",
+      "key": "in",
+      "dir": "left",
+      "flavour": "in"
+    },
+    {
+      "id": "p1",
+      "key": "out",
+      "dir": "right",
+      "flavour": "out"
+    }
+  ],
+  "stations": [],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "p0",
+        "port": "in"
+      },
+      "to": {
+        "id": "p1",
+        "port": "out"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

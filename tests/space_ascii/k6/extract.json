@@ -1,0 +1,407 @@
+{
+  "id": "k6",
+  "name": "k6",
+  "ports": [],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "A",
+      "source": "{A}",
+      "ports": []
+    },
+    {
+      "id": "s1",
+      "name": "B",
+      "source": "{B}",
+      "ports": []
+    },
+    {
+      "id": "s2",
+      "name": "C",
+      "source": "{C}",
+      "ports": []
+    },
+    {
+      "id": "s3",
+      "name": "D",
+      "source": "{D}",
+      "ports": []
+    },
+    {
+      "id": "s4",
+      "name": "E",
+      "source": "{E}",
+      "ports": []
+    },
+    {
+      "id": "s5",
+      "name": "F",
+      "source": "{F}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c1",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s2",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c2",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s3",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c3",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s4",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c4",
+      "from": {
+        "id": "s0",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s5",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c5",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c6",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s2",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c7",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s3",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c8",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s4",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c9",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s5",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c10",
+      "from": {
+        "id": "s2",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c11",
+      "from": {
+        "id": "s2",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c12",
+      "from": {
+        "id": "s2",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s3",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c13",
+      "from": {
+        "id": "s2",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s4",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c14",
+      "from": {
+        "id": "s2",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s5",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c15",
+      "from": {
+        "id": "s3",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c16",
+      "from": {
+        "id": "s3",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c17",
+      "from": {
+        "id": "s3",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s2",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c18",
+      "from": {
+        "id": "s3",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s4",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c19",
+      "from": {
+        "id": "s3",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s5",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c20",
+      "from": {
+        "id": "s4",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c21",
+      "from": {
+        "id": "s4",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c22",
+      "from": {
+        "id": "s4",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s2",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c23",
+      "from": {
+        "id": "s4",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s3",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c24",
+      "from": {
+        "id": "s4",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s5",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c25",
+      "from": {
+        "id": "s5",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c26",
+      "from": {
+        "id": "s5",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s1",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c27",
+      "from": {
+        "id": "s5",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s2",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c28",
+      "from": {
+        "id": "s5",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s3",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c29",
+      "from": {
+        "id": "s5",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s4",
+        "port": "_in"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

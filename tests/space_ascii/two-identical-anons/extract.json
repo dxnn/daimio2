@@ -1,0 +1,41 @@
+{
+  "id": "t",
+  "name": "t",
+  "ports": [],
+  "stations": [
+    {
+      "id": "s0",
+      "name": "A",
+      "source": "{a}",
+      "ports": []
+    },
+    {
+      "id": "s1",
+      "name": "B",
+      "source": "{b}",
+      "ports": []
+    },
+    {
+      "id": "s2",
+      "name": "s0",
+      "source": "{x}",
+      "ports": []
+    }
+  ],
+  "subspaces": [],
+  "connections": [
+    {
+      "id": "c0",
+      "from": {
+        "id": "s1",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s2",
+        "port": "_in"
+      },
+      "type": "faf"
+    }
+  ],
+  "state": {}
+}

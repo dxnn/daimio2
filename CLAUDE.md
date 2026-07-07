@@ -213,13 +213,17 @@ expired/          — old commands/demos for reference
 12. Reversed-edge and self-loop drop legs register as pseudo-hops under the
     source's down-fan key (shared trunk columns)
 13. Contract returns to a left port rise one column off the wall and
-    T-junction into the port's wire
+    T-junction into the port's wire; right-port sources (down-port
+    responses) mirror it, branching off the port's mouth and routing like
+    a back-edge. When gap 0 carries channels alongside a port-return lane,
+    a unit is reserved so the tracks clear the lane.
 14. Post-processing: row/column collapsing
 
 The layout is canonical: connections and cycle-breaking sort by component
 NAME (source text for anonymous stations), and anonymous stations are named
-s0, s1, ... by rank among anonymous sources — so declaration and route
-order never affect the picture, and a parsed render reproduces it exactly.
+s0, s1, ... by rank among anonymous sources (skipping names taken by
+declared stations) — so declaration and route order never affect the
+picture, and a parsed render reproduces it exactly.
 
 Junction convention: O is a pure crossing. A wire turning at a cell where
 wires pass through in both axes renders as the turn's arrow (v ^ > <) —
@@ -227,8 +231,9 @@ the wire merges into the crossing wire, one direction only.
 
 Seven invariant checks (all fixtures passing):
 - No wire through station body interior
-- No opposing-direction wires (unless shared endpoint, or a swapped pair
-  beside a shared port — the contract T-junction)
+- No opposing-direction wires (unless shared endpoint, or at a port's
+  mouth between two wires that both attach to that port — requests leave
+  and returns T-junction in over the same 1-2 cells)
 - No shared-wire false connectivity (unless shared endpoint)
 - One empty space between parallel wires (no adjacent same-axis runs)
 - Wall clearance: no vline flush against a side wall, no hline flush under
@@ -237,7 +242,8 @@ Seven invariant checks (all fixtures passing):
   (the paren eats one cell), >= 2 for subspaces; departures run >= 2 cells
   past out.x before turning; ports exempt
 - Turn uniqueness: at most one turn direction per cell (cross-and-merge is
-  one-directional)
+  one-directional), unless the turning wires share an endpoint — a fan's
+  internal cells are interchangeable, so every reading is a true flow
 
 Renderers: `space_ascii.js` (ASCII), `space_svg.js` (SVG). Both use same layout output.
 Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render-guided refinement.
@@ -257,13 +263,20 @@ levels, both guaranteed faithful by the layout invariants:
   cells beside a left port stay unmarked for the contract T-junction)
 
 Contract returns are recognized by their T-junction (a ^ on the port wire
-fed from below). Refine tries cycle rotations first (the traced start of a
-cycle is arbitrary but decides the back-edge), then joins routes sharing an
-inline anonymous endpoint (two {…} occurrences parse as two stations, but
-the diagram may show one), then best-improvement removal/addition, then
-swaps. Custom port labels and flavours are not rendered, so a parsed
-source uses canonical @in/@in:a/@out names — renders are identical because
-labels never reach the picture.
+fed from below); down-port responses by the mirrored v beside a right
+port. All stations are emitted as declarations — anonymous ones under
+their rendered rank-name — since an inline {…} reference would mint a new
+station per occurrence. Each block is refined independently against its
+own render, with the other blocks' sources kept in scope (a subspace
+reference only registers when the referenced space is defined). Refine
+tries cycle rotations first (the traced start of a cycle is arbitrary but
+decides the back-edge), then joins routes sharing an inline anonymous
+endpoint, then best-improvement removal/addition, then swaps — this also
+resolves the inherently ambiguous shapes (a v feeding a right port's
+mouth is visually identical to a self-loop drop; refine discards the
+reading whose render diverges). Custom port labels and flavours are not
+rendered, so a parsed source uses canonical @in/@in:a/@out names —
+renders are identical because labels never reach the picture.
 
 ## Test status (as of 2026-04-05)
 
@@ -272,9 +285,10 @@ labels never reach the picture.
 - node_code: 83/83 pass
 - security_test: 179/179 pass
 - space_test: 124/148 pass (24 known spec-gap failures)
-- space_ascii_test: 315/315 pass (41/41 fixtures round-trip, 0 failures;
+- space_ascii_test: 376/376 pass (53/53 fixtures round-trip, 0 failures;
   as of 2026-07-06: seven layout invariants enforced, canonical layout,
-  turn-arrow junction convention, flow-aware parser)
+  turn-arrow junction convention, flow-aware parser; 12 adversarial
+  fixtures added incl. K6, port edge cases, anon-name collisions)
 - example_test: 104/104 pass
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass

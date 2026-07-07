@@ -1,0 +1,117 @@
+{
+  "id": "t",
+  "name": "t",
+  "width": 38,
+  "height": 8,
+  "elements": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "width": 38,
+      "height": 8,
+      "name": "t"
+    },
+    {
+      "type": "station",
+      "id": "s0",
+      "x": 5,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{x}",
+      "in": {
+        "x": 5,
+        "y": 5
+      },
+      "out": {
+        "x": 14,
+        "y": 5
+      },
+      "name": "s0"
+    },
+    {
+      "type": "station",
+      "id": "s1",
+      "x": 21,
+      "y": 3,
+      "width": 9,
+      "height": 4,
+      "source": "{x}",
+      "in": {
+        "x": 21,
+        "y": 5
+      },
+      "out": {
+        "x": 30,
+        "y": 5
+      },
+      "name": "s1"
+    },
+    {
+      "type": "port",
+      "x": 0,
+      "y": 5,
+      "dir": "left",
+      "key": "in",
+      "id": "p0",
+      "wire_x": 1
+    },
+    {
+      "type": "port",
+      "x": 37,
+      "y": 5,
+      "dir": "right",
+      "key": "out",
+      "id": "p1",
+      "wire_x": 36
+    }
+  ],
+  "paths": [
+    {
+      "conn": "c0",
+      "from": "p0",
+      "to": "s0",
+      "path": [
+        {
+          "x": 1,
+          "y": 5
+        },
+        {
+          "x": 5,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c2",
+      "from": "s1",
+      "to": "p1",
+      "path": [
+        {
+          "x": 30,
+          "y": 5
+        },
+        {
+          "x": 36,
+          "y": 5
+        }
+      ]
+    },
+    {
+      "conn": "c1",
+      "from": "s0",
+      "to": "s1",
+      "path": [
+        {
+          "x": 14,
+          "y": 5
+        },
+        {
+          "x": 21,
+          "y": 5
+        }
+      ]
+    }
+  ]
+}

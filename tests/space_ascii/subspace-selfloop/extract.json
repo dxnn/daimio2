@@ -1,0 +1,117 @@
+{
+  "inner": {
+    "id": "inner",
+    "name": "inner",
+    "ports": [
+      {
+        "id": "p0",
+        "key": "in",
+        "dir": "left",
+        "flavour": "in"
+      },
+      {
+        "id": "p1",
+        "key": "out",
+        "dir": "right",
+        "flavour": "out"
+      }
+    ],
+    "stations": [
+      {
+        "id": "s0",
+        "name": "s0",
+        "source": "{p}",
+        "ports": []
+      }
+    ],
+    "subspaces": [],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "p0",
+          "port": "in"
+        },
+        "to": {
+          "id": "s0",
+          "port": "_in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c1",
+        "from": {
+          "id": "s0",
+          "port": "_out"
+        },
+        "to": {
+          "id": "p1",
+          "port": "out"
+        },
+        "type": "faf"
+      }
+    ],
+    "state": {}
+  },
+  "outer": {
+    "id": "outer",
+    "name": "outer",
+    "ports": [
+      {
+        "id": "p0",
+        "key": "in",
+        "dir": "left",
+        "flavour": "in"
+      },
+      {
+        "id": "p1",
+        "key": "out",
+        "dir": "right",
+        "flavour": "out"
+      }
+    ],
+    "stations": [],
+    "subspaces": [
+      "inner"
+    ],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "p0",
+          "port": "in"
+        },
+        "to": {
+          "id": "inner",
+          "port": "in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c1",
+        "from": {
+          "id": "inner",
+          "port": "out"
+        },
+        "to": {
+          "id": "inner",
+          "port": "in"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c2",
+        "from": {
+          "id": "inner",
+          "port": "out"
+        },
+        "to": {
+          "id": "p1",
+          "port": "out"
+        },
+        "type": "faf"
+      }
+    ],
+    "state": {}
+  }
+}
