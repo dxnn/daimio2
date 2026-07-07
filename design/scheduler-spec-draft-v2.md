@@ -4,34 +4,58 @@ Revisions to `scheduler-spec-draft.md` resolving the guardian review
 (B1–B4 blocking, S1–S4 smaller). Keyed to v1's edit numbers; only the
 *changed* text is here — unmentioned v1 edits stand.
 
-**Two design calls made in this draft (override if you disagree):**
+**Two design calls (override if you disagree):**
 - **B2 — ordering key = `(number, carrying-wire declaration order,
-  wire-FIFO position)`.** Dropped `procid` from the tiebreak: it's
-  topology-derived and observable, whereas procid is a runtime handle
-  I16/`[id-internal-handles]` just made non-observable, so keying the
-  schedule on it is self-contradictory. procid stays as the *identity*
-  key only.
-- **B4 — I17 scoped to the reference execution** (Option 2 below); the
-  distributed implementation's equivalence becomes a labeled
-  conformance conjecture, not part of the invariant.
+  wire-FIFO position)`.** Drop `procid` from the tiebreak — but NOT
+  because it's non-observable (it IS observable: process ids are the
+  identity vocabulary, §4 Identifiers / §12 error ships, line 4278).
+  The real reasons: (a) per-queue totality suffices — cross-space order
+  is the advance rule's job, the global key was never load-bearing; and
+  (b) the ordering key must be **static** — wire order is known from
+  source before execution, whereas procid is assigned *during* the
+  schedule, so keying the schedule on procid is circular. procid stays
+  the *identity* key (I16).
+- **B4 — I17 scoped to the reference execution** (Option 2); the
+  distributed equivalence is a labeled conjecture. This is a *staged*
+  version of the ratified machine-free formulation, not a retreat —
+  `[sched-advance]` stays unscoped inside the invariant.
+
+**Reviewer round — three corrections applied, all verified against the
+merged spec:** (1) B2's justification was factually wrong (procid IS
+observable) — reason replaced, call unchanged; (2) B1 misapplied the
+entry-frontier rule to internal ships and must also fix the drain
+sentence beside it; (3) I17's closing clause asserted-and-retracted in
+one breath — reworded. Plus two items the reviewer surfaced: a reserved
+key position for wire-less runtime deliveries, and a clarifying edit to
+`[id-internal-handles]`.
 
 ---
 
 ## B1 — Edit 9 rewritten for drain/smash (v1 targeted the removed overlap)
 
 v1's Edit 9 anchors to `[socket-overlap-drain]` and "overlap
-interleaving," both deleted when §8 became drain/smash. Replace Edit 9
-with an addition after the drain/smash paragraphs (§8, after
-`[socket-smash]`):
+interleaving," both deleted when §8 became drain/smash. Two parts.
+
+**(a) Replace Edit 9** with an addition after the drain/smash
+paragraphs (§8, after `[socket-smash]`):
 
 > Socket transitions are deterministic. Under **drain**, the old
-> content docks its remaining ships in key order `[sched-dock-lowest]`;
-> new arrivals buffer at the socket, numbered at its entry frontier
-> `[sched-entry-frontier]`, and take over at the number the drain
-> completes on. Under **smash**, the swap is one scheduled event at its
-> own number: ships destroyed by the smash never dock, and a returning
-> down-port response becomes a ghost deterministically. No transition
-> ordering depends on host timing `[sched-transition-keys]`.
+> content docks its remaining ships in key order `[sched-dock-lowest]`.
+> New arrivals — internal ships that already carry numbers — buffer at
+> the socket with their numbers **unchanged** `[sched-hop-free]` (a
+> socket is Daimio-internal topology, not a runtime boundary, so
+> `[sched-entry-frontier]` does not apply); they release into the new
+> content in key order and re-number at their docks via the max() rule
+> `[sched-dock-max]`, so the fresh content's zero counter is safe.
+> Under **smash**, the swap is one scheduled event at its own number:
+> ships destroyed by the smash never dock, and a returning down-port
+> response becomes a ghost deterministically. No transition ordering
+> depends on host timing `[sched-transition-keys]`.
+
+**(b) Amend `[socket-drain]` itself** (§8, line 2620) — it still says
+the old content drains "one at a time in FIFO order," which would
+contradict the "docks in key order" paragraph now beside it. Change to
+"one at a time in key order (§5, "Deterministic scheduling")."
 
 (ID renamed `sched-overlap-keys` → `sched-transition-keys`.)
 
@@ -46,26 +70,47 @@ sentences):
 > `[sched-dock-lowest]`. Ties (equal numbers) resolve by the
 > declaration order of the carrying wire in the space's source
 > `[sched-tie-wire]`, then by FIFO position within that wire
-> `[sched-wire-fifo]`. This key — `(number, wire-declaration-order,
-> wire-FIFO-position)` — is **total per queue**: within one wire ships
-> are a FIFO sequence, and distinct wires are ordered by source
-> position, so no two pending ships tie.
+> `[sched-wire-fifo]`. A ship the runtime delivers with no carrying
+> wire — an error ship sent directly to `@out:err` (§12) — takes a
+> **reserved position after all wired ships** at the same number,
+> ordered among themselves by emission order. This key is **total per
+> queue**: within one wire ships are a FIFO sequence, distinct wires
+> order by source position, and wire-less deliveries sort last, so no
+> two pending ships tie.
 
 **Edit 5 "Determinism" sketch** (replaces the parenthetical key):
 
 > Sketch: process steps are deterministic (P-total, PRNG, depth bound,
 > `[routing-deferred-order]`, I6); the per-queue key `(number,
-> wire-declaration-order, wire-FIFO-position)` is total; docking only
-> ever assigns a number ≥ those already processed (counter
+> wire-declaration-order-or-reserved, wire-FIFO-position)` is total;
+> docking only ever assigns a number ≥ those already processed (counter
 > monotonicity, `[sched-dock-max]`); independent equal-number work in
-> different spaces commutes. Process ids `[procid-sequence]` remain the
-> **identity** key (I16), never the ordering key — the schedule stays
-> independent of non-observable handles `[id-internal-handles]`.
+> different spaces commutes. The ordering key is entirely **static**
+> (topology-derived); process ids `[procid-sequence]` are the
+> *identity* key (I16), never the ordering key, so the schedule never
+> keys on a value it assigns during execution.
 
 Note: global uniqueness of numbers is *not* required — numbers are
 unique only per space (counter strictly increases), and cross-space
 ordering is governed by the advance rule, not a global key. So the key
 only needs to be total per queue, which it is.
+
+**Companion clarifying edit (to the merged sender patch, not the
+scheduler).** `[id-internal-handles]` (§4, line 949) says handles exist
+"for ports, processes, and ships"; "processes" there means the
+*internal* pid, not the observable `ProcessId`. Disambiguate — e.g.
+"internal process handles, as distinct from process ids
+`[procid-sequence]`" — so nothing reads process ids as non-observable.
+This is a standalone fix to already-committed text; can land now or
+with the scheduler.
+
+**Integration question (flag, not resolved).** The sender patch says
+each space keeps a "process sequence" that "takes the next number"
+(`[procid-sequence]`, §4 line 940), while the scheduler's space counter
+is the vtime `max(counter, ship#)+1` (which jumps, not a simple +1).
+Same per-space counter (so a process id is `qname#vtime`) or two? I'd
+unify — the vtime *is* the sequence — but pin it during integration,
+since `[procid-sequence]` is cited in the determinism obligations.
 
 ---
 
@@ -128,10 +173,10 @@ how strongly to state I17:
 > `[sched-deterministic]`. No space docks a ship at number k while a
 > lower-keyed ship could still reach it `[sched-advance]`. A conforming
 > implementation's observable trace equals the reference execution's;
-> the distributed "Local scheduling" implementation (§5) satisfies this
-> by conservative lookahead `[sched-cycle-station]`, an equivalence
-> proven in the formalization pass (companion sketch) — treat it as a
-> conjecture until then.
+> the distributed "Local scheduling" implementation (§5) is designed to
+> satisfy this by conservative lookahead `[sched-cycle-station]` — that
+> equivalence is a conjecture pending the formalization pass (companion
+> sketch).
 
 ---
 
