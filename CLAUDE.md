@@ -198,16 +198,27 @@ expired/          — old commands/demos for reference
 4. Back-edge reversal (swap from/to, route as forward, flip path at end)
 5. Dummy node insertion for all multi-layer edges
 6. Barycentric crossing minimization (with dummies and ports)
-7. Fan grouping (shared-endpoint edges get one channel, split by direction)
-8. Gap sizing + vertical channel allocation
-9. Approach tracks for crossing edges (dedicated y-offset to prevent shared-wire)
-10. Unique h-channels per reversed edge
-11. Post-processing: row/column collapsing
+7. Hop-level fan grouping (final hop joins the dest's to-fan, other hops the
+   source's from-fan — whichever group is larger wins; split by direction)
+8. Channel ordinals per gap, then ordinal-based approach-conflict detection
+   (dep/arr x-ranges overlap iff dep channel ordinal >= arr ordinal)
+9. Gap sizing (channels + reserved jog columns) + channel x allocation
+10. Band slot allocator: approach tracks, reversed-edge h-channels (one per
+    edge), and self-loop channels share per-band y slots, two rows apart
+11. Reversed-edge and self-loop drop legs register as pseudo-hops under the
+    source's down-fan key (shared trunk columns)
+12. Contract returns to a left port rise one column off the wall and
+    T-junction into the port's wire
+13. Post-processing: row/column collapsing
 
-Three invariant checks (all passing, 268/268):
+Five invariant checks (all fixtures passing):
 - No wire through station body interior
-- No opposing-direction wires (unless shared endpoint)
+- No opposing-direction wires (unless shared endpoint, or a swapped pair
+  beside a shared port — the contract T-junction)
 - No shared-wire false connectivity (unless shared endpoint)
+- One empty space between parallel wires (no adjacent same-axis runs)
+- Wall clearance: no vline flush against a side wall, no hline flush under
+  the top border (bottom border exempt — the underscore floor reads as space)
 
 Renderers: `space_ascii.js` (ASCII), `space_svg.js` (SVG). Both use same layout output.
 Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render-guided refinement.
@@ -217,7 +228,9 @@ Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render
 `site/js/space_ascii_parse.js` — parses render.txt back to source.dm format.
 Round-trip: `render.txt → parse_ascii() → source.dm → seedlikes_from_string → extract → layout → render`.
 
-28/41 fixtures round-trip exactly. The 13 that don't are complex topologies where:
+26/41 fixtures round-trip exactly. contract/contract-pair fail because the
+parser doesn't know the T-junction port-return shape yet (reads it as a
+self-loop and loses the port flavour). The other 13 are complex topologies where:
 - Wire tracer creates false positive connections at junction chars (self-loops, cross-connections)
 - The score-guided refine step can't reliably remove false positives (local minimum problem)
 - Subspace port detection is off-by-one due to column collapsing
@@ -230,7 +243,8 @@ Round-trip: `render.txt → parse_ascii() → source.dm → seedlikes_from_strin
 - node_code: 83/83 pass
 - security_test: 179/179 pass
 - space_test: 124/148 pass (24 known spec-gap failures)
-- space_ascii_test: 296/309 pass (13 round-trip failures, 0 other failures, 41 fixture dirs)
+- space_ascii_test: 298/313 pass (15 round-trip failures, 0 other failures, 41 fixture dirs;
+  as of 2026-07-06: wire-spacing/wall invariants enforced, fan trunks merged, jogs minimized)
 - example_test: 104/104 pass
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass

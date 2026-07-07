@@ -2,14 +2,14 @@
   "id": "be_fwd_gap",
   "name": "be_fwd_gap",
   "width": 54,
-  "height": 16,
+  "height": 15,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
       "width": 54,
-      "height": 16,
+      "height": 15,
       "name": "be_fwd_gap"
     },
     {
@@ -153,16 +153,16 @@
           "y": 11
         },
         {
-          "x": 48,
+          "x": 49,
           "y": 11
         },
         {
-          "x": 48,
-          "y": 14
+          "x": 49,
+          "y": 13
         },
         {
           "x": 19,
-          "y": 14
+          "y": 13
         },
         {
           "x": 19,

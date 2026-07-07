@@ -614,58 +614,227 @@ export function layout(topology, options) {
   // Hops from the same source (fan-out) or to the same dest (fan-in)
   // share one channel, so count groups not individual hops.
 
-  // Build from/to frequency maps to detect fans
+  // Build from/to frequency maps to detect fans. Only forward edges count:
+  // reversed edges route via below-station h-channels, not gap channels.
   var from_count = {}, to_count = {}
   for (var i = 0; i < all_edges.length; i++) {
+    if (reversed_set[all_edges[i].id]) continue
     from_count[all_edges[i].from_id] = (from_count[all_edges[i].from_id] || 0) + 1
     to_count[all_edges[i].to_id] = (to_count[all_edges[i].to_id] || 0) + 1
   }
 
-  // For each hop, determine its fan group key in its gap
-  // fan_key[edge_id + '_hop' + j] = group key string
+  // For each hop, determine its fan group key in its gap. A hop can join
+  // its edge's from-fan (trunk shared by all wires out of one source) or,
+  // if it is the final hop of its chain, the to-fan (trunk shared by all
+  // wires arriving at one dest). Join whichever group actually has more
+  // members in this gap+direction; ties go to the from-fan. Split by
+  // direction so fans going both up AND down get separate channels.
   var fan_key = {}
+  var from_group_n = {}   // gap|dir|from_id → cross-row hop count
+  var to_group_n = {}     // gap|dir|to_id → cross-row FINAL hop count
   for (var i = 0; i < all_edges.length; i++) {
     var e = all_edges[i]
+    if (reversed_set[e.id]) continue
     var chain = edge_chain[e.id]
     for (var j = 0; j < chain.length - 1; j++) {
       if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
-      // Use from_id as fan key if this is a fan-out (multiple edges from same source)
-      // Use to_id as fan key if this is a fan-in
-      // Split by direction so fans going both up AND down get separate channels
-      // Otherwise use the edge's own id (no fan)
+      var g = layer_of[chain[j]]
       var hop_dir = row_of[chain[j + 1]] > row_of[chain[j]] ? 'dn' : 'up'
-      if (from_count[e.from_id] > 1)
-        fan_key[e.id + '_hop' + j] = 'from_' + hop_dir + '_' + e.from_id
-      else if (to_count[e.to_id] > 1)
+      var fk = g + '|' + hop_dir + '|' + e.from_id
+      from_group_n[fk] = (from_group_n[fk] || 0) + 1
+      if (j === chain.length - 2) {
+        var tk = g + '|' + hop_dir + '|' + e.to_id
+        to_group_n[tk] = (to_group_n[tk] || 0) + 1
+      }
+    }
+  }
+  for (var i = 0; i < all_edges.length; i++) {
+    var e = all_edges[i]
+    if (reversed_set[e.id]) continue
+    var chain = edge_chain[e.id]
+    for (var j = 0; j < chain.length - 1; j++) {
+      if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
+      var g = layer_of[chain[j]]
+      var hop_dir = row_of[chain[j + 1]] > row_of[chain[j]] ? 'dn' : 'up'
+      var fg = from_group_n[g + '|' + hop_dir + '|' + e.from_id] || 0
+      var tg = (j === chain.length - 2) ? (to_group_n[g + '|' + hop_dir + '|' + e.to_id] || 0) : 0
+      if (tg >= 2 && tg > fg)
         fan_key[e.id + '_hop' + j] = 'to_' + hop_dir + '_' + e.to_id
+      else if (fg >= 2)
+        fan_key[e.id + '_hop' + j] = 'from_' + hop_dir + '_' + e.from_id
       else
         fan_key[e.id + '_hop' + j] = e.id + '_hop' + j
     }
   }
 
-  var gap_channels = []
-  for (var g = 0; g < layers.length - 1; g++) gap_channels.push(0)
+  // ── Vertical channel ordinals per gap ─────────────────────────────
+  // Each fan group in a gap gets an ordered slot (left to right). The
+  // concrete x positions are assigned once layer_x and width are known;
+  // conflict detection below only needs the ordering.
 
+  var gap_groups = {}       // gap → sorted [{ key, from_row, to_row, hops }]
+  var channel_ordinal = {}  // hop key → ordinal of its group in its gap
+  for (var g = 0; g < layers.length - 1; g++) {
+    var ch_list = [], group_hops = {}, group_seen = {}
+    for (var i = 0; i < all_edges.length; i++) {
+      if (reversed_set[all_edges[i].id]) continue
+      var chain = edge_chain[all_edges[i].id]
+      for (var j = 0; j < chain.length - 1; j++) {
+        if (layer_of[chain[j]] !== g) continue
+        if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
+        var hop_key = all_edges[i].id + '_hop' + j
+        var fk = fan_key[hop_key]
+        if (!group_hops[fk]) group_hops[fk] = []
+        group_hops[fk].push(hop_key)
+        if (!group_seen[fk]) {
+          group_seen[fk] = true
+          ch_list.push({ key: fk, from_row: row_of[chain[j]], to_row: row_of[chain[j + 1]] })
+        } else {
+          // Expand the group's row range
+          for (var ci = 0; ci < ch_list.length; ci++) {
+            if (ch_list[ci].key !== fk) continue
+            if (row_of[chain[j]] < ch_list[ci].from_row) ch_list[ci].from_row = row_of[chain[j]]
+            if (row_of[chain[j + 1]] < ch_list[ci].from_row) ch_list[ci].from_row = row_of[chain[j + 1]]
+            if (row_of[chain[j]] > ch_list[ci].to_row) ch_list[ci].to_row = row_of[chain[j]]
+            if (row_of[chain[j + 1]] > ch_list[ci].to_row) ch_list[ci].to_row = row_of[chain[j + 1]]
+          }
+        }
+      }
+    }
+    // Reversed edges drop from their source's out through this gap into a
+    // below-band h-channel. Register the drop leg as a pseudo-hop under the
+    // source's down-fan key: it merges with a forward down-trunk when one
+    // exists, and otherwise gets its own properly spaced column.
+    for (var i = 0; i < all_edges.length; i++) {
+      if (!reversed_set[all_edges[i].id]) continue
+      var chain = edge_chain[all_edges[i].id]
+      var orig_from = chain[chain.length - 1]
+      if (port_by_id[orig_from]) continue
+      if (layer_of[orig_from] !== g) continue
+      var hop_key = 'rev_' + all_edges[i].id
+      var fk = 'from_dn_' + orig_from
+      if (!group_hops[fk]) group_hops[fk] = []
+      group_hops[fk].push(hop_key)
+      if (!group_seen[fk]) {
+        group_seen[fk] = true
+        ch_list.push({ key: fk, from_row: row_of[orig_from], to_row: row_of[orig_from] })
+      }
+    }
+    // Self-loop out-legs drop the same way — same key, same trunk
+    for (var i = 0; i < self_loops.length; i++) {
+      var sl_id = self_loops[i].from.id
+      if (layer_of[sl_id] !== g) continue
+      var hop_key = 'sl_' + self_loops[i].id
+      var fk = 'from_dn_' + sl_id
+      if (!group_hops[fk]) group_hops[fk] = []
+      group_hops[fk].push(hop_key)
+      if (!group_seen[fk]) {
+        group_seen[fk] = true
+        ch_list.push({ key: fk, from_row: row_of[sl_id], to_row: row_of[sl_id] })
+      }
+    }
+    if (ch_list.length === 0) continue
+    ch_list.sort(function(a, b) { return a.from_row - b.from_row || a.to_row - b.to_row })
+    for (var j = 0; j < ch_list.length; j++) {
+      ch_list[j].hops = group_hops[ch_list[j].key]
+      for (var h = 0; h < ch_list[j].hops.length; h++)
+        channel_ordinal[ch_list[j].hops[h]] = j
+    }
+    gap_groups[g] = ch_list
+  }
+
+  // Channel demand per gap = number of fan groups (pseudo-hops included)
+  var gap_channels = []
+  for (var g = 0; g < layers.length - 1; g++)
+    gap_channels.push(gap_groups[g] ? gap_groups[g].length : 0)
+
+  // ── Approach-track conflict detection ──────────────────────────────
+  // A cross-row hop has a departing horizontal at wire_y(from_row) spanning
+  // [start_x, channel_x] and an arriving horizontal at wire_y(to_row)
+  // spanning [channel_x, to_x]. Two unrelated hops sharing a wire row in
+  // the same gap conflict only when those ranges overlap — which, since
+  // departures start left of every channel and arrivals end right of every
+  // channel, is exactly when the departure's channel ordinal >= the
+  // arrival's. Conflicting arrivals move to an approach track between the
+  // rows. Reversed edges route via below-station h-channels and never run
+  // along wire rows in the gap.
+
+  var gap_row_hops = {}   // gap → row → [{ key, from, to, ord, arriving, to_node, band }]
   for (var i = 0; i < all_edges.length; i++) {
-    var chain = edge_chain[all_edges[i].id]
+    var ae = all_edges[i]
+    if (reversed_set[ae.id]) continue
+    var chain = edge_chain[ae.id]
     for (var j = 0; j < chain.length - 1; j++) {
+      var fr = row_of[chain[j]], tr = row_of[chain[j + 1]]
+      if (fr === tr) continue
       var g = layer_of[chain[j]]
-      if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
-      gap_channels[g]++
+      var key = ae.id + '_hop' + j
+      if (!gap_row_hops[g]) gap_row_hops[g] = {}
+      if (!gap_row_hops[g][fr]) gap_row_hops[g][fr] = []
+      gap_row_hops[g][fr].push({ key: key, from: ae.from_id, to: ae.to_id,
+                                 ord: channel_ordinal[key], arriving: false })
+      if (!gap_row_hops[g][tr]) gap_row_hops[g][tr] = []
+      gap_row_hops[g][tr].push({ key: key, from: ae.from_id, to: ae.to_id,
+                                 ord: channel_ordinal[key], arriving: true,
+                                 to_node: chain[j + 1], band: Math.min(fr, tr) })
     }
   }
-  // Reduce gap_channels by fan group sharing: subtract (group_size - 1) for each group
-  var gap_fan_seen = {}
+  // Reversed-edge drop legs occupy [out_x, drop_x] on their source's wire
+  // row — include them as departing segments so unrelated arrivals at that
+  // row get approach tracks.
   for (var i = 0; i < all_edges.length; i++) {
+    if (!reversed_set[all_edges[i].id]) continue
     var chain = edge_chain[all_edges[i].id]
-    for (var j = 0; j < chain.length - 1; j++) {
-      if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
-      var g = layer_of[chain[j]]
-      var fk = fan_key[all_edges[i].id + '_hop' + j]
-      var gk = g + '|' + fk
-      if (gap_fan_seen[gk]) gap_channels[g]--
-      else gap_fan_seen[gk] = true
+    var orig_from = chain[chain.length - 1], orig_to = chain[0]
+    if (port_by_id[orig_from]) continue
+    var g = layer_of[orig_from]
+    var r = row_of[orig_from]
+    if (!gap_row_hops[g]) gap_row_hops[g] = {}
+    if (!gap_row_hops[g][r]) gap_row_hops[g][r] = []
+    gap_row_hops[g][r].push({ key: 'rev_' + all_edges[i].id, from: orig_from, to: orig_to,
+                              ord: channel_ordinal['rev_' + all_edges[i].id], arriving: false })
+  }
+  for (var i = 0; i < self_loops.length; i++) {
+    var sl_id = self_loops[i].from.id
+    var g = layer_of[sl_id]
+    var r = row_of[sl_id]
+    if (!gap_row_hops[g]) gap_row_hops[g] = {}
+    if (!gap_row_hops[g][r]) gap_row_hops[g][r] = []
+    gap_row_hops[g][r].push({ key: 'sl_' + self_loops[i].id, from: sl_id, to: sl_id,
+                              ord: channel_ordinal['sl_' + self_loops[i].id], arriving: false })
+  }
+
+  var needs_approach = {}  // hop key → { to_node, band, gap }
+  for (var g in gap_row_hops) {
+    var rows = gap_row_hops[g]
+    for (var r in rows) {
+      var hops = rows[r]
+      for (var a = 0; a < hops.length; a++) {
+        if (!hops[a].arriving) continue
+        for (var b = 0; b < hops.length; b++) {
+          if (hops[b].arriving) continue
+          if (hops[a].from === hops[b].from || hops[a].to === hops[b].to) continue
+          if (hops[a].ord !== undefined && hops[b].ord !== undefined && hops[b].ord < hops[a].ord) continue
+          needs_approach[hops[a].key] = { to_node: hops[a].to_node, band: hops[a].band,
+                                          gap: parseInt(g, 10) }
+          break
+        }
+      }
     }
+  }
+
+  // Jog columns per gap: each distinct approach dest needs a column at
+  // to_x-1, to_x-3, ... — reserve gap width so they stay clear of tracks.
+  var jog_cols = {}        // gap → count of distinct approach dest nodes
+  var jog_col_seen = {}
+  for (var key in needs_approach) {
+    var jk = needs_approach[key].gap + '|' + needs_approach[key].to_node
+    if (jog_col_seen[jk]) continue
+    jog_col_seen[jk] = true
+    jog_cols[needs_approach[key].gap] = (jog_cols[needs_approach[key].gap] || 0) + 1
+  }
+  function gap_units(g) {
+    return (gap_channels[g] || 0) + Math.max(0, (jog_cols[g] || 0) - 1)
   }
 
   // ── Compute layer_x ──────────────────────────────────────────────
@@ -678,14 +847,14 @@ export function layout(topology, options) {
       layer_x.push(0)  // left port virtual layer at x=0
     } else if (i === 1) {
       // Gap from left port layer to first real layer
-      var nc = gap_channels[0]
+      var nc = gap_units(0)
       var port_gap = Math.max(5, nc > 0 ? 2 * nc + 5 : 5)
       layer_x.push(port_gap)
     } else if (i === layers.length - 1) {
       // Right port layer: placeholder, set after width is known
       layer_x.push(0)
     } else {
-      var nc = gap_channels[i - 1]
+      var nc = gap_units(i - 1)
       var gap = Math.max(HLINE_GAP, nc > 0 ? 2 * nc + 5 : HLINE_GAP)
       layer_x.push(layer_x[i - 1] + layer_width[i - 1] + gap)
     }
@@ -711,23 +880,26 @@ export function layout(topology, options) {
   // Right port connections need gap after last real layer
   if (used_right_ports.length > 0 && real_layer_count > 0) {
     var last_real = real_layer_count  // shifted index of last real layer
-    var nc = gap_channels[last_real] || 0
+    var nc = gap_units(last_real)
     var right_gap = Math.max(HLINE_GAP, nc > 0 ? 2 * nc + 5 : HLINE_GAP)
     var rx = layer_x[last_real] + layer_width[last_real] + right_gap + 1
     if (rx > max_right_x) max_right_x = rx
   }
-  // Self-loop right margin
+  // Self-loop right margin (drop column in the gap right of the station)
   for (var i = 0; i < self_loops.length; i++) {
-    var rx = comp_right(self_loops[i].from.id) + 4
+    var lyr = layer_of[self_loops[i].from.id]
+    var rx = layer_x[lyr] + layer_width[lyr] + 2 * gap_units(lyr) + 4
     if (rx > max_right_x) max_right_x = rx
   }
-  // Reversed edges need clearance past the source station's right edge
+  // Reversed edges need room for their drop columns in the gap right of
+  // the source layer (track region plus wall margin)
   for (var i = 0; i < all_edges.length; i++) {
     if (!reversed_set[all_edges[i].id]) continue
     var chain = edge_chain[all_edges[i].id]
     var orig_from = chain[chain.length - 1]
     if (port_by_id[orig_from]) continue
-    var rx = layer_x[layer_of[orig_from]] + comp_w(orig_from) + 5
+    var lyr = layer_of[orig_from]
+    var rx = layer_x[lyr] + layer_width[lyr] + 2 * gap_units(lyr) + 4
     if (rx > max_right_x) max_right_x = rx
   }
   var width = Math.max(min_width, max_right_x)
@@ -737,43 +909,19 @@ export function layout(topology, options) {
     layer_x[layers.length - 1] = width - 1
 
   // ── Vertical channel x-positions per gap ──────────────────────────
+  // Spread each gap's fan groups across the track region in ordinal
+  // order. The last 2*(jog_cols-1) columns before the next layer are
+  // reserved for approach jog verticals.
 
   var v_channel_x = {}
-  for (var g = 0; g < layers.length - 1; g++) {
-    // Collect hops, grouping by fan key. Each fan group gets one channel slot.
-    var ch_list = []       // one entry per fan GROUP (not per hop)
-    var group_hops = {}    // fan_group_key → [hop_keys]
-    var group_seen = {}    // fan_group_key → true (for ch_list dedup)
-    for (var i = 0; i < all_edges.length; i++) {
-      var chain = edge_chain[all_edges[i].id]
-      for (var j = 0; j < chain.length - 1; j++) {
-        if (layer_of[chain[j]] !== g) continue
-        if (row_of[chain[j]] === row_of[chain[j + 1]]) continue
-        var hop_key = all_edges[i].id + '_hop' + j
-        var fk = fan_key[hop_key]
-        if (!group_hops[fk]) group_hops[fk] = []
-        group_hops[fk].push(hop_key)
-        if (!group_seen[fk]) {
-          group_seen[fk] = true
-          ch_list.push({ key: fk, from_row: row_of[chain[j]], to_row: row_of[chain[j + 1]] })
-        } else {
-          // Expand the group's row range
-          for (var ci = 0; ci < ch_list.length; ci++) {
-            if (ch_list[ci].key !== fk) continue
-            if (row_of[chain[j]] < ch_list[ci].from_row) ch_list[ci].from_row = row_of[chain[j]]
-            if (row_of[chain[j + 1]] < ch_list[ci].from_row) ch_list[ci].from_row = row_of[chain[j + 1]]
-            if (row_of[chain[j]] > ch_list[ci].to_row) ch_list[ci].to_row = row_of[chain[j]]
-            if (row_of[chain[j + 1]] > ch_list[ci].to_row) ch_list[ci].to_row = row_of[chain[j + 1]]
-          }
-        }
-      }
-    }
-    if (ch_list.length === 0) continue
-    ch_list.sort(function(a, b) { return a.from_row - b.from_row || a.to_row - b.to_row })
-    var gap_left = layer_x[g] + layer_width[g]
-    var gap_right = layer_x[g + 1]
+  var group_x = {}         // gap + '|' + fan_group_key → x (for reversed-leg trunk reuse)
+  for (var g in gap_groups) {
+    var gi = parseInt(g, 10)
+    var ch_list = gap_groups[g]
+    var gap_left = layer_x[gi] + layer_width[gi]
+    var gap_right = layer_x[gi + 1]
     var track_min = gap_left + 3
-    var track_max = gap_right - 4
+    var track_max = gap_right - 4 - 2 * Math.max(0, (jog_cols[gi] || 0) - 1)
     // Ensure track_max >= track_min
     if (track_max < track_min) track_max = track_min
     var usable = track_max - track_min
@@ -784,116 +932,77 @@ export function layout(topology, options) {
       tx = Math.max(track_min, Math.min(track_max, tx))
       // Assign this x to ALL hop keys in the fan group
       var gk = ch_list[j].key
-      var hops = group_hops[gk]
-      if (hops) {
-        for (var h = 0; h < hops.length; h++) v_channel_x[hops[h]] = tx
-      } else {
-        v_channel_x[gk] = tx
-      }
+      group_x[gi + '|' + gk] = tx
+      for (var h = 0; h < ch_list[j].hops.length; h++)
+        v_channel_x[ch_list[j].hops[h]] = tx
     }
   }
 
-  // ── Row heights ──────────────────────────────────────────────────
-  // Simple: ROW_HEIGHT per row, plus extra for self-loops and approach tracks.
+  // ── Band slot allocation ────────────────────────────────────────────
+  // All horizontal runs living below a station row — approach tracks,
+  // reversed-edge h-channels, self-loop channels — share one allocator per
+  // band (the space below row r), handing out y slots two rows apart so
+  // parallel channels never touch. Reversed edges arriving at the same
+  // dest share one channel (their overlap is a legal fan-in trunk).
 
-  var row_h_count = {}
-  for (var i = 0; i < self_loops.length; i++) {
-    var sl_row = row_of[self_loops[i].from.id]
-    row_h_count[sl_row] = (row_h_count[sl_row] || 0) + 2
+  var band_slots = {}      // band → [slot_key] in allocation order
+  var slot_index = {}      // slot_key → index within its band
+  function alloc_slot(band, key) {
+    if (slot_index[key] !== undefined) return
+    if (!band_slots[band]) band_slots[band] = []
+    slot_index[key] = band_slots[band].length
+    band_slots[band].push(key)
   }
-  // Reversed edges need h-channels below the max row of their endpoints
-  for (var i = 0; i < all_edges.length; i++) {
-    if (!reversed_set[all_edges[i].id]) continue
-    var chain = edge_chain[all_edges[i].id]
-    var orig_from = chain[chain.length - 1], orig_to = chain[0]
-    var max_row = Math.max(row_of[orig_from], row_of[orig_to])
-    row_h_count[max_row] = (row_h_count[max_row] || 0) + 2
-  }
 
-  // Detect cross-row hops that need approach tracks. A cross-row hop's
-  // arrival horizontal at wire_y(dest_row) can overlap with an unrelated
-  // edge's horizontal at the same y in the same gap. We only add approach
-  // tracks when such a conflict actually exists.
-  //
-  // For each layer-gap, collect all cross-row hops grouped by the row
-  // where they have a horizontal segment. A hop from row A to row B in
-  // gap G has segments at wire_y(A) (departing) and wire_y(B) (arriving).
-  // If two hops share wire_y of the same row and have no common endpoint,
-  // the ARRIVING hop(s) get approach tracks.
-
-  // gap_row_hops[gap_index][row] = [{ edge_idx, hop_idx, from_id, to_id, arriving }]
-  // Only forward-routed edges participate; reversed edges (back-edges, contract
-  // returns) use route_reversed_chain which avoids the inter-layer gap entirely.
-  var gap_row_hops = {}
+  // Approach tracks: one slot per (band, to_node). Also assign jog column
+  // ordinals per (gap, to_node) so parallel jog verticals near the dest
+  // stay two columns apart.
+  var jog_ordinal = {}     // hop key → ordinal among approach dests in its gap
+  var jog_node_ordinal = {}  // gap|to_node → ordinal
+  var gap_jog_n = {}       // gap → count of distinct approach dests
   for (var i = 0; i < all_edges.length; i++) {
     var ae = all_edges[i]
     if (reversed_set[ae.id]) continue
     var chain = edge_chain[ae.id]
-    // For forward edges, connection from/to matches ae.from_id/ae.to_id
-    var orig_from = ae.from_id
-    var orig_to = ae.to_id
     for (var j = 0; j < chain.length - 1; j++) {
-      var fr = row_of[chain[j]], tr = row_of[chain[j + 1]]
-      if (fr === tr) continue
-      var g = layer_of[chain[j]]  // gap between layer g and g+1
-      if (!gap_row_hops[g]) gap_row_hops[g] = {}
-      // Departing segment at wire_y(fr)
-      if (!gap_row_hops[g][fr]) gap_row_hops[g][fr] = []
-      gap_row_hops[g][fr].push({ ei: i, hi: j, from: orig_from, to: orig_to, arriving: false })
-      // Arriving segment at wire_y(tr)
-      if (!gap_row_hops[g][tr]) gap_row_hops[g][tr] = []
-      gap_row_hops[g][tr].push({ ei: i, hi: j, from: orig_from, to: orig_to, arriving: true })
+      var key = ae.id + '_hop' + j
+      var na = needs_approach[key]
+      if (!na) continue
+      alloc_slot(na.band, 'app|' + na.band + '|' + na.to_node)
+      var jk = na.gap + '|' + na.to_node
+      if (jog_node_ordinal[jk] === undefined) {
+        jog_node_ordinal[jk] = gap_jog_n[na.gap] || 0
+        gap_jog_n[na.gap] = jog_node_ordinal[jk] + 1
+      }
+      jog_ordinal[key] = jog_node_ordinal[jk]
     }
   }
 
-  // For each gap/row with multiple hops, check for unrelated pairs.
-  // Mark arriving hops that conflict.
-  var needs_approach = {}  // edge_id + '_hop' + j → true
-  for (var g in gap_row_hops) {
-    var rows = gap_row_hops[g]
-    for (var r in rows) {
-      var hops = rows[r]
-      if (hops.length < 2) continue
-      // Check all pairs for unrelated endpoints
-      var has_conflict = false
-      for (var a = 0; a < hops.length && !has_conflict; a++) {
-        for (var b = a + 1; b < hops.length && !has_conflict; b++) {
-          if (hops[a].from === hops[b].from || hops[a].to === hops[b].to) continue
-          has_conflict = true
-        }
-      }
-      if (!has_conflict) continue
-      // Mark all arriving hops at this row as needing approach tracks
-      for (var h = 0; h < hops.length; h++) {
-        if (hops[h].arriving)
-          needs_approach[all_edges[hops[h].ei].id + '_hop' + hops[h].hi] = true
-      }
-    }
-  }
-
-  // Count distinct approach track destinations per inter-row gap.
-  // If more than the 2 default free y slots, expand the upper row.
-  var approach_gap_groups = {}  // gap_index → { to_node: true }
+  // Reversed-edge h-channels: one per edge. Sharing a channel between
+  // edges hides whichever turn ends up mid-channel (it renders as a plain
+  // crossing), so channels stay per-edge; only the vertical drop/rise
+  // trunks are shared.
   for (var i = 0; i < all_edges.length; i++) {
+    if (!reversed_set[all_edges[i].id]) continue
     var chain = edge_chain[all_edges[i].id]
-    for (var j = 0; j < chain.length - 1; j++) {
-      var key = all_edges[i].id + '_hop' + j
-      if (!needs_approach[key]) continue
-      var fr = row_of[chain[j]], tr = row_of[chain[j + 1]]
-      var gap_idx = tr > fr ? tr - 1 : tr
-      if (gap_idx < 0 || gap_idx >= total_rows - 1) continue
-      if (!approach_gap_groups[gap_idx]) approach_gap_groups[gap_idx] = {}
-      approach_gap_groups[gap_idx][chain[j + 1]] = true
-    }
+    var orig_from = chain[chain.length - 1], orig_to = chain[0]
+    var band = Math.max(row_of[orig_from], row_of[orig_to])
+    alloc_slot(band, 'rev|' + band + '|' + all_edges[i].id)
   }
-  var FREE_PER_GAP = 2
-  for (var g in approach_gap_groups) {
-    var count = Object.keys(approach_gap_groups[g]).length
-    if (count > FREE_PER_GAP) {
-      var extra = count - FREE_PER_GAP
-      row_h_count[g] = (row_h_count[g] || 0) + extra
-    }
+
+  // Self-loop channels
+  for (var i = 0; i < self_loops.length; i++) {
+    var band = row_of[self_loops[i].from.id]
+    alloc_slot(band, 'sl|' + band + '|' + self_loops[i].id)
   }
+
+  // ── Row heights ─────────────────────────────────────────────────────
+  // ROW_HEIGHT per row; a band's slots sit at comp_y+5, +7, +9, ... so a
+  // band with n slots extends its row by 2n-2 beyond the one free slot.
+
+  var row_h_count = {}
+  for (var b in band_slots)
+    row_h_count[b] = Math.max(0, 2 * band_slots[b].length - 2)
 
   var row_y_offset = []
   var cum_y = HEADER_HEIGHT
@@ -904,35 +1013,15 @@ export function layout(topology, options) {
 
   function comp_y(row) { return row_y_offset[row] !== undefined ? row_y_offset[row] : HEADER_HEIGHT }
   function wire_y(row) { return comp_y(row) + 3 }
+  function slot_y(band, key) { return comp_y(band) + 5 + 2 * slot_index[key] }
 
-  // Assign approach y and jog x values. Within each inter-row gap, hops
-  // sharing the same to_node get the same y/x slots (they share an endpoint).
-  // Different to_nodes in the same gap get different jog_x offsets so their
-  // vertical jog segments don't oppose each other.
-  var approach_y_for = {}  // key → y
-  var jog_x_for = {}       // key → x offset from to_x
-  for (var g in approach_gap_groups) {
-    var gi = parseInt(g, 10)
-    var base_y = comp_y(gi) + 5
-    var slot = 0
-    var node_slot = {}
-    for (var i = 0; i < all_edges.length; i++) {
-      var chain = edge_chain[all_edges[i].id]
-      for (var j = 0; j < chain.length - 1; j++) {
-        var key = all_edges[i].id + '_hop' + j
-        if (!needs_approach[key]) continue
-        var fr = row_of[chain[j]], tr = row_of[chain[j + 1]]
-        var hop_gap = tr > fr ? tr - 1 : tr
-        if (hop_gap !== gi) continue
-        var to_node = chain[j + 1]
-        if (node_slot[to_node] === undefined) {
-          node_slot[to_node] = slot
-          slot++
-        }
-        approach_y_for[key] = base_y + node_slot[to_node]
-        jog_x_for[key] = node_slot[to_node]  // offset from to_x-1
-      }
-    }
+  // Concrete approach y and jog offsets
+  var approach_y_for = {}  // hop key → y
+  var jog_x_for = {}       // hop key → jog column ordinal (0, 1, ...)
+  for (var key in needs_approach) {
+    var na = needs_approach[key]
+    approach_y_for[key] = slot_y(na.band, 'app|' + na.band + '|' + na.to_node)
+    jog_x_for[key] = jog_ordinal[key]
   }
 
   // ── Place components ──────────────────────────────────────────────
@@ -1014,11 +1103,11 @@ export function layout(topology, options) {
         var hop_key = e.id + '_hop' + j
         if (app_y !== undefined) {
           // Approach track: arrive at a dedicated y, then jog to wire_y at
-          // a unique x just outside the station body (to_x - 1 - offset),
+          // a unique x just outside the station body (to_x - 1 - 2*offset),
           // then short horizontal to to_x. Each dest node in the same gap
-          // gets a different jog_x to avoid opposing vertical segments.
+          // gets a jog column two apart to keep jog verticals spaced.
           var jog_off = jog_x_for[hop_key] || 0
-          var jog_x = to_x - 1 - jog_off
+          var jog_x = to_x - 1 - 2 * jog_off
           path.push({ x: ch_x, y: app_y })
           if (jog_x !== ch_x) path.push({ x: jog_x, y: app_y })
           path.push({ x: jog_x, y: to_wy })
@@ -1062,14 +1151,14 @@ export function layout(topology, options) {
     path.push({ x: from_out_x, y: from_wy })
 
     var max_row = Math.max(row_of[orig_from], row_of[orig_to])
-    // Each reversed edge gets a unique h-channel y below the station row
-    if (!route_reversed_chain.h_idx) route_reversed_chain.h_idx = {}
-    var rk = '' + max_row
-    if (route_reversed_chain.h_idx[rk] === undefined) route_reversed_chain.h_idx[rk] = 0
-    var below_y = comp_y(max_row) + ROW_HEIGHT + route_reversed_chain.h_idx[rk] * 2
-    route_reversed_chain.h_idx[rk]++
-    var from_clear_x = from_out_x + 2
-    var to_clear_x = port_by_id[orig_to] ? to_in_x : (to_in_x > 2 ? to_in_x - 2 : to_in_x)
+    var below_y = slot_y(max_row, 'rev|' + max_row + '|' + e.id)
+    // Drop column allocated by the channel system (shares the source's
+    // forward down-trunk when one exists)
+    var from_clear_x = v_channel_x['rev_' + e.id] !== undefined
+      ? v_channel_x['rev_' + e.id] : from_out_x + 2
+    // Port dest: rise one column clear of the wall and T into the port's
+    // wire with a final one-cell horizontal
+    var to_clear_x = port_by_id[orig_to] ? to_in_x + 1 : (to_in_x > 2 ? to_in_x - 2 : to_in_x)
 
     // FROM: out → right → down to below
     if (!port_by_id[orig_from]) {
@@ -1109,13 +1198,9 @@ export function layout(topology, options) {
     var sl_out_x = comp_right(sl_id)
     var sl_in_x = layer_x[layer_of[sl_id]]
     var sl_row = row_of[sl_id]
-    var sl_back_y = comp_y(sl_row) + ROW_HEIGHT
-    var hc_idx = 0
-    for (var k = 0; k < i; k++) {
-      if (row_of[self_loops[k].from.id] === sl_row) hc_idx++
-    }
-    sl_back_y += hc_idx * 2
-    var sl_right_vx = sl_out_x + 2
+    var sl_back_y = slot_y(sl_row, 'sl|' + sl_row + '|' + slc.id)
+    var sl_right_vx = v_channel_x['sl_' + slc.id] !== undefined
+      ? v_channel_x['sl_' + slc.id] : sl_out_x + 2
     var sl_left_vx = sl_in_x - 2
     add_path(slc.id, sl_out_x, sl_wy)
     add_path(slc.id, sl_right_vx, sl_wy)
@@ -1311,7 +1396,22 @@ function check_layout_invariants(laid) {
 
   // Invariant: no opposing directions on shared wire segments
   // Two connections sharing a cell must flow the same direction on each axis,
-  // UNLESS they share an endpoint (fan-out/fan-in trunk splitting both ways).
+  // UNLESS they share an endpoint (fan-out/fan-in trunk splitting both ways),
+  // OR they are a swapped pair (A→B and B→A, e.g. a contract) overlapping on
+  // the 1-2 cells beside a shared port, where the return T-junctions into
+  // the port's wire.
+  var check_ports = []
+  for (var i = 0; i < laid.elements.length; i++)
+    if (laid.elements[i].type === 'port' && laid.elements[i].id) check_ports.push(laid.elements[i])
+  function port_pair_ok(x, y, a_from, a_to, b) {
+    if (!(a_from === b.to && a_to === b.from)) return false
+    for (var i = 0; i < check_ports.length; i++) {
+      var p = check_ports[i]
+      if (p.id !== a_from && p.id !== a_to) continue
+      if (p.y === y && Math.abs(x - p.wire_x) <= 1) return true
+    }
+    return false
+  }
   var h_dir_at = {}  // 'x,y' → { dir, conn, from, to }
   var v_dir_at = {}
   for (var i = 0; i < paths.length; i++) {
@@ -1324,7 +1424,8 @@ function check_layout_invariants(laid) {
         for (var x = xmin; x <= xmax; x++) {
           var k = x + ',' + y0
           if (h_dir_at[k] && h_dir_at[k].dir !== hd) {
-            var shared = (pfrom === h_dir_at[k].from || pto === h_dir_at[k].to)
+            var shared = (pfrom === h_dir_at[k].from || pto === h_dir_at[k].to) ||
+                         port_pair_ok(x, y0, pfrom, pto, h_dir_at[k])
             if (!shared) throw new Error('Invariant opposing-h: ' + conn + ' goes ' + hd + ' at (' + x + ',' + y0 + ') but ' + h_dir_at[k].conn + ' goes ' + h_dir_at[k].dir)
           }
           if (!h_dir_at[k]) h_dir_at[k] = { dir: hd, conn: conn, from: pfrom, to: pto }
@@ -1393,4 +1494,54 @@ function check_layout_invariants(laid) {
   }
   check_shared_wire(h_conns_at, 'h')
   check_shared_wire(v_conns_at, 'v')
+
+  // Invariant 3: at least one empty space between parallel wires.
+  // Two parallel segments in adjacent columns/rows with overlapping extent
+  // read as one thick wire. Same-cell overlap is covered by the shared-wire
+  // check above; this catches the distance-1 case, with no shared-endpoint
+  // exception (same-endpoint wires should merge into a trunk, not sit
+  // side by side).
+  var all_v = [], all_h = []
+  for (var i = 0; i < paths.length; i++) {
+    var pts = paths[i].path
+    for (var j = 0; j < pts.length - 1; j++) {
+      var x0 = pts[j].x, y0 = pts[j].y, x1 = pts[j + 1].x, y1 = pts[j + 1].y
+      if (x0 === x1 && y0 !== y1)
+        all_v.push({ conn: paths[i].conn, x: x0, min: Math.min(y0, y1), max: Math.max(y0, y1) })
+      else if (y0 === y1 && x0 !== x1)
+        all_h.push({ conn: paths[i].conn, y: y0, min: Math.min(x0, x1), max: Math.max(x0, x1) })
+    }
+  }
+  for (var i = 0; i < all_v.length; i++) {
+    for (var j = i + 1; j < all_v.length; j++) {
+      var a = all_v[i], b = all_v[j]
+      if (Math.abs(a.x - b.x) !== 1) continue
+      if (a.min > b.max || b.min > a.max) continue
+      throw new Error('Invariant spacing-v: ' + a.conn + ' vline x=' + a.x + ' and ' + b.conn +
+                      ' vline x=' + b.x + ' are adjacent (y ' + Math.max(a.min, b.min) + '..' + Math.min(a.max, b.max) + ')')
+    }
+  }
+  for (var i = 0; i < all_h.length; i++) {
+    for (var j = i + 1; j < all_h.length; j++) {
+      var a = all_h[i], b = all_h[j]
+      if (Math.abs(a.y - b.y) !== 1) continue
+      if (a.min > b.max || b.min > a.max) continue
+      throw new Error('Invariant spacing-h: ' + a.conn + ' hline y=' + a.y + ' and ' + b.conn +
+                      ' hline y=' + b.y + ' are adjacent (x ' + Math.max(a.min, b.min) + '..' + Math.min(a.max, b.max) + ')')
+    }
+  }
+
+  // Invariant 4: wire clearance from the box boundary. Vertical wires must
+  // not run flush against a side wall; horizontal wires must not run flush
+  // under the top border. Horizontal wires directly above the bottom border
+  // are allowed — the underscore floor reads as already having space.
+  for (var i = 0; i < all_v.length; i++) {
+    if (all_v[i].x <= 1 || all_v[i].x >= laid.width - 2)
+      throw new Error('Invariant wall: ' + all_v[i].conn + ' vline x=' + all_v[i].x +
+                      ' runs flush against the wall (width ' + laid.width + ')')
+  }
+  for (var i = 0; i < all_h.length; i++) {
+    if (all_h[i].y <= 1)
+      throw new Error('Invariant wall: ' + all_h[i].conn + ' hline y=' + all_h[i].y + ' runs flush under the top border')
+  }
 }

@@ -2,14 +2,14 @@
   "id": "self",
   "name": "self",
   "width": 24,
-  "height": 10,
+  "height": 9,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
       "width": 24,
-      "height": 10,
+      "height": 9,
       "name": "self"
     },
     {
@@ -90,16 +90,16 @@
           "y": 5
         },
         {
-          "x": 18,
+          "x": 19,
           "y": 5
         },
         {
-          "x": 18,
-          "y": 8
+          "x": 19,
+          "y": 7
         },
         {
           "x": 3,
-          "y": 8
+          "y": 7
         },
         {
           "x": 3,

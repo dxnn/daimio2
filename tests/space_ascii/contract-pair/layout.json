@@ -1,15 +1,15 @@
 {
   "id": "contract_pair",
   "name": "contract_pair",
-  "width": 21,
-  "height": 11,
+  "width": 22,
+  "height": 10,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
-      "width": 21,
-      "height": 11,
+      "width": 22,
+      "height": 10,
       "name": "contract_pair"
     },
     {
@@ -41,11 +41,11 @@
     },
     {
       "type": "port",
-      "x": 20,
-      "y": 9,
+      "x": 21,
+      "y": 8,
       "dir": "right",
       "key": "resp",
-      "wire_x": 19
+      "wire_x": 20
     }
   ],
   "paths": [
@@ -74,16 +74,20 @@
           "y": 5
         },
         {
-          "x": 18,
+          "x": 19,
           "y": 5
         },
         {
-          "x": 18,
-          "y": 8
+          "x": 19,
+          "y": 7
         },
         {
-          "x": 1,
-          "y": 8
+          "x": 2,
+          "y": 7
+        },
+        {
+          "x": 2,
+          "y": 5
         },
         {
           "x": 1,

@@ -2,14 +2,14 @@
   "id": "be_fanin",
   "name": "be_fanin",
   "width": 56,
-  "height": 16,
+  "height": 15,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
       "width": 56,
-      "height": 16,
+      "height": 15,
       "name": "be_fanin"
     },
     {
@@ -142,16 +142,16 @@
           "y": 11
         },
         {
-          "x": 50,
+          "x": 51,
           "y": 11
         },
         {
-          "x": 50,
-          "y": 14
+          "x": 51,
+          "y": 13
         },
         {
           "x": 21,
-          "y": 14
+          "y": 13
         },
         {
           "x": 21,

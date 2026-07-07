@@ -2,14 +2,14 @@
   "id": "selfloop_jog",
   "name": "selfloop_jog",
   "width": 38,
-  "height": 10,
+  "height": 9,
   "elements": [
     {
       "type": "box",
       "x": 0,
       "y": 0,
       "width": 38,
-      "height": 10,
+      "height": 9,
       "name": "selfloop_jog"
     },
     {
@@ -123,16 +123,16 @@
           "y": 5
         },
         {
-          "x": 32,
+          "x": 33,
           "y": 5
         },
         {
-          "x": 32,
-          "y": 8
+          "x": 33,
+          "y": 7
         },
         {
           "x": 19,
-          "y": 8
+          "y": 7
         },
         {
           "x": 19,

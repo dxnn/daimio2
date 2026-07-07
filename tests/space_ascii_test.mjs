@@ -271,6 +271,50 @@ test('truncate: max_source 0 shows full', r_notrunc.indexOf('{this is a very lon
 var r_short = render_space('tr', D.seedlikes_from_string(def_trunc).tr, { max_source: 10 })
 test('truncate: max_source 10 shorter', r_short.indexOf('\u2026') >= 0, true)
 
+// === Wire quality (reported 2026-07-06) ===
+// Helpers over layout paths
+function verticals(p) {
+  var segs = []
+  for (var i = 0; i < p.path.length - 1; i++) {
+    var a = p.path[i], b = p.path[i + 1]
+    if (a.x === b.x && a.y !== b.y)
+      segs.push({ x: a.x, min: Math.min(a.y, b.y), max: Math.max(a.y, b.y) })
+  }
+  return segs
+}
+function conn_path(laid, cid) {
+  return laid.paths.filter(function(p) { return p.conn === cid })[0]
+}
+
+// contract: the return wire must not run flush against the wall
+var sl_wq1 = D.seedlikes_from_string(readFileSync('tests/space_ascii/contract/source.dm', 'utf8'))
+var laid_wq1 = layout(extract('cs', sl_wq1.cs))
+var wq1_hug = laid_wq1.paths.some(function(p) {
+  return verticals(p).some(function(s) { return s.x <= 1 || s.x >= laid_wq1.width - 2 })
+})
+test('contract: no vline hugging wall', wq1_hug, false)
+
+// be-span3: C→D has no conflicting wire in its way — must route straight (4 waypoints)
+var sl_wq2 = D.seedlikes_from_string(readFileSync('tests/space_ascii/be-span3/source.dm', 'utf8'))
+var laid_wq2 = layout(extract('be_span3', sl_wq2.be_span3))
+test('be-span3: C→D routes without jog', conn_path(laid_wq2, 'c3').path.length, 4)
+
+// dense4: wires arriving at A's in (c6, c7, c8) share one trunk column;
+// wires departing C's out downward (c5, c7, c9) share one trunk column
+var sl_wq3 = D.seedlikes_from_string(readFileSync('tests/space_ascii/dense4/source.dm', 'utf8'))
+var topo_wq3 = extract('dense4', sl_wq3.dense4)
+var laid_wq3 = layout(topo_wq3)
+function trunk_xs(cids, last) {
+  var xs = {}
+  cids.forEach(function(cid) {
+    var vs = verticals(conn_path(laid_wq3, cid))
+    if (vs.length) xs[vs[last ? vs.length - 1 : 0].x] = true
+  })
+  return Object.keys(xs)
+}
+test('dense4: arrivals into A share one trunk', trunk_xs(['c6', 'c7', 'c8'], true).length <= 1, true)
+test('dense4: departures from C share one trunk', trunk_xs(['c5', 'c7', 'c9'], false).length <= 1, true)
+
 // === Fixture tests ===
 var fixture_dir = 'tests/space_ascii'
 var fixtures = readdirSync(fixture_dir, { withFileTypes: true })
