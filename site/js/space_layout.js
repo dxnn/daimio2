@@ -823,18 +823,36 @@ export function layout(topology, options) {
     }
   }
 
-  // Jog columns per gap: each distinct approach dest needs a column at
-  // to_x-1, to_x-3, ... — reserve gap width so they stay clear of tracks.
-  var jog_cols = {}        // gap → count of distinct approach dest nodes
-  var jog_col_seen = {}
-  for (var key in needs_approach) {
-    var jk = needs_approach[key].gap + '|' + needs_approach[key].to_node
-    if (jog_col_seen[jk]) continue
-    jog_col_seen[jk] = true
-    jog_cols[needs_approach[key].gap] = (jog_cols[needs_approach[key].gap] || 0) + 1
+  // Arrival ladder per gap: verticals entering a dest from beside it —
+  // approach jogs, reversed-edge rises, self-loop returns — take columns
+  // at to_x-3, to_x-5, ... so at least one dash shows between the turn
+  // and the station's in-paren (drawn at in.x-1, covering that cell).
+  // Reserve gap width so the ladder stays clear of the channel tracks.
+  var arrival_ordinal = {}   // gap|kind|node → ladder ordinal in its gap
+  var arrival_count = {}     // gap → allocated ladder columns
+  function alloc_arrival(gap, key) {
+    var k = gap + '|' + key
+    if (arrival_ordinal[k] !== undefined) return
+    arrival_ordinal[k] = arrival_count[gap] || 0
+    arrival_count[gap] = arrival_ordinal[k] + 1
   }
+  // Approach jogs: one column per dest node
+  for (var key in needs_approach)
+    alloc_arrival(needs_approach[key].gap, 'jog|' + needs_approach[key].to_node)
+  // Reversed-edge rises: one column per dest, shared by all edges into it
+  // (ports are exempt — contract returns T-junction into the port wire)
+  for (var i = 0; i < all_edges.length; i++) {
+    if (!reversed_set[all_edges[i].id]) continue
+    var orig_to = edge_chain[all_edges[i].id][0]
+    if (port_by_id[orig_to]) continue
+    alloc_arrival(layer_of[orig_to] - 1, 'rev|' + orig_to)
+  }
+  // Self-loop returns share their station's rev-rise column
+  for (var i = 0; i < self_loops.length; i++)
+    alloc_arrival(layer_of[self_loops[i].from.id] - 1, 'rev|' + self_loops[i].from.id)
+
   function gap_units(g) {
-    return (gap_channels[g] || 0) + Math.max(0, (jog_cols[g] || 0) - 1)
+    return (gap_channels[g] || 0) + (arrival_count[g] || 0)
   }
 
   // ── Compute layer_x ──────────────────────────────────────────────
@@ -910,8 +928,8 @@ export function layout(topology, options) {
 
   // ── Vertical channel x-positions per gap ──────────────────────────
   // Spread each gap's fan groups across the track region in ordinal
-  // order. The last 2*(jog_cols-1) columns before the next layer are
-  // reserved for approach jog verticals.
+  // order. The last 2*arrival_count columns before the next layer are
+  // reserved for the arrival ladder.
 
   var v_channel_x = {}
   var group_x = {}         // gap + '|' + fan_group_key → x (for reversed-leg trunk reuse)
@@ -921,7 +939,7 @@ export function layout(topology, options) {
     var gap_left = layer_x[gi] + layer_width[gi]
     var gap_right = layer_x[gi + 1]
     var track_min = gap_left + 3
-    var track_max = gap_right - 4 - 2 * Math.max(0, (jog_cols[gi] || 0) - 1)
+    var track_max = gap_right - 4 - 2 * (arrival_count[gi] || 0)
     // Ensure track_max >= track_min
     if (track_max < track_min) track_max = track_min
     var usable = track_max - track_min
@@ -954,28 +972,10 @@ export function layout(topology, options) {
     band_slots[band].push(key)
   }
 
-  // Approach tracks: one slot per (band, to_node). Also assign jog column
-  // ordinals per (gap, to_node) so parallel jog verticals near the dest
-  // stay two columns apart.
-  var jog_ordinal = {}     // hop key → ordinal among approach dests in its gap
-  var jog_node_ordinal = {}  // gap|to_node → ordinal
-  var gap_jog_n = {}       // gap → count of distinct approach dests
-  for (var i = 0; i < all_edges.length; i++) {
-    var ae = all_edges[i]
-    if (reversed_set[ae.id]) continue
-    var chain = edge_chain[ae.id]
-    for (var j = 0; j < chain.length - 1; j++) {
-      var key = ae.id + '_hop' + j
-      var na = needs_approach[key]
-      if (!na) continue
-      alloc_slot(na.band, 'app|' + na.band + '|' + na.to_node)
-      var jk = na.gap + '|' + na.to_node
-      if (jog_node_ordinal[jk] === undefined) {
-        jog_node_ordinal[jk] = gap_jog_n[na.gap] || 0
-        gap_jog_n[na.gap] = jog_node_ordinal[jk] + 1
-      }
-      jog_ordinal[key] = jog_node_ordinal[jk]
-    }
+  // Approach tracks: one slot per (band, to_node)
+  for (var key in needs_approach) {
+    var na = needs_approach[key]
+    alloc_slot(na.band, 'app|' + na.band + '|' + na.to_node)
   }
 
   // Reversed-edge h-channels: one per edge. Sharing a channel between
@@ -1015,13 +1015,13 @@ export function layout(topology, options) {
   function wire_y(row) { return comp_y(row) + 3 }
   function slot_y(band, key) { return comp_y(band) + 5 + 2 * slot_index[key] }
 
-  // Concrete approach y and jog offsets
+  // Concrete approach y and jog ladder ordinals
   var approach_y_for = {}  // hop key → y
-  var jog_x_for = {}       // hop key → jog column ordinal (0, 1, ...)
+  var jog_x_for = {}       // hop key → arrival ladder ordinal (0, 1, ...)
   for (var key in needs_approach) {
     var na = needs_approach[key]
     approach_y_for[key] = slot_y(na.band, 'app|' + na.band + '|' + na.to_node)
-    jog_x_for[key] = jog_ordinal[key]
+    jog_x_for[key] = arrival_ordinal[na.gap + '|jog|' + na.to_node] || 0
   }
 
   // ── Place components ──────────────────────────────────────────────
@@ -1103,11 +1103,11 @@ export function layout(topology, options) {
         var hop_key = e.id + '_hop' + j
         if (app_y !== undefined) {
           // Approach track: arrive at a dedicated y, then jog to wire_y at
-          // a unique x just outside the station body (to_x - 1 - 2*offset),
-          // then short horizontal to to_x. Each dest node in the same gap
-          // gets a jog column two apart to keep jog verticals spaced.
+          // the dest's arrival-ladder column (to_x - 3 - 2*ordinal), then a
+          // short horizontal into to_x that leaves a visible dash before
+          // the station paren.
           var jog_off = jog_x_for[hop_key] || 0
-          var jog_x = to_x - 1 - 2 * jog_off
+          var jog_x = to_x - 3 - 2 * jog_off
           path.push({ x: ch_x, y: app_y })
           if (jog_x !== ch_x) path.push({ x: jog_x, y: app_y })
           path.push({ x: jog_x, y: to_wy })
@@ -1157,8 +1157,15 @@ export function layout(topology, options) {
     var from_clear_x = v_channel_x['rev_' + e.id] !== undefined
       ? v_channel_x['rev_' + e.id] : from_out_x + 2
     // Port dest: rise one column clear of the wall and T into the port's
-    // wire with a final one-cell horizontal
-    var to_clear_x = port_by_id[orig_to] ? to_in_x + 1 : (to_in_x > 2 ? to_in_x - 2 : to_in_x)
+    // wire with a final one-cell horizontal. Station/subspace dest: rise
+    // at the dest's arrival-ladder column, leaving a dash before the paren.
+    var to_clear_x
+    if (port_by_id[orig_to]) {
+      to_clear_x = to_in_x + 1
+    } else {
+      var rise_ord = arrival_ordinal[(layer_of[orig_to] - 1) + '|rev|' + orig_to] || 0
+      to_clear_x = Math.max(2, to_in_x - 3 - 2 * rise_ord)
+    }
 
     // FROM: out → right → down to below
     if (!port_by_id[orig_from]) {
@@ -1201,7 +1208,8 @@ export function layout(topology, options) {
     var sl_back_y = slot_y(sl_row, 'sl|' + sl_row + '|' + slc.id)
     var sl_right_vx = v_channel_x['sl_' + slc.id] !== undefined
       ? v_channel_x['sl_' + slc.id] : sl_out_x + 2
-    var sl_left_vx = sl_in_x - 2
+    var sl_rise_ord = arrival_ordinal[(layer_of[sl_id] - 1) + '|rev|' + sl_id] || 0
+    var sl_left_vx = Math.max(2, sl_in_x - 3 - 2 * sl_rise_ord)
     add_path(slc.id, sl_out_x, sl_wy)
     add_path(slc.id, sl_right_vx, sl_wy)
     add_path(slc.id, sl_right_vx, sl_back_y)
@@ -1391,6 +1399,26 @@ function check_layout_invariants(laid) {
       var to_pt = to_el.in || { x: to_el.wire_x, y: to_el.y }
       if (last.x !== to_pt.x || last.y !== to_pt.y)
         throw new Error('Invariant endpoint: ' + conn + ' ends at (' + last.x + ',' + last.y + ') but TO ' + tc.to.id + ' in is (' + to_pt.x + ',' + to_pt.y + ')')
+
+      // Invariant 6: attach clearance. A station's in-paren is drawn one
+      // cell left of in.x and stamps over the wire, so an arriving wire
+      // must make its last turn at in.x-3 or further to leave a visible
+      // dash; a departing wire must run to out.x+2 or further before
+      // turning. Subspaces draw 'o' at the attach cell (in needs 2).
+      // Ports are exempt (contract returns T-junction into the port wire).
+      if (to_el.type !== 'port') {
+        var need_in = to_el.type === 'station' ? 3 : 2
+        var prev = pts[pts.length - 2]
+        if (prev.y !== last.y || last.x - prev.x < need_in)
+          throw new Error('Invariant attach: ' + conn + ' enters ' + tc.to.id + ' with last turn at (' +
+                          prev.x + ',' + prev.y + ') — needs a horizontal of ' + need_in + '+ into (' + last.x + ',' + last.y + ')')
+      }
+      if (from_el.type === 'station') {
+        var second = pts[1]
+        if (second.y !== first.y || second.x - first.x < 2)
+          throw new Error('Invariant attach: ' + conn + ' leaves ' + tc.from.id + ' with first turn at (' +
+                          second.x + ',' + second.y + ') — needs a horizontal of 2+ from (' + first.x + ',' + first.y + ')')
+      }
     }
   }
 

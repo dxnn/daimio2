@@ -211,7 +211,7 @@ expired/          — old commands/demos for reference
     T-junction into the port's wire
 13. Post-processing: row/column collapsing
 
-Five invariant checks (all fixtures passing):
+Six invariant checks (all fixtures passing):
 - No wire through station body interior
 - No opposing-direction wires (unless shared endpoint, or a swapped pair
   beside a shared port — the contract T-junction)
@@ -219,6 +219,9 @@ Five invariant checks (all fixtures passing):
 - One empty space between parallel wires (no adjacent same-axis runs)
 - Wall clearance: no vline flush against a side wall, no hline flush under
   the top border (bottom border exempt — the underscore floor reads as space)
+- Attach clearance: arriving wires turn >= 3 cells before a station's in.x
+  (the paren eats one cell), >= 2 for subspaces; departures run >= 2 cells
+  past out.x before turning; ports exempt
 
 Renderers: `space_ascii.js` (ASCII), `space_svg.js` (SVG). Both use same layout output.
 Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render-guided refinement.
@@ -228,13 +231,19 @@ Parser: `space_ascii_parse.js` (ASCII → source.dm). Uses wire tracing + render
 `site/js/space_ascii_parse.js` — parses render.txt back to source.dm format.
 Round-trip: `render.txt → parse_ascii() → source.dm → seedlikes_from_string → extract → layout → render`.
 
-26/41 fixtures round-trip exactly. contract/contract-pair fail because the
-parser doesn't know the T-junction port-return shape yet (reads it as a
-self-loop and loses the port flavour). The other 13 are complex topologies where:
-- Wire tracer creates false positive connections at junction chars (self-loops, cross-connections)
-- The score-guided refine step can't reliably remove false positives (local minimum problem)
-- Subspace port detection is off-by-one due to column collapsing
-- See plan at `.claude/plans/velvet-stirring-pretzel.md` for full design
+37/41 fixtures round-trip exactly. The wire tracer is direction-aware:
+junction chars encode flow (v/^/>/< per renderer rules 5-8, guaranteed
+faithful by the layout invariants), so traversal never runs against a drawn
+flow. Contract returns are recognized by their T-junction (a ^ on the port
+wire fed from below). Refine tries cycle rotations first (the traced start
+of a cycle is arbitrary but decides the back-edge), then best-improvement
+removal/addition, then swaps.
+
+The 4 remaining failures need render-format changes, not parser work:
+- dense4, k5, multi-layer-cross: merged fan trunks make some joins render
+  as plain O crossings — that connectivity is genuinely absent from the ASCII
+- full-topology: custom port labels (@init, @touched) aren't rendered
+  (ports draw as bare 'o'), so labels can't be recovered
 
 ## Test status (as of 2026-04-05)
 
@@ -243,8 +252,9 @@ self-loop and loses the port flavour). The other 13 are complex topologies where
 - node_code: 83/83 pass
 - security_test: 179/179 pass
 - space_test: 124/148 pass (24 known spec-gap failures)
-- space_ascii_test: 298/313 pass (15 round-trip failures, 0 other failures, 41 fixture dirs;
-  as of 2026-07-06: wire-spacing/wall invariants enforced, fan trunks merged, jogs minimized)
+- space_ascii_test: 309/313 pass (4 round-trip failures, 0 other failures, 41 fixture dirs;
+  as of 2026-07-06: spacing/wall/attach invariants enforced, fan trunks merged,
+  jogs minimized, direction-aware parser)
 - example_test: 104/104 pass
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass

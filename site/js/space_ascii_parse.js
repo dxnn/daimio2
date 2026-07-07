@@ -110,27 +110,56 @@ function refine(original, source, parsed_blocks, options) {
   while (changed) {
     changed = false
 
-    // Top-down: try removing each route
+    // Try rotating cyclic chains first (semantics-preserving): the traced
+    // start of a cycle is arbitrary, but it decides which edge the layout
+    // treats as the back-edge — and an inline anonymous station is only
+    // expressible when it appears once, mid-chain.
+    for (var i = 0; i < current.length && !changed; i++) {
+      var m = current[i].match(/^(\s+)(.+)$/)
+      if (!m) continue
+      var parts = m[2].split(' -> ')
+      if (parts.length < 3 || parts[0] !== parts[parts.length - 1]) continue
+      for (var r = 1; r < parts.length - 1; r++) {
+        var rot = parts.slice(r, parts.length - 1).concat(parts.slice(0, r), [parts[r]])
+        var candidate = current.slice()
+        candidate[i] = m[1] + rot.join(' -> ')
+        var s = sc(candidate)
+        if (s === Infinity) return build(candidate)
+        if (s > best_score) { current = candidate; best_score = s; changed = true; break }
+      }
+    }
+    if (changed) continue
+
+    // Top-down: try removing each route. Best-improvement, not first —
+    // taking the first improving removal can delete a true route whose
+    // absence still scores well, hiding the exact fix.
+    var best_i = -1, best_s = best_score
     for (var i = current.length - 1; i >= 0; i--) {
       var candidate = current.slice(0, i).concat(current.slice(i + 1))
       var s = sc(candidate)
       if (s === Infinity) return build(candidate)
-      if (s > best_score) { current = candidate; best_score = s; changed = true; break }
+      if (s > best_s) { best_i = i; best_s = s }
     }
-    if (changed) continue
+    if (best_i >= 0) {
+      current = current.slice(0, best_i).concat(current.slice(best_i + 1))
+      best_score = best_s; changed = true
+      continue
+    }
 
-    // Bottom-up: try adding from extras
+    // Bottom-up: try adding from extras (best-improvement)
+    best_i = -1; best_s = best_score
     for (var i = 0; i < extras.length; i++) {
       var candidate = current.concat([extras[i]])
       var s = sc(candidate)
       if (s === Infinity) return build(candidate)
-      if (s > best_score) {
-        current = candidate
-        extras.splice(i, 1)
-        best_score = s; changed = true; break
-      }
+      if (s > best_s) { best_i = i; best_s = s }
     }
-    if (changed) continue
+    if (best_i >= 0) {
+      current = current.concat([extras[best_i]])
+      extras.splice(best_i, 1)
+      best_score = best_s; changed = true
+      continue
+    }
 
     // Try swapping pairs of routes
     for (var a = 0; a < current.length && !changed; a++) {
@@ -278,23 +307,19 @@ function find_stations(grid, h, left_col, right_col) {
 
 function find_subspaces(grid, h, left_col, right_col, stations) {
   var subspaces = []
-  // Collect station body rows to skip
-  var station_rows = {}
-  for (var i = 0; i < stations.length; i++) station_rows[stations[i].body_y] = true
-
   for (var y = 1; y < h - 1; y++) {
-    if (station_rows[y]) continue
-    // Find interior o pairs
+    // Find interior o pairs (only subspace sides render interior o's —
+    // wall ports are outside the scan; stations may share the row)
     var os = []
     for (var x = left_col + 1; x < right_col; x++)
       if (grid[y][x] === 'o') os.push(x)
     for (var i = 0; i < os.length - 1; i++) {
       var lx = os[i], rx = os[i + 1]
-      if (y < 1) continue
       if (grid[y - 1][lx] !== '|' || grid[y - 1][rx] !== '|') continue
       var raw = ''
       for (var j = lx + 1; j < rx; j++) raw += grid[y - 1][j]
       subspaces.push({ name: raw.trim(), left_x: lx, right_x: rx, port_y: y })
+      i++  // consume both o's so adjacent boxes can't pair across the gap
     }
   }
   return subspaces
@@ -390,13 +415,44 @@ function get_exits(grid, x, y, dir) {
     else if (dir === 'left') try_exit(-1, 0, 'left')
     else if (dir === 'up') try_exit(0, -1, 'up')
     else if (dir === 'down') try_exit(0, 1, 'down')
-  } else if (ch === 'v' || ch === '^' || ch === '>' || ch === '<') {
-    // Junction char: try all directions except back. The refine step
-    // will remove any false-positive connections from over-eager forking.
-    if (dir !== 'left') try_exit(1, 0, 'right')
-    if (dir !== 'right') try_exit(-1, 0, 'left')
-    if (dir !== 'down') try_exit(0, -1, 'up')
-    if (dir !== 'up') try_exit(0, 1, 'down')
+  } else if (ch === 'v' || ch === '^') {
+    // Vertical-flow junction: the vertical wire at this cell flows in the
+    // char's direction (v=down, ^=up). Layout invariants guarantee the
+    // char is flow-faithful, so traversal must respect it:
+    //  - arriving along the horizontal: continue straight; branch onto the
+    //    vertical only in its flow direction (away from the wire)
+    //  - arriving along the vertical WITH the flow: continue, or turn onto
+    //    the horizontal where the vertical ends (both h sides — the h flow
+    //    isn't encoded here)
+    //  - arriving against the vertical flow: dead end
+    var flow_dy = ch === 'v' ? 1 : -1
+    var flow_vdir = ch === 'v' ? 'down' : 'up'
+    if (dir === 'left' || dir === 'right') {
+      try_exit(dir === 'left' ? -1 : 1, 0, dir)
+      try_exit(0, flow_dy, flow_vdir)
+    } else if (dir === flow_vdir) {
+      try_exit(0, flow_dy, flow_vdir)
+      try_exit(1, 0, 'right')
+      try_exit(-1, 0, 'left')
+    }
+  } else if (ch === '>' || ch === '<') {
+    // Horizontal-flow junction: the horizontal wire here flows in the
+    // char's direction (>=right, <=left). Mirror of the above:
+    //  - arriving along the vertical: continue straight; branch onto the
+    //    horizontal only in its flow direction
+    //  - arriving along the horizontal WITH the flow: continue, or turn
+    //    onto the vertical (both v sides)
+    //  - arriving against the horizontal flow: dead end
+    var flow_dx = ch === '>' ? 1 : -1
+    var flow_hdir = ch === '>' ? 'right' : 'left'
+    if (dir === 'up' || dir === 'down') {
+      try_exit(0, dir === 'up' ? -1 : 1, dir)
+      try_exit(flow_dx, 0, flow_hdir)
+    } else if (dir === flow_hdir) {
+      try_exit(flow_dx, 0, flow_hdir)
+      try_exit(0, -1, 'up')
+      try_exit(0, 1, 'down')
+    }
   } else if (ch === 'o') {
     if (dir !== 'left') try_exit(1, 0, 'right')
     if (dir !== 'right') try_exit(-1, 0, 'left')
@@ -419,17 +475,25 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
     attach_at[k].push(info)
   }
 
-  // Detect contract ports: left port with junction char immediately right + vertical wire below
+  // Detect contract ports: a contract return T-junctions into the port's
+  // wire — a ^ within a few cells right of the port, fed by a vertical
+  // from below (a ^ fed from above would be the port's own fan rising).
   var contract_set = {}
   for (var i = 0; i < ports.length; i++) {
     var p = ports[i]
     if (p.side !== 'left') continue
-    var rx = p.x + 1
-    if (rx >= grid[p.y].length) continue
-    var nc = grid[p.y][rx]
-    if ((nc === '^' || nc === 'v' || nc === '|') &&
-        p.y + 1 < grid.length && is_v_connectable(grid[p.y + 1][rx]))
-      contract_set[i] = true
+    for (var dx = 1; dx <= 3; dx++) {
+      var rx = p.x + dx
+      if (rx >= grid[p.y].length) break
+      var nc = grid[p.y][rx]
+      if (nc === '^' &&
+          p.y + 1 < grid.length && is_v_connectable(grid[p.y + 1][rx]) &&
+          !(p.y > 0 && is_v_connectable(grid[p.y - 1][rx]))) {
+        contract_set[i] = true
+        break
+      }
+      if (!is_h_connectable(nc)) break
+    }
   }
 
   // Register attachments
