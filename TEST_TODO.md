@@ -163,6 +163,15 @@ already does for the space_test spec-gaps.
 
 ---
 
+## Parser / Astroglot
+
+- **Malformed `<->` must error, not silently misparse** (reviewer-reported) —
+  `seedlikes_from_string` mints a bogus port from any LHS token and treats the
+  RHS as a station, so a backwards `A <-> @down:svc` "passes" on orphan shapes.
+  Test: station-on-LHS (and other non-`port <-> station` shapes) errors/borks
+  per the §3 contract signal-type rule; a valid `@up:svc <-> A` still round-trips;
+  a port-on-RHS contract (`S@down <-> T@up`) parses to the right two routes. [now]
+
 ## Notes
 - Label every test with its assertion ID (test-spec traceability; see
   `extra/notes.md`). Most `[impl]` items are RED guides — failing tests

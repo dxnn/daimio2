@@ -47,3 +47,10 @@ Add items freely.
   borks.
 - **Deterministic scheduler** — dock order and cross-space interleaving. The spec's determinism
   boundary is deferred until this exists (spec #11); ask before speccing.
+- **Seedlike `<->` parser hardening** (reviewer-reported) — `seedlikes_from_string`
+  (1_daimio.js:3234) assumes `port <-> station`: it mints a port from *any* LHS token (with a
+  garbage direction) and always appends `.in`/`.out` to the RHS as if it were a station. So
+  station-first `A <-> @down:svc` silently mints a bogus port `A` + malformed routes (no error),
+  and port-on-RHS contracts (`S@down <-> T@up`, per §6) also misparse. Fix: reject a `<->` whose
+  LHS isn't a valid Enter-N-Exit port, and handle RHS ports — enforce the §3 contract
+  signal-type bork instead of failing silently. Fail loud, not silent.
