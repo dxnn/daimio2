@@ -3355,6 +3355,19 @@ test(
 )
 
 // =====================================================
+// §11 Block-evaluating commands: a pure block runs synchronously
+// =====================================================
+
+// `list map` evaluates its block param once per item. When the block is
+// pure (no effectful command), evaluation completes in-process with no
+// async boundary, and the result is exactly the mapped values.
+test(
+  'list map with a pure block completes synchronously, result = mapped values [blockeval-sync-when-pure]',
+  '{(1 2 3) | list map block "{__ | math add value 1}"}',
+  '[2,3,4]'
+)
+
+// =====================================================
 // §5 Recursion depth: unbounded recursion sploots to empty, never crashes
 // =====================================================
 
