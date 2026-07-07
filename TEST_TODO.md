@@ -172,6 +172,23 @@ already does for the space_test spec-gaps.
   per the §3 contract signal-type rule; a valid `@up:svc <-> A` still round-trips;
   a port-on-RHS contract (`S@down <-> T@up`) parses to the right two routes. [now]
 
+## Performance regression
+
+- **Establish perf regression baselines.** `perf_test.mjs` exists (21 checks) but
+  we need end-to-end workload regressions that fail on throughput drops, not just
+  micro-checks. Starting point: the **mandelbrot ships** demos in
+  `site/demos/mandelbrot/` (`canvas_ships.html`, `_fast.html`, `_faster.html`) —
+  heavy daimio workloads (iterative escape-time via self-feeding `>@again`/`>@done`
+  ship loops, block eval, path access, arithmetic). The base/fast/faster ladder
+  gives a natural before/after comparison. Extract the pipelines into a headless
+  perf harness, record iteration/second (or total ships docked) baselines, assert
+  no regression beyond a tolerance.
+- **Scheduler is perf-sensitive.** If the deterministic-scheduler draft lands, it
+  replaces the `setImmediate` deferral sites with a priority loop — a change that
+  can shift throughput. These mandelbrot baselines should exist *before* that
+  lands so the scheduler's perf impact is measurable. The self-feeding loops are
+  also the exact shape the scheduler's frontier/dock-number rules govern.
+
 ## Notes
 - Label every test with its assertion ID (test-spec traceability; see
   `extra/notes.md`). Most `[impl]` items are RED guides — failing tests
