@@ -183,10 +183,13 @@ test(
   'no'
 )
 
-// original crash: pipe value is object, fills "in" implicitly
+// original crash: pipe value is object, fills "in" implicitly. Uses a fixed
+// keyed object; was `time stampwrap`, whose wall-clock output made the result
+// flip on a date rollover. The object-via-pipe coercion is what's under test,
+// not the clock.
 test(
   'is-in: object via pipe does not crash [coerce-list] [P-total]',
-  '{:x | time stampwrap | logic is value __in | logic if then :yes else :no}',
+  '{* (:a 1 :b 2) | logic is value __in | logic if then :yes else :no}',
   'no'
 )
 
