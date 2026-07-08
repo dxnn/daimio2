@@ -2785,22 +2785,9 @@ D.make_execution_space = function() {
       ports: [], routes: [], state: {} }))
 }
 
-// Drive a space to quiescence, then callback(true). Work defers through
-// setImmediate, so we poll on the same queue; idle must hold across two
-// consecutive ticks to skip the momentary gap in run_queue (between
-// queue.shift() and its deferred real_execute). The tick budget turns a
-// non-settling self-feed into callback(false) instead of a hang.
-D.settle = function(space, callback, budget) {
-  budget = budget || 100000
-  var confirms = 0
-  function tick() {
-    confirms = space.is_idle() ? confirms + 1 : 0
-    if(confirms >= 2) return callback(true)
-    if(--budget <= 0) return callback(false)
-    D.setImmediate(tick)
-  }
-  D.setImmediate(tick)
-}
+// (Quiescence *driving* — settle — lives in the deterministic test harness:
+// it needs to count outstanding setImmediate deferrals, which is cleanest to
+// instrument at harness import once the engine is fully loaded.)
 
 
 

@@ -11,6 +11,30 @@
 
 var D = (await import('../daimio/daimio.js')).default
 
+// ── settle: drive a space to true quiescence ────────────────────────────────
+// All engine work defers through D.setImmediate. Wrap it (once, at import,
+// after the engine is loaded) to count outstanding deferrals, and poll on an
+// *uncounted* timer: the space is done only when it is idle AND no deferral is
+// pending — so a multi-hop cascade (a completes → b docks → b's output exits),
+// which is idle *between* stages, is not mistaken for finished. A tick budget
+// turns a non-settling self-feed into cb(false) instead of a hang.
+var raw_setImmediate = D.setImmediate
+var pending_defers = 0
+D.setImmediate = function(fn) {
+  pending_defers++
+  return raw_setImmediate(function() { pending_defers--; fn() })
+}
+
+function settle(space, cb, budget) {
+  budget = budget || 100000
+  function tick() {
+    if(space.is_idle() && pending_defers === 0) return cb(true)
+    if(--budget <= 0) return cb(false)
+    raw_setImmediate(tick)
+  }
+  raw_setImmediate(tick)
+}
+
 // ── state ─────────────────────────────────────────────────────────────
 var queue = []            // pending test thunks: fn(done)
 var pass = 0, fail = 0
@@ -80,37 +104,59 @@ D.import_port_flavour('det-world', {
 })
 
 // ── schedule constructors ─────────────────────────────────────────────────
-export function arrive(port, value)      { return { kind: 'arrive', port: port, value: value } }
+// arrive: an external ship at @port. opts.sender attaches a sender (attenuates
+// via I2); opts.number pins the intended frontier number (honored once the
+// scheduler exists; ignored today, so a number-divergent scenario docks FIFO
+// now and by number later — the failure is RED for the right reason).
+export function arrive(port, value, opts) {
+  opts = opts || {}
+  return { kind: 'arrive', port: port, value: value, sender: opts.sender, number: opts.number }
+}
 export function respond(o)               { return { kind: 'respond', port: o.port, nth: o.nth, value: o.value, delay: o.delay } }
 export function timeout(o)               { return { kind: 'timeout', port: o.port, at: o.at } }
 export function world_in(port, value)    { return { kind: 'world_in', port: port, value: value } }
 export function socket_load(port, src, o){ return { kind: 'socket_load', port: port, src: src, mode: (o && o.mode) || 'drain' } }
 
+// batch: inject several events with NO settle between them, so they compete
+// in the scheduler (frontier interleaving) rather than being sequenced by the
+// driver. On today's FIFO engine they dock in injection order.
+export function batch()                  { return { kind: 'batch', events: Array.prototype.slice.call(arguments) } }
+
+// sender: build a sender whose dialect blocks the given handler->methods.
+// e.g. sender('bob', { math: ['add'] }) forbids `math add`.
+export function sender(id, blocked) {
+  var dialect = blocked ? D.make_restricted_dialect({ blocked_methods: blocked }) : D.DIALECTS.top
+  return new D.Sender(id, { dialect: dialect })
+}
+
 // ── driver ──────────────────────────────────────────────────────────────
 function apply_event(space, ev) {
   switch(ev.kind) {
-    case 'arrive':      D.send_value_to_js_port(space, ev.port, ev.value); break
+    case 'arrive':      D.send_value_to_js_port(space, ev.port, ev.value, 'from-js', ev.sender); break
     case 'world_in':    D.send_value_to_js_port(space, ev.port, ev.value); break
     case 'socket_load': D.send_value_to_js_port(space, ev.port, ev.src, 'socket-load'); break
     case 'timeout':     throw new Error('timeout events need virtual time (not in v1)')
+    case 'batch':       ev.events.forEach(function(e) { apply_event(space, e) }); break
     default:            throw new Error('unknown schedule event: ' + ev.kind)
   }
 }
 
-// Register responses, then inject each non-respond event and settle
-// between events (deterministic schedule-level interleaving). cb(ok, why).
+// Register responses, then inject each step (a single event or a batch) and
+// settle between steps. A batch injects its events with no settle between, so
+// they compete in the scheduler; separate steps are sequenced by the driver.
+// cb(ok, why).
 function drive(space, schedule, cb) {
   current.responses = {}
   schedule.filter(function(e) { return e.kind === 'respond' }).forEach(function(e) {
     (current.responses[e.port] = current.responses[e.port] || []).push(e)
   })
-  var events = schedule.filter(function(e) { return e.kind !== 'respond' })
+  var steps = schedule.filter(function(e) { return e.kind !== 'respond' })
   var i = 0
   function step() {
-    if(i >= events.length) return cb(true)
-    try { apply_event(space, events[i++]) }
+    if(i >= steps.length) return cb(true)
+    try { apply_event(space, steps[i++]) }
     catch(e) { return cb(false, e.message) }
-    D.settle(space, function(settled) {
+    settle(space, function(settled) {
       if(!settled) return cb(false, 'did not settle')
       step()
     })
@@ -184,6 +230,8 @@ function run_once(opts, cb) {
 function make_expect(label) {
   return {
     eq:      function(actual, expected) { check(label, actual, expected) },
+    ne:      function(actual, forbidden){ if(str(actual).trim() !== str(forbidden).trim()) pass++
+                                          else record_fail(label, 'anything but ' + str(forbidden), actual) },
     outputs: function(port, values)     { check(label, current.trace.filter(function(e) { return e.port === port }).map(function(e) { return e.value }), values) },
     order:   function(pairs)            { if(is_subsequence(current.trace, pairs)) pass++
                                           else record_fail(label, 'subsequence ' + str(pairs), render_trace(current.trace).join(' | ')) },
@@ -193,7 +241,7 @@ function make_expect(label) {
 
 // ── runner / report ───────────────────────────────────────────────────────
 function run_next() {
-  D.setImmediate(function() {
+  raw_setImmediate(function() {
     if(!queue.length) return report()
     var t = queue.shift()
     t(run_next)
