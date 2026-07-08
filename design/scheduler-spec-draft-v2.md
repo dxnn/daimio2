@@ -104,13 +104,21 @@ scheduler).** `[id-internal-handles]` (§4, line 949) says handles exist
 This is a standalone fix to already-committed text; can land now or
 with the scheduler.
 
-**Integration question (flag, not resolved).** The sender patch says
-each space keeps a "process sequence" that "takes the next number"
-(`[procid-sequence]`, §4 line 940), while the scheduler's space counter
-is the vtime `max(counter, ship#)+1` (which jumps, not a simple +1).
-Same per-space counter (so a process id is `qname#vtime`) or two? I'd
-unify — the vtime *is* the sequence — but pin it during integration,
-since `[procid-sequence]` is cited in the determinism obligations.
+**Integration decision — unify on vtime, flat sub-processes
+(RESOLVED).** procid is eliminated as a separate counter: the per-space
+"process sequence" *is* the vtime counter, and a process id is
+`qname#vtime`. Sub-processes do **not** take their own number — a
+sub-process shares its root dock's process id and is located for error
+attribution by its block/segment position (flat). At integration this
+revises the committed `[procid-sequence]` text (§4, lines 940–942): drop
+"docked ships and sub-processes alike take the next number"; define the
+process id as `qname#vtime`, sub-processes located within their root.
+That revision references vtime, so it lands *with* the scheduler patch,
+not before — the committed §4 text is correct as-is until then (it was
+introduced by the sender patch c251027 for I16 identity, pre-scheduler).
+Net effect: one per-space counter (vtime) serves scheduling and identity
+both, and the `[id-internal-handles]` ambiguity dissolves (observable id
+= `qname#vtime`; "internal handles" = runtime pointers, nothing else).
 
 ---
 
@@ -245,7 +253,20 @@ concurrent scheduling" note to point at it):
 - No other v1 IDs change; the other v1 edits (2 minus the tuple line,
   6, 7, 8, 10) stand as written.
 
-## Still deferred to the formalization pass (unchanged from v1)
-- The reference ⇄ distributed equivalence (B4 conjecture).
+## Still deferred to the formalization pass → §14 note at integration
+
+The scheduler's determinism is **not yet proven**. This is the standing
+future-work obligation; it lands as a §14 "Future Work" entry when the
+scheduler merges (until then it lives here, since the scheduler isn't in
+the spec):
+- The reference ⇄ distributed equivalence (B4 conjecture) — the
+  confluence lemma and its weak spots below.
 - Weak spot 1 (effective-key mutation) — counter monotonicity argument.
 - Weak spot 2 (frontier under mid-step callbacks) — max-seen rule.
+- **Flat sub-process numbering (the decision above).** The unified
+  scheme gives sub-processes no distinct number — they share the root
+  dock's `qname#vtime`. The proof must show that a process tree's
+  emissions and error attribution stay deterministic under the schedule
+  with flat numbering, and must settle the sub-process-identity
+  question: is "root process id + block/segment location" enough to name
+  a failing sub-process uniquely, or is a hierarchical id ever required?
