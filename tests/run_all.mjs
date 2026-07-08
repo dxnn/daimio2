@@ -24,6 +24,8 @@ const suites = [
   ['det_sender_test.mjs',  'determinism (sender/dialect I2/I3/I4)',     0],  // self-manages known failures
   ['det_world_test.mjs',   'determinism (world-I/O: emit/round-trip)',  0],  // self-manages known failures
   ['det_time_test.mjs',    'determinism (time/clock via D.now)',        0],  // self-manages known failures
+  ['det_blackhole_test.mjs','determinism (black-hole crossing)',        0],  // self-manages known failures
+  ['det_socket_test.mjs',  'determinism (socket-load)',                 0],  // self-manages known failures
   ['space_ascii_test.mjs', 'ASCII topology renderer',                  0],
   ['example_test.mjs',     'command examples (auto-discovered)',       0],
   ['perf_test.mjs',        'performance benchmarks',                   0],

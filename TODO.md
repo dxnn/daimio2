@@ -39,6 +39,21 @@ These are the two big unlocks; almost every RED guide in the determinism suite
 is waiting on one of them. Each lists what to build, where, and which tests go
 green when it lands.
 
+### 0. Subspace parsing (foundational — discovered 2026-07-08)
+
+`make_some_space` / `seedlikes_from_string` **does not create subspaces**: an
+indented block with its own content compiles to a *station*, not a subspace
+(confirmed — the space_test `wiring-target-station` seed and a bare
+`inner { … }` both yield `subspaces: 0, stations: N`; a `((relay))` block
+likewise). So the compiled seed has no subspace structure, no subspace ports,
+and no internal wiring — which is why every subspace-based space_test is RED and
+why the socket-load / black-hole / cmd-forwarding / up-port behavior guides
+cannot even be *set up*. This is the prerequisite beneath routing (B) and every
+subspace feature. Build: parse an indented named block (and the `((label))`
+form) into a child spaceseed in `subspaces`, with its own ports/stations/routes/
+state, referenceable by the parent as `name.in`/`name.out`/`name@port`. Turns
+green (as a precondition): the entire subspace-based backlog.
+
 ### A. Priority-loop scheduler with ship numbers (spec §5 "Deterministic scheduling")
 
 Today: dispatch is a FIFO queue advanced by `D.setImmediate` (`1_daimio.js`

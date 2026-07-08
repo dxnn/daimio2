@@ -149,7 +149,7 @@ function apply_event(space, ev) {
   switch(ev.kind) {
     case 'arrive':      D.send_value_to_js_port(space, ev.port, ev.value, 'from-js', ev.sender); break
     case 'world_in':    D.send_value_to_js_port(space, ev.port, ev.value); break
-    case 'socket_load': D.send_value_to_js_port(space, ev.port, ev.src, 'socket-load'); break
+    case 'socket_load': D.send_value_to_js_port(space, ev.port, ev.src); break  // Astroglot arrives at an outer port wired to the subspace's socket-load port; the mode is declared on that port
     case 'timeout':     break  // no-op until virtual time exists; the timeout RED guides assert the outcome
     case 'batch':       ev.events.forEach(function(e) { apply_event(space, e) }); break
     default:            throw new Error('unknown schedule event: ' + ev.kind)
