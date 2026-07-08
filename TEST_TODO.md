@@ -228,14 +228,32 @@ Full per-invariant extraction done across the four new subsystems (scheduler,
 sender/qname/id, blockeval/depth, black-hole/socket/async). What's built and
 what each remaining guide is blocked on:
 
-**BUILT (verified, committed):**
+**BUILT (verified, committed) — 8 determinism suites + space/d2 guides:**
+- `det_test.mjs` — isolation, replay (counter + fan-in), fan-in dock order
+  (green artifact); internal-dock trace via the D.Etc.on_dock hook:
+  `[sched-dock-lowest]`, `[sched-dock-max]`, `[qname-anon-station]`,
+  `[qname-structure]` (RED), `[sched-ship-vtime]` (green); poke moves (RED).
 - `det_sender_test.mjs` — I2/I3/I4 + sender attach: attach-no-override,
   propagate-out, immutability, dialect-cmd-sploot(+control), carrier-not-payload
   (green); `[sender-attach-entry]` (RED).
+- `det_world_test.mjs` — emission observed (green); `[roundtrip-response]`,
+  `[P-singleresponse]` (RED).
+- `det_time_test.mjs` — `{time now}` under a runner-frozen clock (D.now): exact
+  value + replay (green); `[demandport-wire]` cmd:time:now routing (RED).
+- `det_blackhole_test.mjs` — crossing: `[blackhole-in-exit]`, `[blackhole-out-enter]`,
+  `[blackhole-sender-outer]` (RED, triple-blocked).
+- `det_socket_test.mjs` — `[socket-load-replace]`, `[socket-wiring-demand]`,
+  `[socket-load-reloadable]` (RED, triple-blocked).
 - `space_test.mjs` — 8 compile-bork guides (black-hole rules, socket-load-not-root,
   demandport-create) + contract-direction, all RED.
-- `det_test.mjs` — isolation, replay (counter + fan-in), fan-in dock order
-  (green artifact); poke moves (RED).
+- `d2_spec_test.mjs` — lens laws, blockeval-sync, self-invoking/host-error sploot,
+  time stampwrap (green), object-via-pipe; `[var-read]`/`[var-write]` (RED).
+
+**FOUNDATIONAL BLOCKER (discovered 2026-07-08):** `make_some_space` does not
+parse subspaces — an indented block becomes a station (`subspaces: 0`). This is
+the root reason every subspace-based guide (socket-load, black-hole crossing,
+cmd-forwarding, up-ports, cross-boundary var) is RED, beneath routing. See
+TODO.md §0.
 
 **Blocked on the internal-dock trace hook** (`D.on_trace_event` emitting
 `{qname, number, target, sender, value}` per dock — the single most valuable
