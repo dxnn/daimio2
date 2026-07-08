@@ -95,6 +95,19 @@ det_test('scheduler: docks lowest-numbered pending ship first [sched-dock-lowest
   assert: function(t, e) { e.dockValues(['n4', 'n7', 'n9']) },
 })
 
+// [sched-dock-max] On docking, the process's number = max(space counter,
+// ship number) + 1. A fresh space (counter 0) docking a ship numbered 2 gives
+// number 3. RED: ships carry no number today, so the dock trace has none.
+det_test('scheduler: dock number = max(counter, ship number) + 1 [sched-dock-max]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    sink {__}
+    @go -> sink -> @out`,
+  schedule: [ arrive('go', 'x', { number: 2 }) ],
+  assert: function(t, e) { e.dockNumbers([3]) },
+})
+
 // [sched-ship-vtime] A ship's number is carrier metadata, never payload — no
 // DAML expression can recover it. GREEN and stable.
 det_test('scheduler: a ship number is carrier metadata, not payload [sched-ship-vtime]', {
@@ -136,6 +149,7 @@ det_test('scheduler: a station qname is its space path plus name [qname-structur
   // internal-dock trace guides — RED until the scheduler numbers ships and
   // the engine computes topology qnames (the dock hook exposes them then)
   'scheduler: docks lowest-numbered pending ship first [sched-dock-lowest]',
+  'scheduler: dock number = max(counter, ship number) + 1 [sched-dock-max]',
   'scheduler: anonymous stations get qnames s1, s2 in source order [qname-anon-station]',
   'scheduler: a station qname is its space path plus name [qname-structure]',
 ].forEach(function(l) { known_failures.add(l) })
