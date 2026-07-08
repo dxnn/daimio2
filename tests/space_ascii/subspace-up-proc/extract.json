@@ -1,0 +1,101 @@
+{
+  "worker": {
+    "id": "worker",
+    "name": "worker",
+    "ports": [
+      {
+        "id": "p0",
+        "key": "down:svc",
+        "dir": "bottom",
+        "flavour": "down:svc"
+      }
+    ],
+    "stations": [
+      {
+        "id": "s0",
+        "name": "h",
+        "source": "{handle}",
+        "ports": []
+      }
+    ],
+    "subspaces": [],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "p0",
+          "port": "down:svc"
+        },
+        "to": {
+          "id": "s0",
+          "port": "_in"
+        },
+        "type": "contract",
+        "pair": "c1"
+      },
+      {
+        "id": "c1",
+        "from": {
+          "id": "s0",
+          "port": "_out"
+        },
+        "to": {
+          "id": "p0",
+          "port": "down:svc"
+        },
+        "type": "contract",
+        "pair": "c0"
+      }
+    ],
+    "state": {}
+  },
+  "outer": {
+    "id": "outer",
+    "name": "outer",
+    "ports": [
+      {
+        "id": "p0",
+        "key": "in",
+        "dir": "left",
+        "flavour": "in"
+      },
+      {
+        "id": "p1",
+        "key": "out",
+        "dir": "right",
+        "flavour": "out"
+      }
+    ],
+    "stations": [],
+    "subspaces": [
+      "worker"
+    ],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "p0",
+          "port": "in"
+        },
+        "to": {
+          "id": "worker",
+          "port": "up:svc"
+        },
+        "type": "faf"
+      },
+      {
+        "id": "c1",
+        "from": {
+          "id": "worker",
+          "port": "up:svc"
+        },
+        "to": {
+          "id": "p1",
+          "port": "out"
+        },
+        "type": "faf"
+      }
+    ],
+    "state": {}
+  }
+}

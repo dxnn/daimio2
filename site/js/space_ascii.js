@@ -140,6 +140,12 @@ export function render(laid_out) {
         grid[el.y + 3][el.down[d].s] = 'v'
       }
     }
+    if (el.type === 'subspace_box' && el.up) {
+      for (var d = 0; d < el.up.length; d++) {
+        grid[el.y][el.up[d].n] = '^'
+        grid[el.y][el.up[d].s] = 'v'
+      }
+    }
     if (el.type !== 'port' || !el.glyph) continue
     if (el.glyph === 'x') grid[el.y][el.x] = 'x'
     else { grid[el.y][el.north_x] = '^'; grid[el.y][el.south_x] = 'v' }

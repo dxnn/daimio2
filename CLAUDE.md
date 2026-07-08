@@ -237,10 +237,11 @@ travel a top-band (up ports) or the floor band (down ports). A station's
 down-port round trip attaches at a `^v` pair on its bottom edge and drops
 straight to the floor pair when the corridor is clear. A subspace's `down:*`
 port renders as `^v` on the box's bottom edge and routes through the band
-below the subspace's row (request rises into ^, response drops from v).
-Subspace `up:*` ports (top edge, above-row band) are not yet implemented —
-see TODO. `extract` maps up→top, down→bottom; custom-named ports still infer
-left/right from connection usage.
+below the subspace's row (request rises into ^, response drops from v); an
+`up:*` port mirrors it on the top edge, routing through a band ABOVE the
+row — which grows the row upward (the box shifts down within its row by
+`above_h = 2·slots−2` to make room). `extract` maps up→top, down→bottom;
+custom-named ports still infer left/right from connection usage.
 
 Junction convention: O is a pure crossing. A wire turning at a cell where
 wires pass through in both axes renders as the turn's arrow (v ^ > <) —
@@ -248,8 +249,9 @@ the wire merges into the crossing wire, one direction only.
 
 Seven invariant checks (all fixtures passing):
 - No wire through station body interior (a down-port leg may touch a box's
-  own bottom border at its `^v` attach — it runs downward into the band,
-  never up into the interior)
+  own bottom border at its `^v` attach and run downward into the band; an
+  up-port leg touches the top border and runs upward — neither enters the
+  interior)
 - No opposing-direction wires (unless shared endpoint, or at a port's
   mouth between two wires that both attach to that port — requests leave
   and returns T-junction in over the same 1-2 cells)
@@ -288,8 +290,8 @@ fed from below). At a left port's mouth T (a ^ exactly two cells right of
 the wall o) a rising return exits only toward the port — riding onward
 along the port's outgoing wire would read the return as feeding the
 port's fan. Vertical ports are read straight off the glyph: `x`/`^v` on
-the top/bottom borders (up/down space ports), `^v` on a station's or
-subspace box's bottom edge (down round trips). Each `^v` is two
+the top/bottom borders (up/down space ports), `^v` on a station's bottom
+edge or a subspace box's top/bottom edge (up/down round trips). Each `^v` is two
 opposite-flowing wires, and the tracer never hops between the paired
 cells (they would read as one wire). Vertical-port legs emit as plain FAF
 routes (`@down -> S`, `S -> @down`), which render identically to `<->`.
@@ -314,12 +316,14 @@ renders are identical because labels never reach the picture.
 - node_code: 83/83 pass
 - security_test: 179/179 pass
 - space_test: 124/148 pass (24 known spec-gap failures)
-- space_ascii_test: 403/403 pass (56/56 fixtures round-trip, 0 failures;
+- space_ascii_test: 421/421 pass (59/59 fixtures round-trip, 0 failures;
   as of 2026-07-07: vertical (up/down) round-trip ports render on top/bottom
   borders and station/subspace bottom edges instead of the side walls;
-  three fixtures added (subspace-down-proc, subspace-down-station,
-  vport-unwired). As of 2026-07-06: seven layout invariants enforced,
-  canonical layout, turn-arrow junction convention, flow-aware parser)
+  subspace up ports render on the box top edge via an above-row band. Six
+  fixtures added (subspace-{down,up}-proc, subspace-{down,up}-station,
+  subspace-up-down, vport-unwired). As of 2026-07-06: seven layout
+  invariants enforced, canonical layout, turn-arrow junction convention,
+  flow-aware parser)
 - example_test: 104/104 pass
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass

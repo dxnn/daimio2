@@ -353,12 +353,18 @@ function find_subspaces(grid, h, left_col, right_col, stations) {
       var raw = ''
       for (var j = lx + 1; j < rx; j++) raw += grid[y - 1][j]
       var sub = { name: raw.trim(), left_x: lx, right_x: rx, port_y: y }
-      // Down ports: ^v pairs on the box's bottom border (row y+1)
+      // Down ports: ^v pairs on the box's bottom border (row y+1);
+      // up ports: ^v pairs on the top border (row y-2).
       sub.down = []
       var by = y + 1
       if (by < h)
         for (var j = lx + 1; j < rx; j++)
           if (grid[by][j] === '^' && grid[by][j + 1] === 'v') { sub.down.push({ up_x: j, dn_x: j + 1, y: by }); j++ }
+      sub.up = []
+      var ty = y - 2
+      if (ty >= 0)
+        for (var j = lx + 1; j < rx; j++)
+          if (grid[ty][j] === '^' && grid[ty][j + 1] === 'v') { sub.up.push({ up_x: j, dn_x: j + 1, y: ty }); j++ }
       subspaces.push(sub)
       i++  // consume both o's so adjacent boxes can't pair across the gap
     }
@@ -763,6 +769,15 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
       sources.push({ x: dp.dn_x, y: dp.y, dir: 'down',
                      info: { kind: 'subspace_down_out', index: i, port: d } })
     }
+    // Up ports on the box top edge — mirror: ^ (up_x) a wire leaves UP
+    // (source), v (dn_x) a wire drops IN from above (sink).
+    for (var d = 0; d < (sub.up || []).length; d++) {
+      var up = sub.up[d]
+      add(up.up_x, up.y, { kind: 'subspace_up_out', index: i, port: d })
+      add(up.dn_x, up.y, { kind: 'subspace_up_in', index: i, port: d })
+      sources.push({ x: up.up_x, y: up.y, dir: 'up',
+                     info: { kind: 'subspace_up_out', index: i, port: d } })
+    }
   }
   // Vertical ports (top/bottom borders). A wired round-trip port has an
   // out cell (a wire leaves the port toward a component) and an in cell (a
@@ -800,6 +815,7 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
           var a = here[ai]
           var is_sink = a.kind === 'station_in' || a.kind === 'subspace_in' ||
                         a.kind === 'vport_in' || a.kind === 'subspace_down_in' ||
+                        a.kind === 'subspace_up_in' ||
                         (a.kind === 'port' && a.side === 'right') ||
                         (a.kind === 'port' && a.side === 'left' && contract_set[a.index])
           if (is_sink) { connections.push({ from: src.info, to: a }); found_sink = true }
@@ -809,6 +825,7 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
         var is_source = here.some(function(a) {
           return a.kind === 'station_out' || a.kind === 'subspace_out' ||
                  a.kind === 'vport_out' || a.kind === 'subspace_down_out' ||
+                 a.kind === 'subspace_up_out' ||
                  (a.kind === 'port' && a.side === 'left' && !contract_set[a.index])
         })
         if (is_source) continue
@@ -855,6 +872,8 @@ function trace_all(grid, stations, subspaces, ports, left_col, right_col) {
     if (ep.kind === 'subspace_out') return { x: subspaces[ep.index].right_x, y: subspaces[ep.index].port_y }
     if (ep.kind === 'subspace_down_in' || ep.kind === 'subspace_down_out')
       return { x: subspaces[ep.index].down[ep.port].up_x, y: subspaces[ep.index].down[ep.port].y }
+    if (ep.kind === 'subspace_up_in' || ep.kind === 'subspace_up_out')
+      return { x: subspaces[ep.index].up[ep.port].up_x, y: subspaces[ep.index].up[ep.port].y }
     return { x: 0, y: 0 }
   }
   deduped.sort(function(a, b) {
@@ -925,6 +944,10 @@ function build_routes(connections, stations, subspaces, ports, port_label) {
     if (ep.kind === 'subspace_out') return subspaces[ep.index].name + '.out'
     if (ep.kind === 'subspace_down_in' || ep.kind === 'subspace_down_out') {
       var pname = ep.port === 0 ? 'down' : 'down:' + String.fromCharCode(97 + ep.port - 1)
+      return subspaces[ep.index].name + '.' + pname
+    }
+    if (ep.kind === 'subspace_up_in' || ep.kind === 'subspace_up_out') {
+      var pname = ep.port === 0 ? 'up' : 'up:' + String.fromCharCode(97 + ep.port - 1)
       return subspaces[ep.index].name + '.' + pname
     }
     return '?'

@@ -110,6 +110,12 @@ export function render(laid_out, options) {
         down_marker(pairs[d].s, el.y + 3)
       }
     }
+    if (el.type === 'subspace_box' && el.up) {
+      for (var d = 0; d < el.up.length; d++) {
+        down_marker(el.up[d].n, el.y)
+        down_marker(el.up[d].s, el.y)
+      }
+    }
   }
 
   // 5b. Ports. Side ports are single circles at the wall; vertical ports
