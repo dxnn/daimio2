@@ -51,6 +51,16 @@ var known_failures = new Set([
   // §3 Contract direction: backwards `<->` not yet rejected (parser mints
   // a bogus port from any LHS token) — RED until direction is validated
   'malformed contract: station on LHS borks [spacedef-hard-error] [roundtrip-enex-lhs]',
+  // §3 Black-hole / socket-load / cmd-port compile borks — RED until the
+  // (( )) form and these rules are implemented
+  'black hole with a station borks [blackhole-only-ports]',
+  'black hole in-port with a non-opposing (in) flavour borks [blackhole-flavour-oppose]',
+  'black hole with an up/down port borks [blackhole-inout-only]',
+  'a black hole as the root space borks [blackhole-not-root]',
+  'black hole declaring a socket-load port borks [blackhole-no-socket-load]',
+  'a (( )) endpoint reference borks (bare name required) [blackhole-ref-bare]',
+  'socket-load port on the root space borks [socket-load-not-root]',
+  'a declared cmd: port borks [demandport-create]',
   // Spec gaps: behaviors not yet implemented
   '[err-match-by-name] error routed to @out:err',
   // svar-read-unbound returns false instead of "" (spec says sploot to empty)
@@ -2555,6 +2565,73 @@ parse_test(
     caller.out -> @out`,
   false
 )
+
+
+// ── §3 Black-hole / socket-load / cmd-port compile borks ─────────────
+// All PURE (parser/compiler only): the malformed definition must bork —
+// no spaceseed produced. RED until the black-hole (( )) form and these
+// rules are implemented; today they parse without error.
+
+// A black hole may contain only ports — a station/state/wire inside borks.
+parse_test('black hole with a station borks [blackhole-only-ports]',
+  `outer
+    @init from-js
+    ((relay))
+      @in:feed websock-out
+      worker {__}
+    @init -> relay@in:feed`, true)
+
+// A black-hole port's flavour must oppose the port direction.
+parse_test('black hole in-port with a non-opposing (in) flavour borks [blackhole-flavour-oppose]',
+  `outer
+    @init from-js
+    ((relay))
+      @in:feed websock-in
+    @init -> relay@in:feed`, true)
+
+// Only in/out ports on a black hole — up/down (round-trip) borks.
+parse_test('black hole with an up/down port borks [blackhole-inout-only]',
+  `outer
+    @init from-js
+    ((relay))
+      @down:fetch websock-out
+    @init -> relay@in:feed`, true)
+
+// The root space cannot be a black hole.
+parse_test('a black hole as the root space borks [blackhole-not-root]',
+  `((relay))
+    @in:feed websock-out
+    @out:news websock-in`, true)
+
+// A black-hole definition declaring a socket-load port borks.
+parse_test('black hole declaring a socket-load port borks [blackhole-no-socket-load]',
+  `outer
+    @init from-js
+    ((relay))
+      @in:load socket-load
+    @init -> relay@in:load`, true)
+
+// References to a black hole use the bare name, never the (( )) form.
+parse_test('a (( )) endpoint reference borks (bare name required) [blackhole-ref-bare]',
+  `outer
+    @init from-js
+    ((relay))
+      @in:feed websock-out
+    @init -> ((relay))@in:feed`, true)
+
+// A socket-load port on the root/outer space borks (no parent to hold it).
+parse_test('socket-load port on the root space borks [socket-load-not-root]',
+  `outer
+    @init from-js
+    @reload socket-load
+    @init -> @out`, true)
+
+// A cmd: port cannot be declared — command ports are demand-created only.
+parse_test('a declared cmd: port borks [demandport-create]',
+  `outer
+    @init from-js
+    @cmd:time:now websock-in
+    @init -> @out`, true)
 
 
 // ── Done registering ─────────────────────────────────────────────────
