@@ -22,6 +22,7 @@ const suites = [
   ['space_test.mjs',       'space/topology',                           0],  // self-manages known failures (its own known_failures set)
   ['det_test.mjs',         'determinism (isolation/replay/scheduler)',  0],  // self-manages known failures
   ['det_sender_test.mjs',  'determinism (sender/dialect I2/I3/I4)',     0],  // self-manages known failures
+  ['det_world_test.mjs',   'determinism (world-I/O: emit/round-trip)',  0],  // self-manages known failures
   ['space_ascii_test.mjs', 'ASCII topology renderer',                  0],
   ['example_test.mjs',     'command examples (auto-discovered)',       0],
   ['perf_test.mjs',        'performance benchmarks',                   0],
