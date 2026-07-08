@@ -11,7 +11,7 @@
 
 import {
   det_daml, det_test, det_replay,
-  arrive, respond, timeout, world_in, socket_load,
+  arrive, batch, respond, timeout, world_in, socket_load,
   known_failures, run,
 } from './det_harness.mjs'
 
@@ -75,10 +75,69 @@ det_test('scheduler: fan-in docks by wire-declaration order [sched-tie-wire]', {
   assert: function(trace, expect) { expect.outputs('out', ['A', 'B']) },
 })
 
+// ── Internal-dock trace: scheduler numbering + qnames (via the dock hook) ─
+
+// [sched-dock-lowest] A space docks its lowest-numbered pending ship next.
+// Batch three numbered arrivals at one station; they must dock in NUMBER
+// order (4,7,9), not injection order (9,4,7). RED: numbers are ignored today,
+// so they dock FIFO.
+det_test('scheduler: docks lowest-numbered pending ship first [sched-dock-lowest]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    sink {__}
+    @go -> sink -> @out`,
+  schedule: [ batch(
+    arrive('go', 'n9', { number: 9 }),
+    arrive('go', 'n4', { number: 4 }),
+    arrive('go', 'n7', { number: 7 }),
+  ) ],
+  assert: function(t, e) { e.dockValues(['n4', 'n7', 'n9']) },
+})
+
+// [sched-ship-vtime] A ship's number is carrier metadata, never payload — no
+// DAML expression can recover it. GREEN and stable.
+det_test('scheduler: a ship number is carrier metadata, not payload [sched-ship-vtime]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    echo {__in}
+    @go -> echo -> @out`,
+  schedule: [ arrive('go', 'payload', { number: 7 }) ],
+  assert: function(t, e) { e.outputs('out', ['payload']) },
+})
+
+// [qname-anon-station] Anonymous inline stations get qnames s1, s2 in source
+// order. RED: the dock trace has no qname yet (falls back to the raw id).
+det_test('scheduler: anonymous stations get qnames s1, s2 in source order [qname-anon-station]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @go -> {__ | math add value 1} -> {__ | math add value 2} -> @out`,
+  schedule: [ arrive('go', 0) ],
+  assert: function(t, e) { e.dockTargets(['s1', 's2']) },
+})
+
+// [qname-structure] A station's qname is its space path + name. RED: no qname yet.
+det_test('scheduler: a station qname is its space path plus name [qname-structure]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    calc {__ | math add value 1}
+    @go -> calc -> @out`,
+  schedule: [ arrive('go', 0) ],
+  assert: function(t, e) { e.dockTargets(['calc']) },
+})
+
 // ── Known failures (RED guides) ──────────────────────────────────────────
 ;[
   'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
   'poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
+  // internal-dock trace guides — RED until the scheduler numbers ships and
+  // the engine computes topology qnames (the dock hook exposes them then)
+  'scheduler: docks lowest-numbered pending ship first [sched-dock-lowest]',
+  'scheduler: anonymous stations get qnames s1, s2 in source order [qname-anon-station]',
+  'scheduler: a station qname is its space path plus name [qname-structure]',
 ].forEach(function(l) { known_failures.add(l) })
 
 run()

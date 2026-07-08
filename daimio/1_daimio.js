@@ -2502,6 +2502,12 @@ D.Space.prototype.loadSubspace = function(daml) {
 }
 
 D.Space.prototype.dock = function(ship, station_id, sender) {
+  // Deterministic-harness trace hook (additive; no-op unless set). Fires on
+  // every station dock. The engine will enrich the info object with `qname`
+  // and `number` once topology-derived names and scheduler numbers exist.
+  if(D.Etc.on_dock)
+    D.Etc.on_dock({ space: this, station_id: station_id, ship: ship, sender: sender })
+
   var block_id = this.seed.stations[station_id - 1]
   var block    = D.BLOCKS[block_id]
   var out_port = D.filter_ports(this.ports, station_id, '_out')

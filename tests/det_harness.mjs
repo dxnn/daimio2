@@ -103,6 +103,21 @@ D.import_port_flavour('det-world', {
   }
 })
 
+// Internal-dock trace: record every station dock in order. `qname` and
+// `number` are undefined until the engine computes topology-derived names and
+// scheduler numbers (so the qname/number guides are RED for the right reason);
+// `target` falls back to the raw station id meanwhile.
+D.Etc.on_dock = function(info) {
+  if(!current) return
+  current.docks.push({
+    qname:  info.qname,
+    number: info.number,
+    target: info.qname !== undefined ? info.qname : info.station_id,
+    sender: (info.sender && info.sender.id) || '',
+    value:  info.ship,
+  })
+}
+
 // ── schedule constructors ─────────────────────────────────────────────────
 // arrive: an external ship at @port. opts.sender attaches a sender (attenuates
 // via I2); opts.number pins the intended frontier number (honored once the
@@ -185,7 +200,7 @@ export function det_daml(label, expr, expected) {
 // Space + schedule; assert on the captured trace via the `expect` object.
 export function det_test(label, opts) {
   queue.push(function(done) {
-    current = { label: label, trace: [] }
+    current = { label: label, trace: [], docks: [] }
     var space
     try { space = new D.Space(D.make_some_space(dedent(opts.seed))) }
     catch(e) { record_fail(label, 'no error', e.message); current = null; return done() }
@@ -216,7 +231,7 @@ export function det_replay(label, opts) {
 }
 
 function run_once(opts, cb) {
-  current = { label: '(replay)', trace: [] }
+  current = { label: '(replay)', trace: [], docks: [] }
   var space
   try { space = new D.Space(D.make_some_space(dedent(opts.seed))) }
   catch(e) { current = null; return cb(false, e.message) }
@@ -236,6 +251,10 @@ function make_expect(label) {
     order:   function(pairs)            { if(is_subsequence(current.trace, pairs)) pass++
                                           else record_fail(label, 'subsequence ' + str(pairs), render_trace(current.trace).join(' | ')) },
     trace:   function(pairs)            { check(label, render_trace(current.trace).join(' | '), pairs.map(function(p) { return p[0] + '=' + str(p[1]) }).join(' | ')) },
+    // internal-dock trace (order of station docks)
+    dockValues:  function(vals)    { check(label, current.docks.map(function(d) { return d.value }), vals) },
+    dockTargets: function(targets) { check(label, current.docks.map(function(d) { return d.target }), targets) },
+    dockNumbers: function(nums)    { check(label, current.docks.map(function(d) { return d.number }), nums) },
   }
 }
 
