@@ -14,7 +14,7 @@ D.import_models({
           defaultValue: false,
         },
         fun: function(prior_starter, process) {
-          var date = new Date()
+          var date = new Date(D.now())
           return { year:   date.getFullYear()
                  , month:  date.getMonth() + 1
                  , day:    date.getDate()
@@ -38,7 +38,7 @@ D.import_models({
         fun: function(value) {
           var date = value
                    ? new Date(value * 1000) // convert to milliseconds
-                   : new Date()
+                   : new Date(D.now())
 
           if(!date.valueOf())
             return D.set_error('Invalid timestamp')

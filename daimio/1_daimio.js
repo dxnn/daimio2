@@ -67,6 +67,11 @@ D.Etc.process_counter = 1             // this is a bit silly
 D.Etc.token_counter = 100000          // FIXME: make Rekey work even with overlapping keys
 D.Etc.max_range_length = 1000000      // you can change this in your app
 
+// The single wall-clock source. Effectful time reads route through it so the
+// Outside (or a deterministic test runner) can override "now" with a fixed
+// value. Returns epoch milliseconds.
+D.now = function() { return Date.now() }
+
 D.Etc.FancyRegex = ""                 // this is also pretty silly
 D.Etc.Tglyphs = ""                    // and this one too
 

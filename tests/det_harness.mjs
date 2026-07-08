@@ -150,7 +150,7 @@ function apply_event(space, ev) {
     case 'arrive':      D.send_value_to_js_port(space, ev.port, ev.value, 'from-js', ev.sender); break
     case 'world_in':    D.send_value_to_js_port(space, ev.port, ev.value); break
     case 'socket_load': D.send_value_to_js_port(space, ev.port, ev.src, 'socket-load'); break
-    case 'timeout':     throw new Error('timeout events need virtual time (not in v1)')
+    case 'timeout':     break  // no-op until virtual time exists; the timeout RED guides assert the outcome
     case 'batch':       ev.events.forEach(function(e) { apply_event(space, e) }); break
     default:            throw new Error('unknown schedule event: ' + ev.kind)
   }
@@ -201,17 +201,19 @@ export function det_daml(label, expr, expected) {
 export function det_test(label, opts) {
   queue.push(function(done) {
     current = { label: label, trace: [], docks: [] }
+    var saved_now = D.now
+    if(opts.now !== undefined) D.now = function() { return opts.now }   // runner freezes the clock
+    function finish() { D.now = saved_now; current = null; done() }
     var space
     try { space = new D.Space(D.make_some_space(dedent(opts.seed))) }
-    catch(e) { record_fail(label, 'no error', e.message); current = null; return done() }
+    catch(e) { record_fail(label, 'no error', e.message); return finish() }
     drive(space, opts.schedule || [], function(ok, why) {
       if(!ok) record_fail(label, 'run to completion', why)
       else if(opts.assert) {
         try { opts.assert(current.trace, make_expect(label)) }
         catch(e) { record_fail(label, 'assert', e.message) }
       }
-      current = null
-      done()
+      finish()
     })
   })
 }
@@ -232,11 +234,14 @@ export function det_replay(label, opts) {
 
 function run_once(opts, cb) {
   current = { label: '(replay)', trace: [], docks: [] }
+  var saved_now = D.now
+  if(opts.now !== undefined) D.now = function() { return opts.now }   // runner freezes the clock
   var space
   try { space = new D.Space(D.make_some_space(dedent(opts.seed))) }
-  catch(e) { current = null; return cb(false, e.message) }
+  catch(e) { D.now = saved_now; current = null; return cb(false, e.message) }
   drive(space, opts.schedule || [], function(ok, why) {
     var trace = current.trace
+    D.now = saved_now
     current = null
     cb(ok, ok ? trace : why)
   })
