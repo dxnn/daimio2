@@ -105,5 +105,6 @@ run()
 //   a registered, attenuated port sploots forbidden commands.
 // [sender-propagate-downport]/[sender-propagate-error] — need down-port
 //   round-trips / error ships carrying the sender (ports/async).
-// [id-deterministic]/[procid-sequence]/[qname-*] — need the internal-dock
-//   trace (qname#vtime); see det_test.mjs deferred list.
+// [id-deterministic]/[qname-*] — need the internal-dock trace (qname + number
+//   per dock); procids were dropped from the spec, so observable ids are
+//   qnames + content hashes only. See det_test.mjs deferred list.

@@ -139,9 +139,9 @@ already does for the space_test spec-gaps.
 - Flavour supplies sender from transport metadata, never packet contents
   `[sender-flavour-supply]`.
 - Anon naming: two anonymous stations render as `s1`, `s2` in source order
-  `[qname-anon-station]`; qnames derive from topology `[qname-structure]`.
+  `[qname-anon-station]`; qnames derive from source order `[qname-structure]`.
 - Determinism: same space + same inputs twice → error ships and exiting
-  sender ids are byte-identical `[id-deterministic][procid-sequence]`;
+  sender ids are byte-identical `[id-deterministic]`;
   no observable identifier is a runtime handle `[id-internal-handles]`.
 
 ### Block-evaluating suspension — `space_test` (needs ports/async)
@@ -181,7 +181,7 @@ already does for the space_test spec-gaps.
   in the schedule deterministically decides which wins; the loser ghosts
   `[sched-timeout-event][timeout-ghost-drop]`.
 - **Replay.** The same space + same input schedule, run twice, yields a
-  byte-identical trace including error ships and process ids
+  byte-identical trace including error ships (named by qname)
   `[sched-deterministic][id-deterministic]`.
 - **Socket-transition determinism.** A drain (or smash) during traffic
   produces the same interleaving on every run `[sched-transition-keys]`.
@@ -238,12 +238,13 @@ what each remaining guide is blocked on:
   (green artifact); poke moves (RED).
 
 **Blocked on the internal-dock trace hook** (`D.on_trace_event` emitting
-`{pid=qname#vtime, number, target, sender, value}` per dock — the single most
-valuable harness addition): `[sched-dock-lowest]`, `[sched-dock-max]`,
-`[sched-advance]`, `[sched-entry-frontier]`, `[sched-reentry-uniform]`,
-`[sched-ship-vtime]` (+ the negative: DAML cannot read the number),
-`[procid-sequence]`, `[qname-structure]`, `[qname-anon-station]`,
-`[subprocess-bypass-queue]`, `[id-internal-handles]` (scan every emitted id).
+`{qname, number, target, sender, value}` per dock — the single most valuable
+harness addition; note procids were dropped, so no `qname#vtime` id):
+`[sched-dock-lowest]`, `[sched-dock-max]`, `[sched-advance]`,
+`[sched-entry-frontier]`, `[sched-reentry-uniform]`, `[sched-ship-vtime]`
+(+ the negative: DAML cannot read the number), `[qname-structure]`,
+`[qname-anon-station]`, `[subprocess-bypass-queue]`, `[id-internal-handles]`
+(scan every emitted id — must be a qname or content hash).
 These are all RED-for-the-right-reason once the trace exists (engine has no
 number/qname yet). Needs number-pinning too (`arrive(...,{number})` already
 added, currently ignored).
@@ -281,29 +282,30 @@ d2_spec_test which can register one); blockeval value-behaviour guards
 (`[block-param-nonblock]`, `[list-blocks-finalize]`, dunderin/scope) — mostly
 existing DAML, add only the newly-formalized discriminators.
 
-## Spec-keeper flags (surfaced by the extraction — need owner decisions)
+## Spec-keeper flags — RESOLVED 2026-07-07 (edits applied to D2-spec.md)
 
-1. **`{process sender}` vs §13/§14.** The command exposes the sender *id* as a
-   DAML value (`daimio/commands/builtin/process.js:246`), but §13 L4597 says "no
-   DAML command creates, modifies, or exposes sender objects," and §14 treats
-   `__sender.id` as future work. It exposes only a read-only string — but is the
-   command in-spec? The sender tests depend on it as the observation channel.
-2. **Anon-station naming divergence.** §10 qnames say `s1, s2, …` in *source
-   order*; the layout engine (CLAUDE.md) names them `s0, s1, …` by *rank*. The
-   `[qname-anon-station]` test must pin one; which is authoritative for qnames?
-3. **Malformed command definition has no failure verb.** `[blockeval-category]`
-   says a command is "exactly one of three" checked "at registration," but the
-   spec never names what happens to a `fun`+`effect` (or neither) definition —
-   "bork" is Astroglot-only. Registry-rejection verb is under-specified.
-4. **Procid observability.** Procids surface only inside error-ship strings; if
-   the error format doesn't embed `qname#number`, `[procid-sequence]` is
-   untestable black-box. Extending the soft-error format would fix it.
-5. **Sub-process attribution under-specified** (§14 L4641-4645): whether
-   root-pid + block/segment uniquely names a failing sub-process is flagged
-   *unproven*; a test can only pin "shares root number," not a location string.
-6. **`[queue-fifo]` is now number-order** (legacy name); a test labeled
-   `[queue-fifo]` must assert number-order, and single-wire FIFO is the separate
-   `[sched-wire-fifo]`.
+1. **`{process sender}`** — blessed. §13 refined: no command creates/modifies/
+   forges a sender or exposes its dialect, but a process may read its own
+   sender id (read-only, unforgeable) via `{process sender}`, dialect-gated
+   like any command (a restricted dialect can withhold it). `__sender.id`
+   dropped from §14 in favor of `{process sender}`.
+2. **Anon-station naming** — keep the spec's `s1, s2, …` **source order**;
+   the layout engine's rank scheme is a separate, non-canonical concern and is
+   not mentioned in the spec. `[qname-structure]` clause reworded "source
+   topology alone" → "source order alone".
+3. **Malformed command** — a `fun`+`effect` (or neither) definition sploots on
+   invocation (empty + soft error), like any runtime failure. No new verb; §5
+   effect-partition updated.
+4. **Procids dropped entirely.** Observable ids are qnames + content hashes;
+   error ships name qnames. `ProcessId` domain, the "Process ids" paragraph,
+   and `[procid-sequence]` removed; I16/§10/§12/§5 trimmed accordingly. Ship/
+   dock **numbers** remain as scheduling metadata (not an identity).
+5. **Sub-process attribution** — moot: dropping procids (#4) removes the id to
+   attribute; the §14 "root-id + location uniquely names a sub-process"
+   open question was deleted.
+6. **`[queue-fifo]` → `[space-queue]`** (the space queue is number-ordered).
+   Wires restated as **always-FIFO channels** (not merely a tiebreak);
+   single-wire FIFO stays `[sched-wire-fifo]`.
 
 ## Notes
 - Label every test with its assertion ID (test-spec traceability; see

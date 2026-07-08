@@ -264,7 +264,10 @@ Every command definition is exactly one of three things: **pure**
 at least one block-typed param, counting `either` params with a block
 arm), or **effectful** (an `effect` with a port type). The
 classification is mechanical from the definition alone and is checked
-at registration time [blockeval-category].
+at registration time [blockeval-category]. A definition that is not
+cleanly one of the three -- both a `fun` and an `effect`, or neither --
+is malformed; the command it yields sploots on invocation (empty value
+plus a soft error), like any other runtime failure.
 
 A pure command is a total function from parameters to a value -- it
 can be executed with no environment at all, save for reads of the
@@ -924,11 +927,10 @@ s in SVar       -- space variable names ($foo, $bar)
 c in Cmd        -- command identifiers: c.handler (e.g. math) and c.method (e.g. add)
 p in PortId     -- runtime port handle (internal, never observable)
 q in QName      -- qualified names: spaces, stations, ports [qname-structure]
-pr in ProcessId -- process ids: space qname '#' number (virtual time, §5) [procid-sequence]
 ```
 
 **Qualified names.** Every space, station, and port has a qualified
-name derived from the source topology alone [qname-structure]. A
+name derived from the source order alone [qname-structure]. A
 space's qualified name is its path of subspace names from the outer
 root, `/`-separated. A station appends its name to its space's path.
 A port appends the §3 endpoint syntax:
@@ -953,22 +955,14 @@ named with a port; a bare endpoint name is a station -- §3.) Qualified
 names are scoped to one outer space; the App disambiguates between
 outer spaces externally [outer-independent].
 
-**Process ids.** A process's id is its space's qualified name, `#`,
-and the process's number (its virtual time, §5): `game/player1#42`
-[procid-sequence]. The number is assigned when the ship docks (§5,
-"Deterministic scheduling"), is unique within the space, and is
-deterministic given the schedule. A sub-process shares its root
-process's id; it is located within that process by its block and
-segment, not numbered separately.
-
 **Content-addressed ids.** Spaceseed ids and block ids are content
 hashes -- deterministic by construction [id-content-hash].
 
 **Runtime handles.** Implementations may use internal handles
 (counters, pointers) for ports, processes, and ships -- distinct from
-the observable process ids above. These handles are never observable
+the observable qualified names above. These handles are never observable
 [id-internal-handles]; anywhere an identifier appears on an observable
-surface, it is a qualified name, a process id, or a content hash (I16).
+surface, it is a qualified name or a content hash (I16).
 
 ### Dialect
 ```
@@ -1748,7 +1742,7 @@ its precondition was the App's to supply.
 Each space processes **one ship at a time**. [serial-one-at-a-time] When a ship arrives at
 a space (via any in-port on any station), it either docks immediately
 (creating a process) or is placed in the space's queue, ordered by
-ship number. [queue-fifo] No two processes ever execute concurrently
+ship number. [space-queue] No two processes ever execute concurrently
 within the same space.
 
 This applies regardless of which station the ship targets. A space
@@ -1792,12 +1786,15 @@ routed ships carry its dock number, above everything in its causal
 past, so causally-prior queued ships dock first; ships from other
 sources order by number. [queue-priority-routing]
 
-A single process's emissions all carry its number. Ships it sends onto
-one wire arrive in emission order -- wires are FIFO
-[routing-deferred-order]. Ships it sends to different wires that
-converge at one destination queue dock in the wires' declaration order
-[sched-tie-wire]. Both are fixed by the source and the schedule, so
-two conforming implementations produce the same order.
+A wire is a **FIFO channel**: ships traverse it in the order they were
+sent onto it -- always, not merely as a tiebreak [routing-deferred-order].
+(A single process's emissions all carry its number, and across the
+successive docks of a wire's source the numbers only increase, so a
+wire's FIFO order and number order never disagree.) Ships a process sends
+to *different* wires that converge at one destination queue dock in the
+wires' declaration order [sched-tie-wire]. Both orderings are fixed by
+the source and the schedule, so two conforming implementations produce
+the same order.
 
 ### Deterministic scheduling
 
@@ -3511,7 +3508,7 @@ process = (space, block, v, state, pipeline_vars, current,
         sender            : Sender?        -- who sent the originating ship
         effective_dialect : Dialect         -- sender.dialect intersection space.dialect
         number            : Nat            -- the process's virtual time (§5); its
-                                         --   emissions carry it, its id is qname#number
+                                         --   emissions carry it
 ```
 
 A process is the unit of execution. It is created when a ship docks
@@ -4386,7 +4383,7 @@ to the error:
 
 **Error ship format.** The error ship's value is a string
 describing the error. Any identifiers in that string are qualified
-names or process ids -- never runtime handles (I16). The ship carries
+names -- never runtime handles (I16). The ship carries
 the process's sender (if any), so the receiver can identify who
 triggered it. Given identical topology and inputs, error ships are
 byte-identical [id-deterministic].
@@ -4594,8 +4591,11 @@ the model):
   under different authority levels.
 - `D.is_block` requires `instanceof D.Segment` -- blocks cannot be
   forged from DAML data values.
-- No DAML command creates, modifies, or exposes sender objects.
-  Senders are App-level only.
+- No DAML command creates, modifies, or forges a sender, or exposes
+  a sender's dialect. A process may read its own sender's id (a
+  read-only, unforgeable string) via `{process sender}` -- itself
+  dialect-gated, so a restricted dialect can withhold it. Senders are
+  otherwise App-level.
 - `intersect_dialects` uses AND logic: both sender and space must
   allow a command for it to execute.
 - Policy flags (e.g. `no_user_regex`) merge with OR logic:
@@ -4640,9 +4640,7 @@ processed) whose edge cases -- key mutation at docking, and frontier
 numbering under mid-step callbacks -- remain to be fully proven. The
 same proof covers flat sub-process numbering: a sub-process shares its
 root's number, so a process tree's emissions and error attribution must
-be shown deterministic under the schedule, and whether a root id plus
-block/segment location names a failing sub-process uniquely (versus a
-hierarchical id) is settled there.
+be shown deterministic under the schedule.
 
 ### Content-addressed editor
 
@@ -4687,16 +4685,16 @@ complexity:
 
 The gap between levels 1 and 2 is wide. A possible extension:
 allow aliases to contain DAML expressions evaluated at
-execution time — e.g., `edit-self` → `user edit target
-__sender.id`. This would enable identity-scoped and
+execution time — e.g., `edit-self` → `user edit target {process
+sender}`. This would enable identity-scoped and
 attribute-scoped restrictions without topology overhead.
 
 Open questions:
   - Aliases with DAML expressions are no longer "purely
     syntactic" (`[dialect-alias-expand]`). They become live
     code with a different compilation story.
-  - Trust boundary: `__sender` is App-level and unforgeable
-    from DAML, so sender-derived restrictions should be safe.
+  - Trust boundary: `{process sender}` returns an App-level,
+    unforgeable id, so sender-derived restrictions should be safe.
     But the full implications of live expressions in alias
     expansion need analysis.
   - Alias dialect-gating: aliases currently expand

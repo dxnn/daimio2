@@ -100,10 +100,12 @@ run()
 //                             the race; the loser ghosts [timeout-ghost-drop]
 //   [request-cycle-timeout]   a cyclic request chain resolves to empty by timeout
 //
-// Identifiers (need the internal-dock trace: qname#vtime + sender per dock):
+// Identifiers (need the internal-dock trace: qname + number + sender per dock;
+// procids were dropped from the spec — observable ids are qnames + content
+// hashes only, error ships name qnames):
 //   [id-deterministic]        error ships + sender ids byte-identical across runs
-//   [procid-sequence]         process ids follow the deterministic sequence
-//   [qname-anon-station]      anon stations rank-name s1, s2 in source order
+//   [qname-structure]         qnames derive from the source (subspace path + name)
+//   [qname-anon-station]      anon stations named s1, s2 in source order
 //
 // Sender-at-entry (need the attachment rule):
 //   [sender-attach-entry]     senderless ship takes the entry port's qname
