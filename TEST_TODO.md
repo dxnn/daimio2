@@ -222,6 +222,89 @@ already does for the space_test spec-gaps.
   lands so the scheduler's perf impact is measurable. The self-feeding loops are
   also the exact shape the scheduler's frontier/dock-number rules govern.
 
+## Deterministic-harness RED-guide backlog (2026-07-07 spec extraction)
+
+Full per-invariant extraction done across the four new subsystems (scheduler,
+sender/qname/id, blockeval/depth, black-hole/socket/async). What's built and
+what each remaining guide is blocked on:
+
+**BUILT (verified, committed):**
+- `det_sender_test.mjs` — I2/I3/I4 + sender attach: attach-no-override,
+  propagate-out, immutability, dialect-cmd-sploot(+control), carrier-not-payload
+  (green); `[sender-attach-entry]` (RED).
+- `space_test.mjs` — 8 compile-bork guides (black-hole rules, socket-load-not-root,
+  demandport-create) + contract-direction, all RED.
+- `det_test.mjs` — isolation, replay (counter + fan-in), fan-in dock order
+  (green artifact); poke moves (RED).
+
+**Blocked on the internal-dock trace hook** (`D.on_trace_event` emitting
+`{pid=qname#vtime, number, target, sender, value}` per dock — the single most
+valuable harness addition): `[sched-dock-lowest]`, `[sched-dock-max]`,
+`[sched-advance]`, `[sched-entry-frontier]`, `[sched-reentry-uniform]`,
+`[sched-ship-vtime]` (+ the negative: DAML cannot read the number),
+`[procid-sequence]`, `[qname-structure]`, `[qname-anon-station]`,
+`[subprocess-bypass-queue]`, `[id-internal-handles]` (scan every emitted id).
+These are all RED-for-the-right-reason once the trace exists (engine has no
+number/qname yet). Needs number-pinning too (`arrive(...,{number})` already
+added, currently ignored).
+
+**Blocked on world-I/O** (mock-world execution through down-ports):
+`[blackhole-in-exit]`, `[blackhole-out-enter]`, `[blackhole-uncorrelated]`,
+`[blackhole-sender-outer]`, `[blackhole-substitutable]`, `[P-singleresponse]`,
+`[sender-propagate-downport]`, `[effcmd-request-val]`, `[cmd-forward]`,
+`[wiring-target-*]`, `[demandport-wire]`. (`det-world` flavour + `respond`
+scaffolding exist; down-port round-trips are unimplemented.)
+
+**Blocked on virtual time** (timeout-as-schedule-event): `[sched-timeout-event]`,
+`[timeout-ghost-drop]`, `[timeout-resume-empty]`, `[timeout-min-chain]`/I12,
+`[request-cycle-timeout]`, `[upport-ghost-after-first]`.
+
+**Blocked on the feature itself:** socket-load semantics (`[socket-load]`,
+`[socket-load-replace]`, `[socket-wiring-demand]`, `[socket-load-reloadable]`,
+`[socket-drain]`, `[socket-smash]`, `[sched-transition-keys]`); black-hole seed
+flag (`[blackhole-seed-flag]` — seed inspection); depth-bound knob
+(`[depth-bound-instance]`, `[depth-nesting-only]` — no creation-time bound param
+exists); blockeval suspension (`[subprocess-sync-dfs]`, `[blockeval-demand]`,
+`[blockeval-parametric]`, `[blockeval-no-port]`); effectful port-routing
+(`[effectful-unwired-sploot]` — already tracked in space_test).
+
+**Blocked on a small API:** `[sender-attach-registry]` needs a qname->sender
+registry consulted in `port.enter()` (`D.register_sender`).
+
+**Low-dep green guards to add** (not yet done): `[sched-cycle-station]` bork
+(station-free wiring cycle → space_test parse_test); `[sched-wire-fifo]`
+(needs the multi-`>@out` emission-order semantics understood — single `>@out`
+works, but `emit -> @out` wired + multi-send came back empty in a probe;
+investigate); `[host-error-sploot]` (verified the engine catches a throwing
+command into an empty sploot — needs a throwing command injected, so belongs in
+d2_spec_test which can register one); blockeval value-behaviour guards
+(`[block-param-nonblock]`, `[list-blocks-finalize]`, dunderin/scope) — mostly
+existing DAML, add only the newly-formalized discriminators.
+
+## Spec-keeper flags (surfaced by the extraction — need owner decisions)
+
+1. **`{process sender}` vs §13/§14.** The command exposes the sender *id* as a
+   DAML value (`daimio/commands/builtin/process.js:246`), but §13 L4597 says "no
+   DAML command creates, modifies, or exposes sender objects," and §14 treats
+   `__sender.id` as future work. It exposes only a read-only string — but is the
+   command in-spec? The sender tests depend on it as the observation channel.
+2. **Anon-station naming divergence.** §10 qnames say `s1, s2, …` in *source
+   order*; the layout engine (CLAUDE.md) names them `s0, s1, …` by *rank*. The
+   `[qname-anon-station]` test must pin one; which is authoritative for qnames?
+3. **Malformed command definition has no failure verb.** `[blockeval-category]`
+   says a command is "exactly one of three" checked "at registration," but the
+   spec never names what happens to a `fun`+`effect` (or neither) definition —
+   "bork" is Astroglot-only. Registry-rejection verb is under-specified.
+4. **Procid observability.** Procids surface only inside error-ship strings; if
+   the error format doesn't embed `qname#number`, `[procid-sequence]` is
+   untestable black-box. Extending the soft-error format would fix it.
+5. **Sub-process attribution under-specified** (§14 L4641-4645): whether
+   root-pid + block/segment uniquely names a failing sub-process is flagged
+   *unproven*; a test can only pin "shares root number," not a location string.
+6. **`[queue-fifo]` is now number-order** (legacy name); a test labeled
+   `[queue-fifo]` must assert number-order, and single-wire FIFO is the separate
+   `[sched-wire-fifo]`.
+
 ## Notes
 - Label every test with its assertion ID (test-spec traceability; see
   `extra/notes.md`). Most `[impl]` items are RED guides — failing tests
