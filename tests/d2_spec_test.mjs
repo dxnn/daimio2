@@ -193,6 +193,27 @@ test(
   'no'
 )
 
+// ── time stampwrap: deterministic given an explicit stamp ──────────────
+// With a stamp it is a pure function of it. Assert only timezone-independent
+// fields (the stamp round-trips; seconds never shift with TZ; a mid-year
+// stamp's year is robust). The no-arg "now" path — which reads the overridable
+// D.now() clock — is exercised under a frozen clock in det_time_test.mjs.
+test(
+  'time stampwrap: an explicit stamp round-trips [time-stampwrap]',
+  '{time stampwrap value 1000000000 | peek :stamp}',
+  '1000000000'
+)
+test(
+  'time stampwrap: seconds are timezone-independent [time-stampwrap]',
+  '{time stampwrap value 1000000000 | peek :second}',
+  '40'
+)
+test(
+  'time stampwrap: a mid-year stamp wraps to the right year [time-stampwrap]',
+  '{time stampwrap value 1592222400 | peek :year}',
+  '2020'
+)
+
 
 // =====================================================
 // §4 Soft errors: pipeline continues with default value
