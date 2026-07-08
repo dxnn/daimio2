@@ -36,11 +36,14 @@ D.import_models({
           }
         ],
         fun: function(value) {
+          // stampwrap requires a timestamp; with none it wraps the 0 stamp
+          // (the epoch) — it never reads the current clock. {time now} is the
+          // effectful command that reads "now".
           var date = value
                    ? new Date(value * 1000) // convert to milliseconds
-                   : new Date(D.now())
+                   : new Date(0)
 
-          if(!date.valueOf())
+          if(isNaN(date.valueOf()))
             return D.set_error('Invalid timestamp')
 
           return { year:   date.getFullYear()

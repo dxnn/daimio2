@@ -193,11 +193,16 @@ test(
   'no'
 )
 
-// ── time stampwrap: deterministic given an explicit stamp ──────────────
-// With a stamp it is a pure function of it. Assert only timezone-independent
-// fields (the stamp round-trips; seconds never shift with TZ; a mid-year
-// stamp's year is robust). The no-arg "now" path — which reads the overridable
-// D.now() clock — is exercised under a frozen clock in det_time_test.mjs.
+// ── time stampwrap: pure; requires a stamp, defaults to the 0 stamp ────
+// stampwrap is a pure function of its stamp — it never reads the clock (that
+// is {time now}, the effectful command). With no stamp it wraps the epoch
+// (stamp 0). Assert only timezone-independent fields (the stamp round-trips;
+// seconds never shift with TZ; a mid-year stamp's year is robust).
+test(
+  'time stampwrap: no timestamp defaults to the 0 stamp, never "now" [time-stampwrap]',
+  '{time stampwrap | peek :stamp}',
+  '0'
+)
 test(
   'time stampwrap: an explicit stamp round-trips [time-stampwrap]',
   '{time stampwrap value 1000000000 | peek :stamp}',
