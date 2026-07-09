@@ -5,33 +5,35 @@ Add items freely.
 
 ## Priority
 
-1. **Implement `{var read}` / `{var write}`** — pure, local, dynamic-name svar access.
-   - `{var read name :foo}` reads the current space's `$foo` by a *computed* name
-     (the counterpart to the literal-name `$foo` syntax); `{var write name :foo value V}`
-     writes it (counterpart to `>$foo`). `{var read name _n}` reads whatever `_n` names.
-   - The behavior already exists in `daimio/commands/builtin/var.js`: `read-out`/`write-out`
-     call `process.space.get_state`/`set_state`. Extract a clean `read`/`write` pair with
-     **no `effect` block** (these are local, not port-routed).
-   - Spec: §6 "Example: cross-boundary state access", tags `[var-read]` `[var-write]`.
+1. ~~**Implement `{var read}` / `{var write}`**~~ **DONE 2026-07-08** — pure local
+   dynamic-name pair in `var.js`, no effect block; mirrors `$foo`/`>$foo` exactly
+   (`get_state` / `set_state` + passthrough). `[var-read]` `[var-write]` green.
 
 2. **All effectful commands must be port-routed — no default `fun`.**
-   - Spec already requires this (no spec change): a command has *exactly one* of `fun` or
-     `effect` (§1 P-effectpartition); "Effectful commands have no fun" (§4); unwired
-     effectful → sploot, not a fallback (§7 `[effectful-unwired-sploot]`, "No effects
-     without wiring").
-   - Current violation: `var read-out`/`var write-out` carry BOTH `effect` and `fun`, and
-     `m_command.js` ignores `effect` entirely (`execute` → `run_fun` always calls `fun`), so
-     they run as pure *local* reads/writes instead of cross-boundary port round-trips.
-   - Work: (a) drop `fun`/`defaultValue` from effectful command defs; (b) enforce the
-     registration-time check (exactly one of `fun`/`effect`); (c) implement the effectful
-     dispatch path so `effect`/`portType` actually route a request through a port.
+   - (a) **DONE 2026-07-08**: `fun`/`defaultValue` dropped from `time now` and
+     `var read-out`/`write-out` (the interim `D.now` bridge went with it, per Q4).
+   - (b) **DONE 2026-07-08**: `import_models` enforces exactly one of `fun`/`effect`
+     (registration bork + method rejected). `[P-effectpartition]` in node_code.
+   - (c) remains — the effectful dispatch path so `effect`/`portType` actually
+     route a request through a port. This is item B below. Until it lands,
+     `run_fun` sploots every effectful command to empty with a soft error
+     (`[effectful-unwired-sploot]` green in d2_spec, space_test, det_time).
 
-3. **Socket transition tests.** Update `space_test.mjs:1217-1276` (`socket overlap: old
-   space state lost`) to the new model — its `[socket-overlap-state-lost]` tag, comment, and
-   label reference the dropped overlap semantics; the assertion (state lost on transition)
-   still holds. Then add dedicated tests for **drain** (in-flight completes, new arrivals
-   buffer then deliver) and **smash** (old svars + non-exited ships destroyed; a waiting
-   down-port response returns to a ghost). Tags `[socket-drain]` `[socket-smash]`.
+3. **Socket transition tests.** **DONE 2026-07-08** (as far as honestly possible):
+   overlap test removed (dropped semantics, dead `loadSubspace` API); the
+   state-lost property lives as `[socket-svars-reset]` in det_socket_test with
+   replace / wiring-demand / reloadable guides (all RED on the subspace-routing
+   block). **Drain/smash guides deferred by design** — they need a BUSY old
+   content (down-port wait), i.e. round-trip routing (B) + virtual time; written
+   as deferred notes in det_socket_test so they can't pass for the wrong reason.
+   Tags `[socket-drain]` `[socket-smash]` land with those.
+
+4. **Endpoint syntax standardized on `name@port` (spec §3) — DONE 2026-07-08.**
+   Parser accepts `@` (normalized to the internal dot key); all tests, the
+   spacetests.dm corpus, fixtures, and ASCII-parse emission migrated; one legacy
+   dot-form test kept as coverage. Loose end: the legacy corpus still has a
+   station named port literally called `out` ("Same but different"), which the
+   spec reserves in @-position — rename it when the reserved-dir bork lands.
 
 ## Major engine work (detailed)
 
@@ -39,20 +41,19 @@ These are the two big unlocks; almost every RED guide in the determinism suite
 is waiting on one of them. Each lists what to build, where, and which tests go
 green when it lands.
 
-### 0. Subspace parsing (foundational — discovered 2026-07-08)
+### 0. Subspace parsing — DONE 2026-07-08 (nested blocks + name@port)
 
-`make_some_space` / `seedlikes_from_string` **does not create subspaces**: an
-indented block with its own content compiles to a *station*, not a subspace
-(confirmed — the space_test `wiring-target-station` seed and a bare
-`inner { … }` both yield `subspaces: 0, stations: N`; a `((relay))` block
-likewise). So the compiled seed has no subspace structure, no subspace ports,
-and no internal wiring — which is why every subspace-based space_test is RED and
-why the socket-load / black-hole / cmd-forwarding / up-port behavior guides
-cannot even be *set up*. This is the prerequisite beneath routing (B) and every
-subspace feature. Build: parse an indented named block (and the `((label))`
-form) into a child spaceseed in `subspaces`, with its own ports/stations/routes/
-state, referenceable by the parent as `name.in`/`name.out`/`name@port`. Turns
-green (as a precondition): the entire subspace-based backlog.
+`seedlikes_from_string` now parses an indented named block whose body contains
+space structure (`@`/`$` decls or wires) into a child spaceseed registered in
+the parent's `subspaces`, recursively (deeper nesting works). A block whose
+deeper lines are only DAML stays a multiline station. `[spacesyn-subspace-nested]`
+(provisional tag — the SPEC still says two-level Astroglot with sibling-defined
+subspaces; the grammar section needs a patch to bless nesting, pending user
+review). `name@port` endpoints work (priority item 4). Remaining gaps that keep
+the subspace guides RED: `[port-implicit-create]` (ports used in wiring but not
+declared are NOT minted yet — several guides' inner blocks declare no ports),
+`((label))` black-hole parsing, and routing (B). The `<->` RHS/LHS port forms
+are still broken (parser-hardening item below).
 
 ### A. Priority-loop scheduler with ship numbers (spec §5 "Deterministic scheduling")
 
