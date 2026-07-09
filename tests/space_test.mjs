@@ -20,8 +20,8 @@ var known_timeout_ms = 200  // known failures: fail fast
 // Known failures — tests for spec behaviors not yet implemented.
 // If a failure's label is in this set, it's expected; otherwise it's a regression.
 var known_failures = new Set([
-  // §7 Socket overlap: old state lost on transition
-  'socket overlap: old space state lost on transition',
+  // §7 Unwired effect sploots to empty (no fun fallback) — RED until removed
+  'unwired effect sploots to empty [effectful-unwired-sploot]',
   // §6 Up-port direction: sibling provides service
   'up-port: sibling subspace provides service via up-port',
   // §8 Serialized space excludes dialect and wiring
@@ -413,7 +413,7 @@ space_test(
 )
 
 // Multiple ships into same port
-// [serial-one-at-a-time] [queue-fifo]
+// [serial-one-at-a-time] [space-queue]
 space_test(
   'multiple ships into same port',
   `outer
@@ -791,7 +791,7 @@ multi_space_test(
 )
 
 // Multiple ships into two spaces interleaved
-// [serial-one-at-a-time] [queue-fifo]
+// [serial-one-at-a-time] [space-queue]
 multi_space_test(
   'interleaved ships into two spaces',
   [
@@ -1330,72 +1330,11 @@ space_test(
   }
 )
 
-// §7 Socket overlap: old space state lost on transition
-// Spec: "old.σ is lost — state does not survive transitions"
-// [socket-overlap-state-lost]
-multi_space_test(
-  'socket overlap: old space state lost on transition',
-  [
-    { name: 'host', seedlike: `
-      outer
-        @init from-js
-        @out  collect
-        @init -> @out` },
-  ],
-  function(spaces, done) {
-    var host = spaces.host
-
-    // Load first subspace with state
-    var sub1_daml = 'sub\n  $counter 0\n  @in\n  @out\n  @in -> {__ | add $counter | >$counter} -> @out'
-    var sub1 = host.loadSubspace && host.loadSubspace(sub1_daml)
-
-    if(!sub1) {
-      fail++
-      failures.push({ label: 'socket overlap: old space state lost on transition',
-        expected: 'loadSubspace works', actual: 'loadSubspace returned falsy' })
-      done()
-      return
-    }
-
-    // Send value to sub1 to set its state
-    // Then load sub2 into the same socket — sub1's state should be gone
-    var sub2_daml = 'sub\n  $counter 0\n  @in\n  @out\n  @in -> {$counter} -> @out'
-    var sub2 = host.loadSubspace(sub2_daml)
-
-    if(!sub2) {
-      fail++
-      failures.push({ label: 'socket overlap: old space state lost on transition',
-        expected: 'second loadSubspace works', actual: 'loadSubspace returned falsy' })
-      done()
-      return
-    }
-
-    // sub2 should have fresh state ($counter = 0), not sub1's state
-    on_collect(host, 'out', function(ship) {
-      assert_eq('socket overlap: old space state lost on transition',
-        ship, '0')
-      done()
-    })
-    // Try to read sub2's $counter — should be 0 (fresh)
-    if(sub2.ports) {
-      var in_port = sub2.ports.find(function(p) { return p.name === 'in' && !p.station })
-      if(in_port && in_port.pair) {
-        in_port.pair.enter('check')
-      } else {
-        fail++
-        failures.push({ label: 'socket overlap: old space state lost on transition',
-          expected: 'sub2 in port found', actual: 'no in port' })
-        done()
-      }
-    } else {
-      fail++
-      failures.push({ label: 'socket overlap: old space state lost on transition',
-        expected: 'sub2 has ports', actual: 'no ports' })
-      done()
-    }
-  },
-  100
-)
+// §8 Socket transitions: the old "overlap" model was dropped for drain/smash.
+// The state-lost-on-transition property — along with replace / wiring-demand /
+// reloadable / drain / smash — now lives in tests/det_socket_test.mjs,
+// spec-aligned. The old loadSubspace-based overlap test was removed: it tested
+// a dropped concept via a nonexistent API (host.loadSubspace).
 
 // ── §1 I8 Space isolation: parent cannot read child-only var ─────────
 
@@ -1420,13 +1359,13 @@ space_test(
   }
 )
 
-// ── §7 Unwired effect: synchronous sploot, no async boundary ────────
+// ── §7 Unwired effect: sploots to empty (no default handler) ────────
 
-// When an effectful command's port is not wired, it falls through to the
-// default handler (the `fun` property) and runs synchronously. The pipeline
-// continues immediately without any async/timeout machinery.
+// Spec: an effectful command with no wired port sploots to empty ("no effects
+// without wiring") — there is NO `fun` fallback. RED until the fallback is
+// removed: today {time now} returns a wall-clock value, so logic if -> :got_time.
 space_test(
-  'unwired effect: default handler runs synchronously',
+  'unwired effect sploots to empty [effectful-unwired-sploot]',
   `
   outer
     @init from-js
@@ -1435,10 +1374,8 @@ space_test(
   [{port: 'init', value: 'test'}],
   1,
   function(collected) {
-    // time.now with no wired port uses default handler (synchronous fun)
-    // Should produce a truthy timestamp value, so logic if → :got_time
-    assert_eq('unwired effect: default handler runs synchronously',
-      collected.out[0], 'got_time')
+    assert_eq('unwired effect sploots to empty [effectful-unwired-sploot]',
+      collected.out[0], 'no_time')
   }
 )
 
