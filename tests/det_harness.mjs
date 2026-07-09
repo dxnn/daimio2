@@ -147,7 +147,7 @@ export function sender(id, blocked) {
 // ── driver ──────────────────────────────────────────────────────────────
 function apply_event(space, ev) {
   switch(ev.kind) {
-    case 'arrive':      D.send_value_to_js_port(space, ev.port, ev.value, 'from-js', ev.sender); break
+    case 'arrive':      D.send_value_to_js_port(space, ev.port, ev.value, 'from-js', ev.sender, ev.number); break
     case 'world_in':    D.send_value_to_js_port(space, ev.port, ev.value); break
     case 'socket_load': D.send_value_to_js_port(space, ev.port, ev.src); break  // Astroglot arrives at an outer port wired to the subspace's socket-load port; the mode is declared on that port
     case 'timeout':     break  // no-op until virtual time exists; the timeout RED guides assert the outcome

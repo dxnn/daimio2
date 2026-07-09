@@ -204,8 +204,9 @@ import D from '../1_daimio.js'
       , block   = D.BLOCKS[rule_space.seed.stations[in_port.station - 1]]
 
     if(rule_space === space) {                                      // same space: the requester holds it, so the
-      var sub = new D.Process(space, block, {'__in': request},      // target runs as a direct sub-process
-                              respond_once, in_port.station, process.sender)
+      var sub = new D.Process(space, block, {'__in': request},      // target runs as a direct sub-process, sharing
+                              respond_once, in_port.station,        // the requester's number (flat numbering)
+                              process.sender, process.number)
       var value = sub.run()
       if(value === value)
         return value                                                // fully synchronous round-trip
@@ -214,7 +215,7 @@ import D from '../1_daimio.js'
 
     var pvalue = rule_space.execute(block, {'__in': request},       // ancestor space: normal serial execution —
                                     respond_once, in_port.station,  // queues if busy [serial-one-at-a-time]
-                                    process.sender)
+                                    process.sender, process.number)
     if(pvalue === pvalue)
       return pvalue                                                 // ancestor was idle; synchronous round-trip
 

@@ -782,13 +782,13 @@ D.default_scrub = function(event, target) {
       || true
 }
 
-D.send_value_to_js_port = function(space, port_name, value, port_flavour, sender) {
+D.send_value_to_js_port = function(space, port_name, value, port_flavour, sender, number) {
   port_flavour = port_flavour || 'from-js'
 
   for ( var i=0, l=space.ports.length; i < l; i++)
     if( space.ports[i].name == port_name
      && space.ports[i].flavour == port_flavour )
-      { space.ports[i].pair.enter(value, sender ? {sender: sender} : undefined)
+      { space.ports[i].pair.enter(value, (sender || number !== undefined) ? {sender: sender, number: number} : undefined)
         return true }
 
   return false
@@ -796,21 +796,78 @@ D.send_value_to_js_port = function(space, port_name, value, port_flavour, sender
 
 
 
+// ── Deterministic dispatch ───────────────────────────────────────────
+// Every deferred ship delivery is keyed (number, seq): number is the
+// emitting process's scheduler number (virtual time, carrier metadata like
+// sender — never payload [sched-ship-vtime]); seq is a global monotone
+// tiebreak that keeps per-wire FIFO. schedule_delivery still defers one
+// D.setImmediate tick per item (the det harness counts those for settle),
+// but each tick delivers the LOWEST pending item, not the one that
+// scheduled it — so a space docks its lowest-numbered pending ship next.
+// [space-queue] [sched-dock-lowest]
+
+D.Etc.delivery_heap = []
+D.Etc.delivery_seq = 0
+
+var delivery_before = function(a, b) {
+  return a.n < b.n || (a.n == b.n && a.s < b.s)
+}
+
+D.schedule_delivery = function(number, fn) {
+  var heap = D.Etc.delivery_heap
+    , item = {n: number || 0, s: D.Etc.delivery_seq++, fn: fn}
+    , i = heap.length
+
+  heap.push(item)
+  while(i > 0) {                                  // sift up
+    var p = (i - 1) >> 1
+    if(delivery_before(heap[p], item)) break
+    heap[i] = heap[p]
+    i = p
+  }
+  heap[i] = item
+
+  D.setImmediate(D.deliver_next)
+}
+
+D.deliver_next = function() {
+  var heap = D.Etc.delivery_heap
+  if(!heap.length) return
+
+  var min = heap[0]
+    , last = heap.pop()
+
+  if(heap.length) {
+    var i = 0
+    for(;;) {                                     // sift down
+      var l = 2*i + 1
+        , r = l + 1
+        , m = i
+      if(l < heap.length && delivery_before(heap[l], m == i ? last : heap[m])) m = l
+      if(r < heap.length && delivery_before(heap[r], m == i ? last : heap[m])) m = r
+      if(m == i) break
+      heap[i] = heap[m]
+      i = m
+    }
+    heap[i] = last
+  }
+
+  min.fn()
+}
+
 D.port_standard_exit = function(ship, process) {
-  var self = this
-    , outs = this.outs
+  var outs = this.outs
+    , sender = process && process.sender
+    , number = process && process.number
 
   // THINK: this makes the interface feel more responsive on big pages, but is it the right thing to do?
   if(this.space)
-    // D.setImmediate(this.outs, ship) // OPT
-    D.setImmediate(function() {
-      for(var i=0, l=outs.length; i < l; i++) {
-        outs[i].enter(ship, process)
-      }
-      // outs.forEach(function(port) { port.enter(ship) })
-    })
+    for(var i=0, l=outs.length; i < l; i++)
+      D.schedule_delivery(number, function(out) {
+        return function() { out.enter(ship, {sender: sender, number: number}) }
+      }(outs[i]))
   else
-    this.outside_exit(ship, process && process.sender) // ORLY? No delay?
+    this.outside_exit(ship, sender) // ORLY? No delay?
 }
 
 D.port_standard_pairup = function(port) {
@@ -820,14 +877,15 @@ D.port_standard_pairup = function(port) {
 
 D.port_standard_enter = function(ship, process) {
   var sender = process && process.sender
+    , number = process && process.number
 
   if(this.pair)
-    return this.pair.exit(ship, sender ? {sender: sender} : undefined)
+    return this.pair.exit(ship, (sender || number !== undefined) ? {sender: sender, number: number} : undefined)
 
   if(!this.station)
     return D.set_error('Every port must have a pair or a station')
 
-  this.space.dock(ship, this.station, sender) // THINK: always async...?
+  this.space.dock(ship, this.station, sender, number) // THINK: always async...?
 }
 
 D.port_standard_sync = function(ship, callback) {
@@ -2479,6 +2537,18 @@ D.Space = function(seed_id, parent, prng_seed) {
   this.queue = []
 }
 
+D.Space.prototype.root_frontier = function() {
+  var s = this
+  while(s.parent) s = s.parent
+  return s.frontier || 0                          // highest number processed in the runtime subtree
+}
+
+D.Space.prototype.raise_frontier = function(number) {
+  var s = this
+  while(s.parent) s = s.parent
+  if(!s.frontier || number > s.frontier) s.frontier = number
+}
+
 D.Space.prototype.set_state = function(param, value) {
   return this.state[param] = value
 }
@@ -2516,12 +2586,19 @@ D.Space.prototype.loadSubspace = function(daml) {
   return subspace
 }
 
-D.Space.prototype.dock = function(ship, station_id, sender) {
+D.Space.prototype.dock = function(ship, station_id, sender, ship_number) {
+  if(ship_number === undefined)                                     // external entry: numbered at the runtime
+    ship_number = this.root_frontier()                              // boundary's frontier [sched-entry-frontier]
+
+  var number = Math.max(this.counter || 0, ship_number) + 1         // [sched-dock-max]
+  this.counter = number
+  this.raise_frontier(number)
+
   // Deterministic-harness trace hook (additive; no-op unless set). Fires on
   // every station dock. The engine will enrich the info object with `qname`
-  // and `number` once topology-derived names and scheduler numbers exist.
+  // once topology-derived names exist.
   if(D.Etc.on_dock)
-    D.Etc.on_dock({ space: this, station_id: station_id, ship: ship, sender: sender })
+    D.Etc.on_dock({ space: this, station_id: station_id, ship: ship, sender: sender, number: number })
 
   var block_id = this.seed.stations[station_id - 1]
   var block    = D.BLOCKS[block_id]
@@ -2531,9 +2608,9 @@ D.Space.prototype.dock = function(ship, station_id, sender) {
     return D.set_error('That out port is unavailable')
 
   var prior_starter =                                               // THINK: we're jumping straight to exit here.
-        function(value) {out_port.exit(value, {sender: sender})}      // also do it for implicit station output ports...
+        function(value) {out_port.exit(value, {sender: sender, number: number})}  // also do it for implicit station output ports...
   var scope = {"__in": ship}                                        // TODO: find something better...
-  var value = this.execute(block, scope, prior_starter, station_id, sender)
+  var value = this.execute(block, scope, prior_starter, station_id, sender, number)
 
   if(value === value)
     prior_starter(value)
@@ -2693,7 +2770,7 @@ D.Space.prototype.change_seed = function(seed_id) {
 
 // TODO: move this all into a Process, instead of doing it here.
 // THINK: there's no protection in here again executing multiple processes concurrently in the same space -- which is bad. find a way to bake that in. [except for those cases of desired in-pipeline parallelism, of course]
-D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, station_id, sender) {
+D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, station_id, sender, number) {
   var self = this
     , block = D.get_block(ablock_or_segment)
 
@@ -2711,14 +2788,14 @@ D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, st
 
   if(this.processes.length && this.only_one_process) {
     // Queue the work: execute when current process completes
-    this.queue.push({block: block, scope: scope, prior_starter: prior_starter, station_id: station_id, sender: sender})
+    this.queue.push({block: block, scope: scope, prior_starter: prior_starter, station_id: station_id, sender: sender, number: number})
     return NaN
   }
 
-  return self.real_execute(block, scope, prior_starter, station_id, sender)
+  return self.real_execute(block, scope, prior_starter, station_id, sender, number)
 }
 
-D.Space.prototype.real_execute = function(block, scope, prior_starter, station_id, sender) {
+D.Space.prototype.real_execute = function(block, scope, prior_starter, station_id, sender, number) {
   var self = this
     , process
     , block = D.try_optimize(block)
@@ -2740,7 +2817,7 @@ D.Space.prototype.real_execute = function(block, scope, prior_starter, station_i
     prior_starter(value)
   }
 
-  process = new D.Process(this, block, scope, my_starter, station_id, sender)
+  process = new D.Process(this, block, scope, my_starter, station_id, sender, number)
   this.processes.push(process)
 
   var result = this.try_execute(process)
@@ -2772,7 +2849,7 @@ D.Space.prototype.run_queue = function() {
   var item = this.queue.shift()
 
   D.setImmediate(function() {
-    var result = self.real_execute(item.block, item.scope, item.prior_starter, item.station_id, item.sender)
+    var result = self.real_execute(item.block, item.scope, item.prior_starter, item.station_id, item.sender, item.number)
     if(result === result)
       item.prior_starter(result)                             // was queued (async from caller's perspective) but completed sync
   })
@@ -2855,7 +2932,7 @@ D.import_optimizer = function(name, priority, fun) {
   o888o        o888o  o888o  `Y8bood8P'   `Y8bood8P'  o888ooooood8 8""88888P'  8""88888*/
 
 
-D.Process = function(space, block, scope, prior_starter, station_id, sender) {
+D.Process = function(space, block, scope, prior_starter, station_id, sender, number) {
 
   /*
       A Process executes a single Block from start to finish, executing each segment in turn and handling the wiring.
@@ -2866,6 +2943,8 @@ D.Process = function(space, block, scope, prior_starter, station_id, sender) {
 
   this.pid = D.Etc.process_counter++
   this.sender = sender || null
+  this.number = number || 0                                     // scheduler number (virtual time); sub-processes
+                                                                // share the root's number — flat numbering
   this.effective_dialect = sender && sender.dialect
     ? D.intersect_dialects(sender.dialect, space.dialect)
     : space.dialect

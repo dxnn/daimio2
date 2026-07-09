@@ -146,10 +146,8 @@ det_test('scheduler: a station qname is its space path plus name [qname-structur
 ;[
   'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
   'poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
-  // internal-dock trace guides — RED until the scheduler numbers ships and
-  // the engine computes topology qnames (the dock hook exposes them then)
-  'scheduler: docks lowest-numbered pending ship first [sched-dock-lowest]',
-  'scheduler: dock number = max(counter, ship number) + 1 [sched-dock-max]',
+  // qname guides — RED until the engine computes topology qnames
+  // (the dock hook exposes them then; scheduler numbers land there already)
   'scheduler: anonymous stations get qnames s1, s2 in source order [qname-anon-station]',
   'scheduler: a station qname is its space path plus name [qname-structure]',
 ].forEach(function(l) { known_failures.add(l) })
