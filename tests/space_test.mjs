@@ -456,6 +456,44 @@ space_test(
   }
 )
 
+// §3 [port-implicit-create]
+// A port endpoint (@dir:name or bare @dir) used in wiring but not declared
+// is created with the default flavour for its direction.
+;(function() {
+  // [port-implicit-create] compile shape
+  var seed_id = D.make_some_space(
+    'inner\n' +
+    '  @in -> {__ | times 2} -> @out\n')
+  var seed = D.SPACESEEDS[seed_id]
+  var ok = seed && seed.ports.length == 4 && seed.routes.length == 2
+  if(ok) pass++
+  else {
+    fail++
+    failures.push({ label: '[port-implicit-create] undeclared @in/@out minted from wiring',
+      expected: '4 ports (2 space + station _in/_out), 2 routes',
+      actual: seed ? (seed.ports.length + ' ports, ' + seed.routes.length + ' routes') : 'no seed' })
+  }
+})()
+
+// §3 [port-implicit-create] behavior — the spec's own subspace example shape:
+// inner's @in/@out exist only through wiring; outer wires to them by name.
+space_test(
+  'implicitly created subspace ports carry ships [port-implicit-create]',
+  `
+  inner
+    @in -> {__ | times 2} -> @out
+  outer
+    @init from-js 5
+    @out  collect
+    @init -> inner@in
+    inner@out -> @out`,
+  [{port: 'init', value: 5}],
+  1,
+  function(collected) {
+    assert_eq('[port-implicit-create] doubled through implicit ports', collected.out[0], '10')
+  }
+)
+
 // §3 endpoint syntax: a subspace port in a wire endpoint is name@port
 // (sub@up, sub@up:adder, inner@in) — the spec's form. The dot form
 // (inner.in) is the engine's internal key encoding, also accepted.

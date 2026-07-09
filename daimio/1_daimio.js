@@ -3405,7 +3405,11 @@ D.seedlikes_from_string = function(stringlike, templates) {
           part = part.replace('@', '.')
 
         if(part[0] == '@') {
-          route.push(part.slice(1))                // direction doesn't matter for ports
+          var pkey = part.slice(1)
+            , pdir = pkey.split(':')[0]
+          if(!this_seed.ports[pkey] && /^(in|out|up|down)$/.test(pdir))
+            this_seed.ports[pkey] = [pdir]         // implicit creation, default flavour [port-implicit-create]
+          route.push(pkey)                         // direction doesn't matter for ports
         }
         else if(part.indexOf('.') >= 0) {          // subspace, or station?
           var split = part.split('.', 2)
