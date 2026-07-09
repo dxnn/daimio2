@@ -46,9 +46,6 @@ var known_failures = new Set([
   'up-port: no down port involved, pure station coordination',
   'up-port: chained A -> X.up -> Y.up -> B',
   'signal-flip-up: up port acts as round-trip processor from outside',
-  // §3 Contract direction: backwards `<->` not yet rejected (parser mints
-  // a bogus port from any LHS token) — RED until direction is validated
-  'malformed contract: station on LHS borks [spacedef-hard-error] [roundtrip-enex-lhs]',
   // §3 Black-hole / socket-load / cmd-port compile borks — RED until the
   // (( )) form and these rules are implemented
   'black hole with a station borks [blackhole-only-ports]',
@@ -2654,6 +2651,94 @@ parse_test(
     caller@out -> @out`,
   false
 )
+
+// A contract has exactly two endpoints — a third borks.
+parse_test(
+  'contract with more than two endpoints borks [spacedef-hard-error]',
+  `outer
+    @out collect
+    h {:x}
+    @up:a <-> h <-> @up:b`,
+  true
+)
+
+// One-way ports cannot participate in contracts: a declared in-flavour
+// port on the LHS is a signal-type violation.
+parse_test(
+  'one-way port on contract LHS borks [spacedef-hard-error]',
+  `outer
+    @init from-js
+    handler {:x}
+    @init <-> handler`,
+  true
+)
+
+// A subspace's down port is Enter-N-Exit — LHS only. On the RHS it borks.
+parse_test(
+  'subspace down port on contract RHS borks [spacedef-hard-error]',
+  `worker
+    @down:x
+    h {:h}
+  outer
+    @up:svc <-> worker@down:x`,
+  true
+)
+
+// A station named port cannot fulfill a contract (stations fulfill via
+// their implicit _in/_out — bare name only).
+parse_test(
+  'station named port on contract RHS borks [spacedef-hard-error]',
+  `outer
+    handler {__ | >@foo | ""}
+    @up:svc <-> handler@foo`,
+  true
+)
+
+// An inline {…} block on the contract RHS must mint an anonymous station
+// and wire both legs — today it is silently dropped (routes reference a
+// station that never exists). Compile-shape check. [spacesyn-anon-station]
+;(function() {
+  // [spacesyn-anon-station] contract RHS inline block
+  var seed_id = D.make_some_space(
+    'outer\n' +
+    '  @up:svc\n' +
+    '  @up:svc <-> {__ | add 1}\n')
+  var seed = D.SPACESEEDS[seed_id]
+  var ok = seed && seed.stations.length == 1 && seed.routes.length == 2
+  if(ok) pass++
+  else {
+    fail++
+    failures.push({ label: 'contract RHS inline block mints a station [spacesyn-anon-station]',
+      expected: '1 station, 2 routes',
+      actual: seed ? (seed.stations.length + ' stations, ' + seed.routes.length + ' routes') : 'no seed' })
+  }
+})()
+
+// A cmd wiring rule (holder@cmd:glob <-> target [timeout]) compiles to a
+// stored rule — not a minted port with a garbage direction. [demandport-wire]
+;(function() {
+  // [demandport-wire] cmd wiring rule parses to a rule, not a port
+  var seed_id = D.make_some_space(
+    'outer\n' +
+    '  @init from-js\n' +
+    '  handler {:hello}\n' +
+    '  caller {var read-out name :x}\n' +
+    '  caller@cmd:var:read-out <-> handler 500\n' +
+    '  @init -> caller\n')
+  var seed = D.SPACESEEDS[seed_id]
+  var bogus = seed && seed.ports.filter(function(p) { return /cmd/.test(p.name || '') }).length
+  var rule = seed && seed.rules && seed.rules[0]
+  var ok = seed && bogus === 0 && rule
+        && rule.holder === 'caller' && rule.pattern === 'var:read-out'
+        && rule.target === 'handler' && rule.timeout === 500
+  if(ok) pass++
+  else {
+    fail++
+    failures.push({ label: 'cmd wiring rule compiles to a stored rule [demandport-wire]',
+      expected: 'no cmd-named port; rules[0] = {caller, var:read-out, handler, 500}',
+      actual: seed ? (bogus + ' bogus ports, rules: ' + JSON.stringify(seed.rules)) : 'no seed' })
+  }
+})()
 
 
 // ── §3 Black-hole / socket-load / cmd-port compile borks ─────────────

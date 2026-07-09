@@ -2988,7 +2988,7 @@ D.Process.prototype.next = function(segment, current, wires, dialect) {
 */
 
 D.spaceseed_add = function(seed) {
-  var good_props = {dialect: 1, stations: 1, subspaces: 1, ports: 1, routes: 1, state: 1, closed: 1}
+  var good_props = {dialect: 1, stations: 1, subspaces: 1, ports: 1, routes: 1, state: 1, closed: 1, rules: 1}
     , item
 
   for(var key in seed)
@@ -3147,13 +3147,10 @@ D.spaceseed_hash = function(seed) {
 
 
 D.make_some_space = function(stringlike, templates) {
-  try {
-    return D.make_spaceseeds(D.seedlikes_from_string(stringlike, templates))
-  }
-  catch (e) {
-    D.set_error("Sorry, but that space has some problems: " + e.message)
-    return {}
-  }
+  // A malformed definition borks HARD [spacedef-hard-error]: the throw
+  // propagates and no spaceseed is created. Callers with partial input
+  // (editors, harnesses) wrap their own try/catch.
+  return D.make_spaceseeds(D.seedlikes_from_string(stringlike, templates))
 }
 
 D.seedlikes_from_string = function(stringlike, templates) {
@@ -3265,7 +3262,7 @@ D.seedlikes_from_string = function(stringlike, templates) {
       }
 
       seed_name = line
-      this_seed = {ports:{}, state:{}, routes:[], dialect:{}, stations:{}, subspaces:{}}
+      this_seed = {ports:{}, state:{}, routes:[], dialect:{}, stations:{}, subspaces:{}, rules:[]}
 
       return
     }
@@ -3306,20 +3303,88 @@ D.seedlikes_from_string = function(stringlike, templates) {
     action = ''
 
     if(/<->/.test(line)) {
-      // Round-trip wiring: @port <-> station
-      // Creates two routes: port → station._in, station._out → port
-      // Auto-declares the port if not already declared (spec §3)
+      // Contract wiring, port-first: LHS is a round-trip port (my @up/@down,
+      // or a subspace down port); RHS is a station, inline {block}, my down
+      // port, or a subspace up port. Two routes: request leg + response leg.
+      // A holder@cmd:glob LHS is a wiring rule — stored, not routed (item B).
+      // Malformed contracts bork hard [spacedef-hard-error] [roundtrip-enex-lhs].
       var parts = line.split('<->')
-      if(parts.length == 2) {
-        var lhs = parts[0].trim()
-        var rhs = parts[1].trim()
-        if(lhs[0] == '@') lhs = lhs.slice(1)
-        if(!this_seed.ports[lhs]) {
-          var dir = lhs.split(':')[0]                    // 'up' from 'up:foo', or 'up' from 'up'
-          this_seed.ports[lhs] = [dir]
-        }
-        this_seed.routes.push([lhs, rhs + '.in'])        // station implicit ports still use '.' internally
-        this_seed.routes.push([rhs + '.out', lhs])
+      if(parts.length != 2)
+        throw new Error('A contract must have exactly two endpoints: ' + line)
+
+      var lhs = parts[0].replace(/^\s+|\s+$/g, '')
+        , rhs = parts[1].replace(/^\s+|\s+$/g, '')
+        , lkey, rkey
+
+      var cmd_at = lhs.indexOf('@cmd:')
+      if(cmd_at > 0) {                                   // cmd wiring rule: holder@cmd:glob <-> target [timeout]
+        var rule_bits = rhs.split(/\s+/)
+        this_seed.rules.push({ holder:  lhs.slice(0, cmd_at)
+                             , pattern: lhs.slice(cmd_at + 5)
+                             , target:  rule_bits[0]
+                             , timeout: rule_bits[1] ? +rule_bits[1] : undefined })
+        return
+      }
+
+      if(lhs[0] == '@') lhs = lhs.slice(1)
+      if(lhs.indexOf('@') > 0) lhs = lhs.replace('@', '.')
+
+      if(lhs.indexOf('.') > 0) {                         // subspace port: only sub@down[:x] enters a contract as LHS
+        var lsplit = lhs.split('.', 2)
+        if(!seedlikes[lsplit[0]] || !/^down(:|$)/.test(lsplit[1]))
+          throw new Error('Contract LHS must be an up/down port or a subspace down port: ' + line)
+        this_seed.subspaces[lsplit[0]] = lsplit[0]
+        lkey = lhs
+      }
+      else {
+        var ldecl = this_seed.ports[lhs]
+          , lflav = ldecl && D.PortFlavours[ldecl[0]]
+          , ldir  = lhs.split(':')[0]
+        if(lflav && lflav.dir != 'up' && lflav.dir != 'down')
+          throw new Error('One-way ports cannot participate in contracts: ' + line)
+        if(!ldecl && ldir != 'up' && ldir != 'down')
+          throw new Error('Contract LHS must be an up/down port or a subspace down port: ' + line)
+        if(!ldecl)
+          this_seed.ports[lhs] = [ldir]                  // implicit creation, default flavour for the direction
+        lkey = lhs
+      }
+
+      if(rhs[0] == '{') {                                // inline block fulfills the contract: mint its station
+        var confake = 'station-' + Math.random().toString().slice(2)
+        this_seed.stations[confake] = {value: rhs}
+        rhs = confake
+      }
+
+      if(rhs[0] == '@') {                                // my down port responds (or forwards)
+        var rport = rhs.slice(1)
+          , rdecl = this_seed.ports[rport]
+          , rflav = rdecl && D.PortFlavours[rdecl[0]]
+          , rdir  = rport.split(':')[0]
+        if(rflav && rflav.dir == 'in')
+          throw new Error('Contract RHS cannot be an in port: ' + line)
+        if(!rdecl && rdir != 'down')
+          throw new Error('Contract RHS must be a station, a down port, or a subspace up port: ' + line)
+        if(!rdecl)
+          this_seed.ports[rport] = [rdir]
+        rkey = rport
+      }
+      else if(rhs.indexOf('@') > 0 || rhs.indexOf('.') > 0) {
+        var rnorm  = rhs.indexOf('@') > 0 ? rhs.replace('@', '.') : rhs
+          , rsplit = rnorm.split('.', 2)
+        if(this_seed.stations[rsplit[0]])
+          throw new Error('A station named port cannot fulfill a contract (use the bare station name): ' + line)
+        if(!seedlikes[rsplit[0]] || !/^up(:|$)/.test(rsplit[1]))
+          throw new Error('Contract RHS must be a station, a down port, or a subspace up port: ' + line)
+        this_seed.subspaces[rsplit[0]] = rsplit[0]
+        rkey = rnorm
+      }
+
+      if(rkey) {
+        this_seed.routes.push([lkey, rkey])
+        this_seed.routes.push([rkey, lkey])
+      } else {
+        this_seed.routes.push([lkey, rhs + '.in'])       // station implicit ports still use '.' internally
+        this_seed.routes.push([rhs + '.out', lkey])
       }
       return
     }
@@ -3403,7 +3468,7 @@ D.seedlikes_from_string = function(stringlike, templates) {
     }
   })
 
-  if(JSON.stringify(this_seed) != JSON.stringify({ports:{}, state:{}, routes:[], dialect:{}, stations:{}, subspaces:{}})) {
+  if(JSON.stringify(this_seed) != JSON.stringify({ports:{}, state:{}, routes:[], dialect:{}, stations:{}, subspaces:{}, rules:[]})) {
     if(seedlikes[seed_name]) {
       D.recursive_extend(seedlikes[seed_name], this_seed)
     } else {
@@ -3431,6 +3496,7 @@ D.make_spaceseeds = function(seedlikes) {
 
     newseed.state = state // TODO: check state
     newseed.dialect = dialect // TODO: check dialect
+    newseed.rules = seed.rules || [] // cmd wiring rules — matched at demand-creation time (item B)
 
     var port_key_to_index = {}
     newseed.ports = []
