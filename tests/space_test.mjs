@@ -2767,13 +2767,13 @@ parse_test(
   var bogus = seed && seed.ports.filter(function(p) { return /cmd/.test(p.name || '') }).length
   var rule = seed && seed.rules && seed.rules[0]
   var ok = seed && bogus === 0 && rule
-        && rule.holder === 'caller' && rule.pattern === 'var:read-out'
-        && rule.target === 'handler' && rule.timeout === 500
+        && typeof rule.holder_station === 'number' && rule.pattern === 'var:read-out'
+        && typeof rule.target_in === 'number' && rule.timeout === 500
   if(ok) pass++
   else {
     fail++
     failures.push({ label: 'cmd wiring rule compiles to a stored rule [demandport-wire]',
-      expected: 'no cmd-named port; rules[0] = {caller, var:read-out, handler, 500}',
+      expected: 'no cmd-named port; rules[0] resolved to indices {holder_station, var:read-out, target_in/out, 500}',
       actual: seed ? (bogus + ' bogus ports, rules: ' + JSON.stringify(seed.rules)) : 'no seed' })
   }
 })()

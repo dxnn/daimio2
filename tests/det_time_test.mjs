@@ -41,10 +41,10 @@ det_replay('time: {time now} is byte-identical under a frozen clock [sched-deter
 // {time now} is effectful — its value should come from the Outside via its
 // cmd:time:now port. Wire that port to a handler that answers with a known
 // time; the pipeline should then use the HANDLER's value, not the local clock.
-// The fun fallback is gone (P-effectpartition); today the request sploots to
-// empty because cmd-port routing is unimplemented, so the handler's value is
-// ignored. RED until the cmd port routes. The clock is frozen so any fallback
-// regression (stamp 1600000000) is a fixed, clearly-wrong answer vs the 42.
+// The fun fallback is gone (P-effectpartition) and the cmd port routes: the
+// wiring rule sends the request to the handler station, whose _out value is
+// the response. The clock is frozen so any fallback regression (stamp
+// 1600000000) is a fixed, clearly-wrong answer vs the handler's 42.
 det_test('time: {time now} routes through its cmd:time:now port to a handler [demandport-wire]', {
   seed: `outer
     @go from-js
@@ -57,10 +57,6 @@ det_test('time: {time now} routes through its cmd:time:now port to a handler [de
   now: 1600000000000,
   assert: function(t, e) { e.outputs('out', [42]) },
 })
-
-;[
-  'time: {time now} routes through its cmd:time:now port to a handler [demandport-wire]',
-].forEach(function(l) { known_failures.add(l) })
 
 run()
 

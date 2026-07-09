@@ -24,19 +24,20 @@ det_test('world: a fire-and-forget ship to a world port is observed [effect-boun
   assert: function(t, e) { e.outputs('world:world', ['EMITME']) },
 })
 
-// ── Round-trip (RED): a scripted response flows back into the pipeline ──
-// caller issues an effectful request; the App (det-world) answers 'TICK';
-// caller continues and joins '!'. RED: the request never routes today.
+// ── Round-trip: a scripted response flows back into the pipeline ──
+// caller issues an effectful request; the App (det-world) answers 'tick';
+// caller continues and uppercases it — proving the response value rides the
+// pipe through the segments after the async boundary.
 det_test('world: an effectful request receives its scripted response [roundtrip-response]', {
   seed: `outer
     @go from-js
     @out det-out
     @clock det-world
-    caller {var read-out name :t | string join value "!"}
+    caller {var read-out name :t | string uppercase}
     caller@cmd:var:read-out <-> @clock
     @go -> caller -> @out`,
-  schedule: [ arrive('go', 'x'), respond({ port: 'clock', nth: 1, value: 'TICK' }) ],
-  assert: function(t, e) { e.outputs('out', ['TICK!']) },
+  schedule: [ arrive('go', 'x'), respond({ port: 'clock', nth: 1, value: 'tick' }) ],
+  assert: function(t, e) { e.outputs('out', ['TICK']) },
 })
 
 // [P-singleresponse] Only the first response to a round-trip counts; a second
@@ -56,11 +57,6 @@ det_test('world: only the first response to a round-trip counts [P-singlerespons
   ],
   assert: function(t, e) { e.outputs('out', ['FIRST']) },
 })
-
-;[
-  'world: an effectful request receives its scripted response [roundtrip-response]',
-  'world: only the first response to a round-trip counts [P-singleresponse]',
-].forEach(function(l) { known_failures.add(l) })
 
 run()
 

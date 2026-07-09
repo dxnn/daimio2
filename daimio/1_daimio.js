@@ -3021,9 +3021,13 @@ D.spaceseed_add = function(seed) {
       item ? item.push(port) : station_index_to_ports[port.station] = [port]
     })
 
+    var station_map = {}
+
     seed.stations.forEach(function(station, index) {
       var old_index = index + 1
         , new_index = sorted_stations.indexOf(station, last_offset[station]) + 1
+
+      station_map[old_index] = new_index
 
       if(station_index_to_ports[old_index]) {
         station_index_to_ports[old_index].forEach(function(port) {
@@ -3032,6 +3036,10 @@ D.spaceseed_add = function(seed) {
       }
 
       last_offset[station] = new_index
+    })
+
+    ;(seed.rules || []).forEach(function(rule) {
+      if(rule.holder_station) rule.holder_station = station_map[rule.holder_station]
     })
 
     seed.stations = sorted_stations
@@ -3050,9 +3058,13 @@ D.spaceseed_add = function(seed) {
       item ? item.push(port) : space_index_to_ports[port.space] = [port]
     })
 
+    var space_map = {}
+
     seed.subspaces.forEach(function(subspace, index) {
       var old_index = index + 1
         , new_index = sorted_subspaces.indexOf(subspace, last_offset[subspace]) + 1
+
+      space_map[old_index] = new_index
 
       if(space_index_to_ports[old_index]) {
         space_index_to_ports[old_index].forEach(function(port) {
@@ -3061,6 +3073,10 @@ D.spaceseed_add = function(seed) {
       }
 
       last_offset[subspace] = new_index
+    })
+
+    ;(seed.rules || []).forEach(function(rule) {
+      if(rule.holder_space) rule.holder_space = space_map[rule.holder_space]
     })
 
     seed.subspaces = sorted_subspaces
@@ -3109,10 +3125,14 @@ D.spaceseed_add = function(seed) {
       item ? item.push(route) : port_index_to_routes[route[1]] = [route]
     })
 
+    var port_map = {}
+
     ports.forEach(function(port, index) {
       var port = ports[index]
         , old_index = index + 1 // +1 for offset array indices
         , new_index = sorted_string_ports.indexOf(JSON.stringify(port)) + 1
+
+      port_map[old_index] = new_index
 
       if(port_index_to_routes[old_index]) {
         port_index_to_routes[old_index].forEach(function(route) {
@@ -3122,6 +3142,12 @@ D.spaceseed_add = function(seed) {
             seed.routes[route.index][1] = new_index
         })
       }
+    })
+
+    ;(seed.rules || []).forEach(function(rule) {
+      if(rule.target_port) rule.target_port = port_map[rule.target_port]
+      if(rule.target_in)   rule.target_in   = port_map[rule.target_in]
+      if(rule.target_out)  rule.target_out  = port_map[rule.target_out]
     })
 
   }
@@ -3500,7 +3526,6 @@ D.make_spaceseeds = function(seedlikes) {
 
     newseed.state = state // TODO: check state
     newseed.dialect = dialect // TODO: check dialect
-    newseed.rules = seed.rules || [] // cmd wiring rules — matched at demand-creation time (item B)
 
     var port_key_to_index = {}
     newseed.ports = []
@@ -3547,6 +3572,49 @@ D.make_spaceseeds = function(seedlikes) {
         port_key_to_index[key + '.' + portkey] = newseed.ports.length // note 1-indexed
       }
     }
+
+    // compile cmd wiring rules: resolve holder and target names to indices
+    // (station names don't survive into the compiled seed). Matched at
+    // effect-invocation time — the demand-created cmd port consults these.
+    newseed.rules = []
+    var rule_seen = {}
+    ;(seed.rules || []).forEach(function(rule) {
+      var compiled = { pattern: rule.pattern, timeout: rule.timeout }
+        , dupkey = rule.holder + '@cmd:' + rule.pattern
+
+      if(rule_seen[dupkey])                                 // [wiring-no-duplicate]
+        throw new Error('Duplicate wiring rule pattern: ' + dupkey)
+      rule_seen[dupkey] = true
+
+      if(station_key_to_index[rule.holder])
+        compiled.holder_station = station_key_to_index[rule.holder]
+      else if(subspace_key_to_index[rule.holder])
+        compiled.holder_space = subspace_key_to_index[rule.holder]
+      else
+        throw new Error('Unknown wiring rule holder "' + rule.holder + '"')
+
+      if(rule.target == '@cmd') {                           // forward to my own boundary [cmd-forward]
+        compiled.forward = true
+      }
+      else if(rule.target[0] == '@') {                      // my own port (world/down)
+        compiled.target_port = port_key_to_index[rule.target.slice(1)]
+        if(!compiled.target_port)
+          throw new Error('Unknown wiring rule target "' + rule.target + '"')
+      }
+      else if(rule.target.indexOf('@') > 0 || rule.target.indexOf('.') > 0) {
+        compiled.target_port = port_key_to_index[rule.target.replace('@', '.')]  // sibling up-port
+        if(!compiled.target_port)
+          throw new Error('Unknown wiring rule target "' + rule.target + '"')
+      }
+      else {                                                // station in this space [wiring-target-station]
+        compiled.target_in  = port_key_to_index[rule.target + '.in']
+        compiled.target_out = port_key_to_index[rule.target + '.out']
+        if(!compiled.target_in)
+          throw new Error('Unknown wiring rule target "' + rule.target + '"')
+      }
+
+      newseed.rules.push(compiled)
+    })
 
     newseed.routes =
       routes.map(function(route) {

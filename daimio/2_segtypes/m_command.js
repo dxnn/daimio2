@@ -106,16 +106,95 @@ import D from '../1_daimio.js'
     return params
   }
 
+  function glob_match(pattern, name) {
+    var ps = pattern.split(':'), ns = name.split(':')
+    if(ps.length != ns.length) return false
+    for(var i=0, l=ps.length; i < l; i++)
+      if(ps[i] != '*' && ps[i] != ns[i]) return false
+    return true
+  }
+
+  function more_specific(a, b) {                                    // literal beats *, left-to-right
+    var as = a.split(':'), bs = b.split(':')                        // [wiring-most-specific]
+    for(var i=0, l=as.length; i < l; i++) {
+      if(as[i] != '*' && bs[i] == '*') return true
+      if(as[i] == '*' && bs[i] != '*') return false
+    }
+    return false
+  }
+
+  function match_rule(space, station_id, cmdname) {
+    var rules = space.seed.rules || []
+      , best = null
+    for(var i=0, l=rules.length; i < l; i++) {
+      var rule = rules[i]
+      if(rule.holder_station != station_id) continue                // subspace holders match at the boundary crossing
+      if(!glob_match(rule.pattern, cmdname)) continue
+      if(!best || more_specific(rule.pattern, best.pattern)) best = rule
+    }
+    return best
+  }
+
+  function run_effect(segment, inputs, prior_starter, process) {
+    var effect  = segment.method.effect
+      , cmdname = effect.portType.slice(4)                          // 'cmd:time:now' -> 'time:now' [cmd-name-encode]
+      , space   = process.space
+      , rule    = process.station_id
+              ? match_rule(space, process.station_id, cmdname)
+              : null
+
+    if(!rule || rule.forward)                                       // no wiring (forwarding needs the boundary
+      return D.set_error('Unwired effectful command "'              // crossing) — sploot to empty
+                       + segment.value.handler + ' '                // [effectful-unwired-sploot]
+                       + segment.value.method + '"')
+
+    var params = prep_params(segment.paramlist, inputs)
+    if(params === false) return ""
+
+    var request = { handler: segment.value.handler                  // [effcmd-request-val]
+                  , method:  segment.value.method }
+    for(var i=0, l=segment.method.params.length; i < l; i++)
+      request[segment.method.params[i].key] = params[i]
+
+    var answered = false                                            // the transient cmd port lives exactly as long
+    var respond_once = function(value) {                            // as one request [cmd-transient]: first response
+      if(answered)                                                  // resumes, the rest ghost [P-singleresponse]
+        return D.set_error('Ghost ship: late response for ' + effect.portType)
+      answered = true
+      prior_starter(value)
+    }
+
+    if(rule.target_port) {                                          // port target: request exits, response re-enters
+      var port = space.ports[rule.target_port - 1]
+      if(typeof port.sync === 'function')                           // sync defaults only onto down flavours;
+        port.sync(request, respond_once)                            // world-ish out flavours ride the standard path
+      else
+        D.port_standard_sync.call(port, request, respond_once)      // TODO: default timeout (virtual time backlog)
+      return NaN
+    }
+
+    // station target: runs as a direct sub-process while the requester waits
+    // holding the space; its _out value is the contract response
+    // [wiring-target-station] [station-contract-out]
+    var in_port = space.ports[rule.target_in - 1]
+      , block   = D.BLOCKS[space.seed.stations[in_port.station - 1]]
+      , sub     = new D.Process(space, block, {'__in': request}, respond_once, in_port.station, process.sender)
+
+    var value = sub.run()
+    if(value === value)
+      return value                                                  // fully synchronous round-trip
+
+    return NaN                                                      // sub went async; respond_once resumes us
+  }
+
   function run_fun(segment, inputs, prior_starter, process) {
     if(segment.errors) {
       segment.errors.forEach(function(error) {D.set_error(error)})
       return ""                                                     // THINK: maybe {} or {noop: true} or something
     }                                                               // so false flows through instead of previous value
 
-    if(segment.method.effect)                                       // effectful commands have no fun; until cmd-port
-      return D.set_error('Unwired effectful command "'              // routing lands every effect is unwired and
-                       + segment.value.handler + ' '                // sploots to empty [effectful-unwired-sploot]
-                       + segment.value.method + '"')
+    if(segment.method.effect)                                       // effectful commands have no fun: route the
+      return run_effect(segment, inputs, prior_starter, process)    // request through the wiring rules
 
     var params = prep_params(segment.paramlist, inputs)
     if(params === false) return ""
