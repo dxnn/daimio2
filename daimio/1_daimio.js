@@ -3326,6 +3326,9 @@ D.seedlikes_from_string = function(stringlike, templates) {
           part = fakename
         }
 
+        if(part.indexOf('@') > 0)                  // name@port endpoint (§3) — '.' is the internal key form
+          part = part.replace('@', '.')
+
         if(part[0] == '@') {
           route.push(part.slice(1))                // direction doesn't matter for ports
         }

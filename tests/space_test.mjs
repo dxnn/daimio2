@@ -458,6 +458,75 @@ space_test(
   }
 )
 
+// §3 endpoint syntax: a subspace port in a wire endpoint is name@port
+// (sub@up, sub@up:adder, inner@in) — the spec's form. The dot form
+// (inner.in) is the engine's internal key encoding, also accepted.
+// [spacesyn-route]
+;(function() {
+  // [spacesyn-route] name@port endpoint compile shape
+  var atform = 'inner\n' +
+               '  @in\n' +
+               '  @out\n' +
+               '  double {__ | times 2}\n' +
+               '  @in -> double -> @out\n' +
+               'outer\n' +
+               '  @init from-js\n' +
+               '  @out  collect\n' +
+               '  @init -> inner@in\n' +
+               '  inner@out -> @out\n'
+  var seed_id = D.make_some_space(atform)
+  var seed = D.SPACESEEDS[seed_id]
+  var ok = seed && seed.routes.length == 2 && seed.subspaces.length == 1
+  if(ok) pass++
+  else {
+    fail++
+    failures.push({ label: '[spacesyn-route] name@port endpoint compile shape',
+      expected: '2 routes, 1 subspace',
+      actual: seed ? (seed.routes.length + ' routes, ' + seed.subspaces.length + ' subspaces') : 'no seed' })
+  }
+})()
+
+// §3 endpoint syntax: behavior twin of "subspace with named station" using
+// the spec's name@port endpoint form.
+// [spacesyn-route]
+space_test(
+  'subspace wired via name@port endpoints [spacesyn-route]',
+  `
+  inner
+    @in
+    @out
+    double {__ | times 2}
+    @in -> double -> @out
+  outer
+    @init from-js 5
+    @out  collect
+    @init -> inner@in
+    inner@out -> @out`,
+  [{port: 'init', value: 5}],
+  1,
+  function(collected) {
+    assert_eq('subspace doubled via @ form', collected.out[0], '10')
+  }
+)
+
+// §3 endpoint syntax: station named port via name@port (splitter@left form).
+// [spacesyn-named-port-route]
+space_test(
+  'station named out port via name@port [spacesyn-named-port-route]',
+  `outer
+    @init from-js 3
+    @out  collect
+    tester
+      {__ | times 3 | >@foo | ""}
+    @init -> tester
+    tester@foo -> @out`,
+  [{port: 'init', value: 3}],
+  1,
+  function(collected) {
+    assert_eq('named out port via @ form', collected.out[0], '9')
+  }
+)
+
 // Nested subspace block: an indented named block whose body is space
 // structure compiles to a child subspace registered in the parent, not a
 // station. Compile-shape check follows the [spacesyn-subspace-before-ref]
