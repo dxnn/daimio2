@@ -22,8 +22,6 @@ var known_failures = new Set([
   'effectful command in space sploots to empty when unwired [effectful-unwired-sploot]',
   'unwired var write-out/read-out sploots to empty [effectful-unwired-sploot] [socket-crossboundary-var]',
   // (the two [WRONG:poke-key-scalar-affine] svar-coercion cases moved to det_test.mjs)
-  // new RED guides (this session)
-  'var write then var read by computed name [var-read] [var-write]',
 ])
 
 function test(label, input, expected) {
