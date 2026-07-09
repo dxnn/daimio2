@@ -309,32 +309,40 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
-## Test status (as of 2026-04-05)
+## Test status (as of 2026-07-08, evening)
 
-- d2_spec_test: 423/427 pass (4 known failures)
+- d2_spec_test: 433/433 pass (0 known failures)
 - daimio_test: 829/843 pass (14 known failures)
-- node_code: 83/83 pass
+- node_code: 86/86 pass
 - security_test: 179/179 pass
-- space_test: 124/148 pass (24 known spec-gap failures)
-- space_ascii_test: 421/421 pass (59/59 fixtures round-trip, 0 failures;
-  as of 2026-07-07: vertical (up/down) round-trip ports render on top/bottom
-  borders and station/subspace bottom edges instead of the side walls;
-  subspace up ports render on the box top edge via an above-row band. Six
-  fixtures added (subspace-{down,up}-proc, subspace-{down,up}-station,
-  subspace-up-down, vport-unwired). As of 2026-07-06: seven layout
-  invariants enforced, canonical layout, turn-arrow junction convention,
-  flow-aware parser)
-- example_test: 104/104 pass
+- space_test: 151 pass, 20 known spec-gap failures, 0 new
+- det suites: det_time 3/3, det_world 3/3, det_sender 6/7 (sender-attach-entry
+  needs qnames), det_test / det_blackhole / det_socket per their known sets
+- space_ascii_test: 421/421 pass (59/59 fixtures round-trip; fixture sources
+  and parse emission now use name@port endpoints)
+- example_test: 106/106 pass
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass
 
+### 2026-07-08 session: engine features landed
+- Nested subspace parsing (indented block with structure → child spaceseed)
+- name@port endpoint syntax standardized (spec §3); dot form still accepted
+  as the internal key encoding (one legacy test covers it)
+- {var read}/{var write} pure local dynamic-name svar access
+- fun/effect partition enforced at registration (exactly one)
+- Contract (<->) parsing validated; malformed contracts throw hard
+  ([spacedef-hard-error] — make_some_space no longer swallows borks)
+- [port-implicit-create]: undeclared @dir(:name) endpoints minted from wiring
+- Effectful cmd round-trip routing: rules compile to indices; same-space +
+  cross-boundary + @cmd forwarding + world-port targets; one response, ghosts
+
 ### Known failure root causes
-- **d2_spec_test (4)**: 2x time.now has `fun` fallback (should be purely effectful),
-  2x `>$x.path` desugars to `list poke` which coerces scalar data to list before D.poke sees it
 - **daimio_test (14)**: 11x peek-scalar (Pos/Key on scalar yields scalar instead of Empty),
   1x poke-key-unkeyed-fail, 2x poke-pos-scalar (Pos on scalar coerces to list)
-- **space_test (24)**: 23x unimplemented spec behaviors (up-ports, cmd forwarding, timeouts, etc.),
-  1x k_variable.js returns `false` for unbound svar instead of empty
+- **space_test (20)**: up-port/signal-flip routing (sync through paired space
+  ports needs the inward flip — guarded to sploot, not hang), black-hole /
+  socket-load / cmd-port compile borks, virtual-time timeouts, err-match-by-name,
+  serialize, 1x k_variable.js `false` sentinel for unbound svar
 
 ## Provisional spec decisions (revisit later)
 - **Block in a space variable → serialized as a dead string.** A block held

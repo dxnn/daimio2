@@ -96,42 +96,41 @@ Turns green (all currently RED guides): `det_test` `[sched-dock-lowest]`,
 for the qname half.
 
 ### B. Round-trip routing — effectful `cmd:` ports (spec §6/§7)
+### CORE DONE 2026-07-08 — up-port targets + timeouts remain
 
-Today: fully unimplemented. Probe (2026-07-08): a `<->`-wired cmd request
-reaches neither a handler nor a world flavour (`world_reqs = []`); it sploots to
-empty with a caught internal host-error. `m_command.js` ignores `effect` and
-always runs `fun`. This is also priority item 2(c) above.
+Landed: `run_fun` → `run_effect` in `m_command.js`. Wiring rules compile to
+index-resolved entries in the seed (`make_spaceseeds`; duplicate patterns bork
+`[wiring-no-duplicate]`; `spaceseed_add`'s canonical sort remaps rule indices).
+At invocation: glob match against the invoking station's own space
+(most-specific wins `[wiring-most-specific]`); a miss surfaces the request at
+the space's boundary and matches the parent's rules with the subspace as
+holder; `holder@cmd:glob <-> @cmd` surfaces it one level further
+(`[cmd-forward]`); a miss or root-forward sploots
+(`[effectful-unwired-sploot]`). Request = keyed `{handler, method, …args}`
+(`[effcmd-request-val]`). Station targets: same-space runs as a direct
+sub-process (requester holds the space); ancestor-space targets go through the
+ancestor's serial `execute` (queue if busy). Port targets ride `port sync` to
+the world (`[demandport-wire]`, det-world). One response resumes; extras ghost
+(`[P-singleresponse]` `[cmd-transient]`). Pipeline vars + sender survive the
+wait. GREEN: det_time demandport-wire; det_world roundtrip-response +
+P-singleresponse; det_sender sender-propagate-downport; space_test
+wiring-target-station/-forward, cmd-forward, cmd-transient,
+singleresponse-one, wiring-default-timeout, effectful-unwired-sploot-subspace.
 
-Build:
-- **Demand-create cmd ports.** Invoking an effectful command `{handler method …}`
-  creates a *transient* `cmd:handler:method` port per invocation, destroyed on
-  response/timeout; never cached. Declaring a `cmd:` port already borks
-  (`[demandport-create]`). `[cmd-transient]` `[cmd-name-encode]`.
-- **Wiring-rule matching** against the **parent** space's rules: glob-match
-  `cmd:handler:method`; most-specific wins (literal beats `*`, left-to-right,
-  not declaration order); duplicate patterns bork; `cmd:*:*` catch-all; no match
-  → sploot empty. `[demandport-wire]` `[wiring-most-specific]` `[wiring-no-duplicate]`
-  `[wiring-other-fallback]` `[effectful-unwired-sploot]`.
-- **Request/response.** Request ship value = keyed list `{handler, method, …args}`
-  (`[effcmd-request-val]`); routes to the target (same-space station /
-  sibling up-port / parent boundary / the world); the process WAITs holding its
-  space; exactly one response resumes it (`[P-singleresponse]`); extra/late
-  responses ghost (`[timeout-ghost-drop]`, `[upport-ghost-after-first]`);
-  pipeline vars + sender survive the wait (`[async-preserve-vars]`,
-  `[async-preserve-sender]`).
-- **Forwarding** `S@cmd:*:* <-> @cmd`: parent mints a matching cmd port on
-  itself, triggering the grandparent's rules. `[cmd-forward]`.
-- **Wiring-rule targets**: station / sibling up-port / parent-boundary down-port
-  (forward) / null (sploot). `[wiring-target-station|-upport|-forward|-null]`.
-- **Remove the `fun` fallbacks** from effectful commands (`time now`,
-  `var read-out`/`write-out`) so they route (ties to priority item 2).
-
-Turns green: `det_world` `[roundtrip-response]`, `[P-singleresponse]`; `det_time`
-`[demandport-wire]` (cmd:time:now); `det_sender` `[sender-propagate-downport]`;
-the `space_test` wiring-target-* / cmd-* / singleresponse-one / down-port set;
-and (with the scheduler) `[sched-reentry-uniform]`. Prerequisite for virtual-time
-timeout guides (so a timeout's empty resume is distinguishable from an unrouted
-sploot — see TEST_TODO / det_time_test).
+Remaining:
+- **Up-port / signal-flip targets.** A rule targeting a paired space port
+  (sibling `S@up`, boundary down chains) sploots with a soft error today —
+  `port_standard_sync` ping-pongs between paired ports (each side defers to
+  `pair.sync`) with no inward-flip, so real delivery needs the signal-flip
+  machinery. Guards: `[wiring-target-upport]`, `roundtrip-response`
+  (space_test), `signal-flip-*`, `upport-inside-station`, the up-port set,
+  `async-preserve-sender`, `down-port: declared…`.
+- **Timeouts.** No default 10s / rule-timeout enforcement on a WAIT yet — a
+  target that never responds waits forever (liveness hole). Belongs to the
+  virtual-time backlog (`[timeout-*]`, `[wiring-default-timeout]` semantics —
+  its current guide only asserts completion).
+- **`[demandport-create]` bork** (declaring a `cmd:` port) — still RED, small
+  parser check, batched with the black-hole compile borks.
 
 ## Backlog / dependencies
 
