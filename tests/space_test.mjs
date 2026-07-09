@@ -436,7 +436,10 @@ space_test(
   }
 )
 
-// Subspace with named station
+// Subspace with named station — deliberately kept on the legacy dot form
+// (inner.in): the dot spelling is the engine's internal key encoding and
+// stays accepted at the surface; this is its coverage. New seeds should
+// use name@port (spec §3).
 // [P-compose] [spacesyn-station]
 space_test(
   'subspace with named station',
@@ -543,8 +546,8 @@ space_test(
                '    @out\n' +
                '    double {__ | times 2}\n' +
                '    @in -> double -> @out\n' +
-               '  @init -> inner.in\n' +
-               '  inner.out -> @out\n'
+               '  @init -> inner@in\n' +
+               '  inner@out -> @out\n'
   var seed_id = D.make_some_space(nested)
   var seed = D.SPACESEEDS[seed_id]
   var ok = seed && seed.subspaces.length == 1 && seed.stations.length == 0
@@ -571,8 +574,8 @@ space_test(
       @out
       double {__ | times 2}
       @in -> double -> @out
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 5}],
   1,
   function(collected) {
@@ -619,7 +622,7 @@ space_test(
     tester
       {__ | times 3 | >@foo | ""}
     @init -> tester
-    tester.foo -> @out`,
+    tester@foo -> @out`,
   [{port: 'init', value: 3}],
   1,
   function(collected) {
@@ -679,18 +682,18 @@ space_test(
   innerer
     @in
     @out
-    @in -> {__ | times 2} -> innermost.in
-    innermost.out -> @out
+    @in -> {__ | times 2} -> innermost@in
+    innermost@out -> @out
   inner
     @in
     @out
-    @in -> {__ | times 2} -> innerer.in
-    innerer.out -> @out
+    @in -> {__ | times 2} -> innerer@in
+    innerer@out -> @out
   outer
     @init from-js 1
     @out  collect
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 1}],
   1,
   function(collected) {
@@ -1007,8 +1010,8 @@ space_test(
   outer
     @init from-js
     @out  collect
-    @init -> looper.in
-    looper.out -> @out`,
+    @init -> looper@in
+    looper@out -> @out`,
   [{port: 'init', value: 1}],
   1,
   function(collected) {
@@ -1176,7 +1179,7 @@ space_test(
   outer
     @init from-js
     @out  collect
-    @init -> classifier.in
+    @init -> classifier@in
     classifier.big   -> {(__ :BIG) | string join}   -> @out
     classifier.small -> {(__ :SMALL) | string join} -> @out`,
   [
@@ -1286,13 +1289,13 @@ space_test(
     $x 100
     @init from-js
     @out  collect
-    @init -> child.in
-    child.out -> {$x} -> @out`,
+    @init -> child@in
+    child@out -> {$x} -> @out`,
   [{port: 'init', value: 5}],
   1,
   function(collected) {
     // child sets its own $x to 5, sends 5 out
-    // parent receives 5 at child.out, anon station reads parent's $x (should be 100)
+    // parent receives 5 at child@out, anon station reads parent's $x (should be 100)
     assert_eq('state: parent $x unchanged', collected.out[0], '100')
   }
 )
@@ -1387,8 +1390,8 @@ space_test(
     $parent_secret 42
     @init from-js
     @out  collect
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'probe'}],
   1,
   function(collected) {
@@ -1484,8 +1487,8 @@ space_test(
 outer
   @init from-js
   @out  collect
-  @init -> inner.in
-  inner.out -> @out`,
+  @init -> inner@in
+  inner@out -> @out`,
   [{port: 'init', value: '5'}],
   1,
   function(collected) {
@@ -1515,8 +1518,8 @@ space_test(
   outer
     @init from-js
     @out  collect
-    @init -> consumer.in
-    consumer.out -> @out`,
+    @init -> consumer@in
+    consumer@out -> @out`,
   [{port: 'init', value: 'test'}],
   1,
   function(collected) {
@@ -1579,11 +1582,11 @@ space_test(
       {__ | string join value "-modified"}
     stationB
       {__ | string join value "-received"}
-    @init -> stationA -> inner.up -> stationB -> @out`,
+    @init -> stationA -> inner@up -> stationB -> @out`,
   [{port: 'init', value: 'hello'}],
   1,
   function(collected) {
-    // hello -> stationA ("hello-modified") -> inner.up (uppercase: "HELLO-MODIFIED") -> stationB ("HELLO-MODIFIED-received")
+    // hello -> stationA ("hello-modified") -> inner@up (uppercase: "HELLO-MODIFIED") -> stationB ("HELLO-MODIFIED-received")
     assert_eq('up-port station coordination', collected.out[0], 'HELLO-MODIFIED-received')
   },
   100
@@ -1604,11 +1607,11 @@ space_test(
       {__ | math add value 10}
     sink
       {__ | math add value 100}
-    @init -> source -> worker.up -> sink -> @out`,
+    @init -> source -> worker@up -> sink -> @out`,
   [{port: 'init', value: 5}],
   1,
   function(collected) {
-    // 5 -> source (15) -> worker.up (doubler: 30) -> sink (130)
+    // 5 -> source (15) -> worker@up (doubler: 30) -> sink (130)
     assert_eq('up-port without down port', collected.out[0], '130')
   },
   100
@@ -1628,7 +1631,7 @@ space_test(
       requester.need -> @out
     handler
       {__ | string uppercase}
-    @init -> inner.down -> handler -> @out`,
+    @init -> inner@down -> handler -> @out`,
   [{port: 'init', value: 'please'}],
   1,
   function(collected) {
@@ -1683,7 +1686,7 @@ space_test(
       splitter.second -> @out
     receiver
       {__}
-    @init -> multi.up -> receiver -> @out`,
+    @init -> multi@up -> receiver -> @out`,
   [{port: 'init', value: 'test'}],
   2,
   function(collected) {
@@ -1753,12 +1756,12 @@ space_test(
 
 // §3 [spacesyn-subspace-before-ref]
 // Subspaces must be defined before they are referenced in routes.
-// Correct order: child defined first, outer references child.in after.
+// Correct order: child defined first, outer references child@in after.
 // Forward ref (outer first, child after) should not produce a working space.
 ;(function() {
   // [spacesyn-subspace-before-ref]
   // Correct order works
-  var good = 'child\n  @in from-js\n  @out to-js\nouter\n  @init from-js\n  @out to-js\n  @init -> child.in\n'
+  var good = 'child\n  @in from-js\n  @out to-js\nouter\n  @init from-js\n  @out to-js\n  @init -> child@in\n'
   var good_id = D.make_some_space(good)
   var good_space = new D.Space(good_id)
   var has_subspace = good_space.subspaces && good_space.subspaces.length > 0
@@ -1770,7 +1773,7 @@ space_test(
   }
 
   // Forward ref: outer references child before child is defined
-  var bad = 'outer\n  @init from-js\n  @out to-js\n  @init -> child.in\nchild\n  @in from-js\n  @out to-js\n'
+  var bad = 'outer\n  @init from-js\n  @out to-js\n  @init -> child@in\nchild\n  @in from-js\n  @out to-js\n'
   var bad_id = D.make_some_space(bad)
   var bad_space = new D.Space(bad_id)
   var bad_has_subspace = bad_space.subspaces && bad_space.subspaces.length > 0
@@ -1824,7 +1827,7 @@ space_test(
   outer
     @init from-js
     @out  collect
-    @init -> inner.up -> @out`,
+    @init -> inner@up -> @out`,
   [{port: 'init', value: 'hello'}],
   1,
   function(collected) {
@@ -1845,7 +1848,7 @@ space_test(
       @init -> requester
       requester.need -> @out
     handler {__ | string uppercase}
-    @init -> inner.down -> handler -> @out`,
+    @init -> inner@down -> handler -> @out`,
   [{port: 'init', value: 'test'}],
   1,
   function(collected) {
@@ -1891,8 +1894,8 @@ space_test(
     @init from-js
     @out  collect
     relay {__}
-    @init -> inner.in
-    inner.out -> relay -> @out`,
+    @init -> inner@in
+    inner@out -> relay -> @out`,
   [{port: 'init', value: 1}, {port: 'init', value: 2}, {port: 'init', value: 3}],
   3,
   function(collected) {
@@ -1917,8 +1920,8 @@ space_test(
   outer
     @init from-js
     @out  collect
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 7}],
   1,
   function(collected) {
@@ -2034,8 +2037,8 @@ space_test(
     inner
       worker {__ | string uppercase}
       @init -> worker -> @out
-    @init -> inner.down -> @out
-    inner@cmd:*:* <-> inner.up`,
+    @init -> inner@down -> @out
+    inner@cmd:*:* <-> inner@up`,
   [{port: 'init', value: 'hello'}],
   1,
   function(collected) {
@@ -2057,8 +2060,8 @@ space_test(
     handler
       {__}
     inner@cmd:var:* <-> handler
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'start'}],
   1,
   function(collected) {
@@ -2111,8 +2114,8 @@ space_test(
         @init -> worker -> @out
       inner@cmd:*:* <-> @cmd
     middle@cmd:*:* <-> @cmd
-    @init -> middle.in
-    middle.out -> @out`,
+    @init -> middle@in
+    middle@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2135,8 +2138,8 @@ space_test(
       @init -> worker -> @out
     inner@cmd:var:* <-> handler
     handler {__}
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2158,8 +2161,8 @@ space_test(
     handler
       {:hello}
     inner@cmd:var:read-out <-> handler
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2181,9 +2184,9 @@ space_test(
     provider
       responder {:provided}
       @init -> responder -> @out
-    requester@cmd:var:read-out <-> provider.up
-    @init -> requester.in
-    requester.out -> @out`,
+    requester@cmd:var:read-out <-> provider@up
+    @init -> requester@in
+    requester@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2205,8 +2208,8 @@ space_test(
         @init -> caller -> @out
       inner@cmd:var:* <-> @cmd
     middle@cmd:var:* <-> @cmd
-    @init -> middle.in
-    middle.out -> @out`,
+    @init -> middle@in
+    middle@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2228,8 +2231,8 @@ space_test(
       @init -> caller -> @out
     handler {:42}
     inner@cmd:var:read-out <-> handler
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2251,8 +2254,8 @@ space_test(
       @up:service <-> handler
       @init -> @down:need -> @out
     inner@down:need <-> inner@up:service
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'test'}],
   1,
   function(collected) {
@@ -2273,8 +2276,8 @@ space_test(
       @init -> caller -> @out
     handler {:response}
     inner@cmd:var:read-out <-> handler
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2294,8 +2297,8 @@ space_test(
       caller {var read-out name :slow}
       @init -> caller -> @out
     inner@cmd:var:* <-> @cmd
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2315,8 +2318,8 @@ space_test(
     inner
       caller {var read-out name :x || :fallback}
       @init -> caller -> @out
-    @init -> inner.in
-    inner.out -> @out`,
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'go'}],
   1,
   function(collected) {
@@ -2362,8 +2365,8 @@ space_test(
   main
     @init from-js
     @out  collect
-    @init -> helper.in
-    helper.out -> @out`,
+    @init -> helper@in
+    helper@out -> @out`,
   [{port: 'init', value: 5}],
   1,
   function(collected) {
@@ -2634,8 +2637,8 @@ parse_test(
     handler {:hello}
     caller {var read-out name :x}
     handler <-> caller@cmd:var:read-out
-    @init -> caller.in
-    caller.out -> @out`,
+    @init -> caller@in
+    caller@out -> @out`,
   true
 )
 
@@ -2649,8 +2652,8 @@ parse_test(
     handler {:hello}
     caller {var read-out name :x}
     caller@cmd:var:read-out <-> handler
-    @init -> caller.in
-    caller.out -> @out`,
+    @init -> caller@in
+    caller@out -> @out`,
   false
 )
 

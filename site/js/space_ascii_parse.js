@@ -67,8 +67,8 @@ function generate_all_routes(parsed_blocks) {
       sinks.push(sn)
     }
     for (var i = 0; i < p.subspaces.length; i++) {
-      sources.push(p.subspaces[i].name + '.out')
-      sinks.push(p.subspaces[i].name + '.in')
+      sources.push(p.subspaces[i].name + '@out')
+      sinks.push(p.subspaces[i].name + '@in')
     }
     // Generate all source→sink pairs
     for (var si2 = 0; si2 < sources.length; si2++)
@@ -940,15 +940,15 @@ function build_routes(connections, stations, subspaces, ports, port_label) {
       return '@' + port_label[ep.index]
     if (ep.kind === 'station_in' || ep.kind === 'station_out')
       return stations[ep.index].name || stations[ep.index].source
-    if (ep.kind === 'subspace_in') return subspaces[ep.index].name + '.in'
-    if (ep.kind === 'subspace_out') return subspaces[ep.index].name + '.out'
+    if (ep.kind === 'subspace_in') return subspaces[ep.index].name + '@in'
+    if (ep.kind === 'subspace_out') return subspaces[ep.index].name + '@out'
     if (ep.kind === 'subspace_down_in' || ep.kind === 'subspace_down_out') {
       var pname = ep.port === 0 ? 'down' : 'down:' + String.fromCharCode(97 + ep.port - 1)
-      return subspaces[ep.index].name + '.' + pname
+      return subspaces[ep.index].name + '@' + pname
     }
     if (ep.kind === 'subspace_up_in' || ep.kind === 'subspace_up_out') {
       var pname = ep.port === 0 ? 'up' : 'up:' + String.fromCharCode(97 + ep.port - 1)
-      return subspaces[ep.index].name + '.' + pname
+      return subspaces[ep.index].name + '@' + pname
     }
     return '?'
   }

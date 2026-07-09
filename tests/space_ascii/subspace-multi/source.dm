@@ -5,5 +5,5 @@ inner
 outer
   @in
   @out
-  @in -> {__ | add 1} -> inner.in
-  inner.out -> {__ | add 2} -> @out
+  @in -> {__ | add 1} -> inner@in
+  inner@out -> {__ | add 2} -> @out

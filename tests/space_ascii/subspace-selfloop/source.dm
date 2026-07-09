@@ -5,6 +5,6 @@ inner
 outer
   @in
   @out
-  @in -> inner.in
-  inner.out -> inner.in
-  inner.out -> @out
+  @in -> inner@in
+  inner@out -> inner@in
+  inner@out -> @out

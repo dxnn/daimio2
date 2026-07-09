@@ -5,4 +5,4 @@ worker
 outer
   @in
   @out
-  @in -> worker.down:svc -> @out
+  @in -> worker@down:svc -> @out

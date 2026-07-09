@@ -4,5 +4,5 @@ worker
   @down:svc <-> h
 outer
   proc {p}
-  proc -> worker.up:svc
-  worker.up:svc -> proc
+  proc -> worker@up:svc
+  worker@up:svc -> proc

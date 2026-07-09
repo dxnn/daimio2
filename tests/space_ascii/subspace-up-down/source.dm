@@ -5,5 +5,5 @@ worker
 outer
   @in
   @out
-  @in -> worker.up:a -> @out
-  @in -> worker.down:b -> @out
+  @in -> worker@up:a -> @out
+  @in -> worker@down:b -> @out
