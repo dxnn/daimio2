@@ -17,10 +17,6 @@ var reported = false
 // A failure whose label is in this set is expected; anything else is a
 // regression (and fails the suite).
 var known_failures = new Set([
-  // pre-existing spec-gap RED tests
-  'effectful command with unwired port sploots to empty [effectful-unwired-sploot] [P-liveness]',
-  'effectful command in space sploots to empty when unwired [effectful-unwired-sploot]',
-  'unwired var write-out/read-out sploots to empty [effectful-unwired-sploot] [socket-crossboundary-var]',
   // (the two [WRONG:poke-key-scalar-affine] svar-coercion cases moved to det_test.mjs)
 ])
 

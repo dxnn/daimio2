@@ -112,6 +112,11 @@ import D from '../1_daimio.js'
       return ""                                                     // THINK: maybe {} or {noop: true} or something
     }                                                               // so false flows through instead of previous value
 
+    if(segment.method.effect)                                       // effectful commands have no fun; until cmd-port
+      return D.set_error('Unwired effectful command "'              // routing lands every effect is unwired and
+                       + segment.value.handler + ' '                // sploots to empty [effectful-unwired-sploot]
+                       + segment.value.method + '"')
+
     var params = prep_params(segment.paramlist, inputs)
     if(params === false) return ""
     params.push(prior_starter)

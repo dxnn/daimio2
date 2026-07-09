@@ -618,6 +618,46 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
 })()
 
 
+// §1 P-effectpartition: a command has exactly one of fun / effect.
+// import_models must reject a method declaring both, or neither.
+;(function() {
+  // [P-effectpartition] both fun and effect -> registration bork
+  D.import_models({
+    parttest: {
+      desc: 'effect partition test handler',
+      methods: {
+        both: {
+          desc: 'illegally has both',
+          params: [],
+          effect: { portType: 'cmd:parttest:both' },
+          fun: function() { return 'ran' },
+        },
+        neither: {
+          desc: 'illegally has neither',
+          params: [],
+        },
+        pure: {
+          desc: 'legally pure',
+          params: [],
+          fun: function() { return 'pure' },
+        },
+      }
+    }
+  })
+
+  var methods = D.Commands.parttest && D.Commands.parttest.methods || {}
+  if(!methods.both) pass++
+  else ERRORS.push({in: '[P-effectpartition] method with both fun and effect',
+    out: 'registered', was: 'rejected at registration'})
+  if(!methods.neither) pass++
+  else ERRORS.push({in: '[P-effectpartition] method with neither fun nor effect',
+    out: 'registered', was: 'rejected at registration'})
+  if(methods.pure) pass++
+  else ERRORS.push({in: '[P-effectpartition] valid pure method',
+    out: 'rejected', was: 'registered'})
+})()
+
+
 // WRAP IT ALL UP WITH A BOW
 
 var show_errors = function(error) {

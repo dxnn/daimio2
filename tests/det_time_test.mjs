@@ -1,9 +1,9 @@
 // Time / clock determinism — run: node tests/det_time_test.mjs
-// {time now} is the effectful time command: it reads "now" through D.now(),
-// which the runner overrides (the `now` option) to a fixed value — the
-// deterministic stand-in for the Outside providing the time. Under a frozen
-// clock the result is identical on every run. This is the virtual-time
-// foundation: the runner controls the clock.
+// {time now} is the effectful time command: its value must come from the
+// Outside through its cmd:time:now port ([demandport-wire] below). Its interim
+// fun fallback (the D.now bridge) is gone per the effect partition
+// (P-effectpartition, TODO Q4) — unwired, it sploots to empty, so no engine
+// clock can leak in. D.now itself remains as the virtual-time foundation.
 //
 // ({time stampwrap} is pure — it wraps a given stamp and never reads the clock;
 // its tests live in d2_spec_test.mjs.)
@@ -16,13 +16,18 @@ var CLOCK = `outer
   clock {time now | peek :stamp}
   @go -> clock -> @out`
 
-// The Outside (here, the runner) delivers "now"; a frozen clock => fixed result.
-// 1600000000000 ms = stamp 1600000000 (2020-09-13 12:26:40 UTC).
-det_test('time: {time now} reads the runner-provided clock [effect-outside-time]', {
-  seed: CLOCK,
+// Unwired {time now} sploots — even with a frozen runner clock available, no
+// wall-clock or D.now value leaks into the pipeline. The routed-clock
+// counterpart (the Outside answering via cmd:time:now) is [demandport-wire].
+det_test('time: unwired {time now} sploots, no engine clock leaks [effectful-unwired-sploot] [effect-outside-time]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    clock {time now | logic if then :got_time else :no_time}
+    @go -> clock -> @out`,
   schedule: [ arrive('go', 'x') ],
   now: 1600000000000,
-  assert: function(t, e) { e.outputs('out', [1600000000]) },
+  assert: function(t, e) { e.outputs('out', ['no_time']) },
 })
 
 // Replay under a frozen clock is byte-identical (I17 applied to effectful time).
@@ -36,10 +41,10 @@ det_replay('time: {time now} is byte-identical under a frozen clock [sched-deter
 // {time now} is effectful — its value should come from the Outside via its
 // cmd:time:now port. Wire that port to a handler that answers with a known
 // time; the pipeline should then use the HANDLER's value, not the local clock.
-// Today {time now} runs its fun fallback (reads D.now) and never routes, so the
-// handler's value is ignored. RED now; green once the cmd port routes (and the
-// fun fallback is removed). The clock is frozen so the fallback's value (stamp
-// 1600000000) is a fixed, clearly-wrong answer vs the handler's 42.
+// The fun fallback is gone (P-effectpartition); today the request sploots to
+// empty because cmd-port routing is unimplemented, so the handler's value is
+// ignored. RED until the cmd port routes. The clock is frozen so any fallback
+// regression (stamp 1600000000) is a fixed, clearly-wrong answer vs the 42.
 det_test('time: {time now} routes through its cmd:time:now port to a handler [demandport-wire]', {
   seed: `outer
     @go from-js

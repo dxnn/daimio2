@@ -63,12 +63,6 @@ D.import_models({
         ],
         effect: {
           portType: 'cmd:var:read-out',
-          defaultValue: '',
-        },
-        fun: function(name, prior_starter, process) {
-          // Default handler: read from current space's state
-          var value = process.space.get_state(name)
-          return (value !== undefined) ? value : ''
         },
       },
 
@@ -89,12 +83,6 @@ D.import_models({
         ],
         effect: {
           portType: 'cmd:var:write-out',
-          defaultValue: '',
-        },
-        fun: function(name, value, prior_starter, process) {
-          // Default handler: write to current space's state
-          process.space.set_state(name, value)
-          return value
         },
       },
 

@@ -1118,6 +1118,16 @@ D.import_terminator('/', { // comment
 D.import_models = function(new_models) {
   for(var model_key in new_models) {
     var model = new_models[model_key]
+      , methods = model['methods'] || {}
+
+    for(var method_key in methods) {                // P-effectpartition: exactly one of fun / effect
+      var method = methods[method_key]
+      if(!method.fun == !method.effect) {           // both, or neither
+        D.set_error('Command "' + model_key + ' ' + method_key + '" must have exactly one of fun or effect')
+        delete methods[method_key]
+      }
+    }
+
     if(!D.Commands[model_key]) {
       D.Commands[model_key] = model
     }

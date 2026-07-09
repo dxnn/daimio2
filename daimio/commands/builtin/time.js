@@ -11,18 +11,6 @@ D.import_models({
         params: [],
         effect: {
           portType: 'cmd:time:now',
-          defaultValue: false,
-        },
-        fun: function(prior_starter, process) {
-          var date = new Date(D.now())
-          return { year:   date.getFullYear()
-                 , month:  date.getMonth() + 1
-                 , day:    date.getDate()
-                 , hour:   date.getHours()
-                 , minute: date.getMinutes()
-                 , second: date.getSeconds()
-                 , stamp:  Math.floor(date.getTime() / 1000)
-                 }
         },
       },
 

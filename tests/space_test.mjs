@@ -20,8 +20,6 @@ var known_timeout_ms = 200  // known failures: fail fast
 // Known failures — tests for spec behaviors not yet implemented.
 // If a failure's label is in this set, it's expected; otherwise it's a regression.
 var known_failures = new Set([
-  // §7 Unwired effect sploots to empty (no fun fallback) — RED until removed
-  'unwired effect sploots to empty [effectful-unwired-sploot]',
   // §6 Up-port direction: sibling provides service
   'up-port: sibling subspace provides service via up-port',
   // §8 Serialized space excludes dialect and wiring
