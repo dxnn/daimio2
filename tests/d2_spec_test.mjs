@@ -20,6 +20,7 @@ var known_failures = new Set([
   // pre-existing spec-gap RED tests
   'effectful command with unwired port sploots to empty [effectful-unwired-sploot] [P-liveness]',
   'effectful command in space sploots to empty when unwired [effectful-unwired-sploot]',
+  'unwired var write-out/read-out sploots to empty [effectful-unwired-sploot] [socket-crossboundary-var]',
   // (the two [WRONG:poke-key-scalar-affine] svar-coercion cases moved to det_test.mjs)
   // new RED guides (this session)
   'var write then var read by computed name [var-read] [var-write]',
@@ -410,16 +411,19 @@ test(
 
 
 // =====================================================
-// §6 Cross-boundary state: var read-out/write-out (unwired)
+// §6 Cross-boundary state: var read-out/write-out (effectful)
 // =====================================================
 
-// var read-out and var write-out are effectful commands.
-// When unwired, the default handler accesses the current space's state.
+// var read-out/write-out are EFFECTFUL — cross-boundary state via the
+// cmd:var:* port. Unwired, they sploot to empty (no fun fallback). The LOCAL,
+// pure accessors are {var read}/{var write} (RED guide below). RED until the
+// fun fallback is removed: today the fun reads the caller's own space, so an
+// unwired write-out/read-out round-trips locally and returns 42.
 
 test(
-  'var write-out sets space variable [socket-crossboundary-var]',
+  'unwired var write-out/read-out sploots to empty [effectful-unwired-sploot] [socket-crossboundary-var]',
   '{var write-out name :testvar value 42 | var read-out name :testvar}',
-  '42'
+  ''
 )
 
 test(
