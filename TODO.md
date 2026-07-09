@@ -55,45 +55,38 @@ declared are NOT minted yet — several guides' inner blocks declare no ports),
 `((label))` black-hole parsing, and routing (B). The `<->` RHS/LHS port forms
 are still broken (parser-hardening item below).
 
-### A. Priority-loop scheduler with ship numbers (spec §5 "Deterministic scheduling")
+### A. Priority-loop scheduler with ship numbers (spec §5)
+### CORE DONE 2026-07-08 — refinements remain
 
-Today: dispatch is a FIFO queue advanced by `D.setImmediate` (`1_daimio.js`
-`run_queue`, `port_standard_exit`, `port_standard_sync`). Ships have no number;
-a dock assigns `process.pid` (a bare counter), not a scheduler number; the queue
-inserts in arrival order despite the `by key`/`by number` comments already in
-`ARRIVE`/`COMPLETE`.
+Landed: ships carry a scheduler `number` as carrier metadata (with `sender`,
+never payload — `[sched-ship-vtime]` stayed green) through
+`enter`/`exit`/queue/process; dock assigns `max(space.counter, ship#) + 1`,
+raises the counter and the runtime root's frontier (`[sched-dock-max]`);
+unnumbered external entries take the root frontier; sub-processes share the
+requester's number (flat). All deferred ship deliveries go through
+`D.schedule_delivery` — a binary heap keyed `(number, global seq)`; each
+`D.setImmediate` tick (still counted by the det harness's settle) pops the
+LOWEST pending item (`[sched-dock-lowest]`, per-wire FIFO via seq). The dock
+hook exposes `number`; `send_value_to_js_port` accepts one and the harness
+passes `arrive()`'s through. Perf within limits (ship_routing ratio 0.88 vs
+limit 18).
 
-Build:
-- **Ship numbers.** Every ship carries a `number` (virtual time) as carrier
-  metadata (alongside `sender`), never payload. Add it to the ship-passing path
-  (`port.enter`/`exit`, `outside_exit`, the queue item, the process).
-- **Frontier numbering of external entries.** A ship entering from outside a
-  runtime boundary — outermost in-port arrival, black-hole emission, App
-  down-port response, timeout firing — is numbered at that boundary's frontier
-  (highest number processed in its subtree). The harness already passes
-  `arrive(port, value, {number})`; honor it (today it's ignored). `[sched-entry-frontier]`.
-- **Dock numbering.** On dock, `process.number = max(space.counter, ship.number) + 1`
-  and raise `space.counter` to it; every emission of the process (and its
-  sub-processes — flat numbering, they share the root's number) carries it.
-  `[sched-dock-max]`.
-- **Queue ordered by key**, not arrival. Key = `(number, carrying-wire
-  declaration order, wire-FIFO position)`; dock pops the min. Wires stay FIFO
-  channels (per-wire order is the finest key component — always FIFO, not just
-  on ties). `[space-queue]` `[sched-dock-lowest]` `[sched-tie-wire]` `[sched-wire-fifo]`.
-- **Advance rule.** No ship docks at number k while a lower-numbered ship can
-  still reach the space (conservative-PDES lookahead; the station-in-every-cycle
-  bork guarantees progress). `[sched-advance]`. A down-port response re-docks by
-  the same max rule. `[sched-reentry-uniform]`.
-- **Replace the `setImmediate` deferral** sites with the priority loop that
-  dequeues by key. **Perf-sensitive** — keep `perf_test` (mandelbrot ship loops)
-  green; establish baselines first (see TEST_TODO Performance).
-- **Expose `number` (and qname) on the dock hook** `D.Etc.on_dock` info object —
-  det guides read `dockNumbers`/`dockTargets`.
-
-Turns green (all currently RED guides): `det_test` `[sched-dock-lowest]`,
-`[sched-dock-max]`; and unblocks `[sched-advance]`, `[sched-entry-frontier]`,
-`[sched-reentry-uniform]`, `[sched-wire-fifo]`. Depends on: runtime qnames (E)
-for the qname half.
+Remaining refinements:
+- **Numbering-at-actual-dock under waits.** A ship arriving at a WAITING
+  space gets its number at `dock()` entry today, though its process starts
+  later from `space.queue` — revisit with `[sched-reentry-uniform]`.
+- **Entry stamping at the boundary.** Frontier numbering happens in `dock()`
+  (entry-time ≈ dock-time for now); exact entry-point stamping lands with
+  `[sched-entry-frontier]`'s true interleaving guide.
+- **Wire declaration order as the mid key component** (`[sched-tie-wire]`) —
+  seq gives FIFO but not declaration-order ties; add when its guide lands.
+- **`port_standard_sync` deliveries** (cmd requests to world ports) are
+  number-neutral plain deferrals; key them when `[sched-reentry-uniform]`
+  lands.
+- The deferred guides `[sched-advance]` `[sched-wire-fifo]`
+  `[sched-entry-frontier]` `[sched-reentry-uniform]` need harness machinery
+  (true frontier interleaving) per det_test's deferred-notes section.
+- Qname half of the dock hook: item E.
 
 ### B. Round-trip routing — effectful `cmd:` ports (spec §6/§7)
 ### CORE DONE 2026-07-08 — up-port targets + timeouts remain

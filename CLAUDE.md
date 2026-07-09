@@ -335,6 +335,10 @@ renders are identical because labels never reach the picture.
 - [port-implicit-create]: undeclared @dir(:name) endpoints minted from wiring
 - Effectful cmd round-trip routing: rules compile to indices; same-space +
   cross-boundary + @cmd forwarding + world-port targets; one response, ghosts
+- Deterministic scheduler core: ships carry a number (carrier metadata);
+  dock = max(counter, ship#)+1; deliveries drain lowest-(number,seq)-first
+  through D.schedule_delivery's heap (still one D.setImmediate tick per item,
+  so the det harness settle counting holds); dock hook exposes number
 
 ### Known failure root causes
 - **daimio_test (14)**: 11x peek-scalar (Pos/Key on scalar yields scalar instead of Empty),
