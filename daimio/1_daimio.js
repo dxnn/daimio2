@@ -3155,6 +3155,8 @@ D.seedlikes_from_string = function(stringlike, templates) {
     , continuation = ''
     , action = ''
     , action_name = ''
+    , maybe_subspace = false
+    , subspace_buffer = []
     , templates = templates || {}
 
   // THINK: if we use parser combinators, can we uncombinate in reverse to get back our string?
@@ -3185,9 +3187,17 @@ D.seedlikes_from_string = function(stringlike, templates) {
         prop_offset = this_offset
       }
 
-      if(this_offset > prop_offset && line.indexOf('->') == -1) {
-        continuation += " " +line
-        return
+      if(this_offset > prop_offset) {
+        if(maybe_subspace)                          // capture the block body verbatim, indentation preserved
+          subspace_buffer.push(new Array(this_offset + 1).join(' ') + line)
+
+        if(line.indexOf('->') == -1) {
+          continuation += " " +line
+          return
+        }
+
+        if(maybe_subspace)                          // -> lines belong to the block, not the parent's wires
+          return
       }
     }
 
@@ -3208,11 +3218,29 @@ D.seedlikes_from_string = function(stringlike, templates) {
       }
 
       if(action == 'station') {
-        if(!continuation && templates[action_name])
-          continuation = templates[action_name]
-        this_seed.stations[action_name] = {value: continuation}
+        var structural = maybe_subspace && subspace_buffer.filter(function(bline) {
+          var head = bline.replace(/^\s+/, '')
+          return head[0] == '@' || head[0] == '$' || head.indexOf('->') >= 0
+        }).length
+
+        if(structural) {                            // an indented named block of space structure is a child subspace
+          var child = D.seedlikes_from_string(action_name + "\n" + subspace_buffer.join("\n"), templates)
+          for(var child_name in child) {
+            if(seedlikes[child_name])
+              D.recursive_extend(seedlikes[child_name], child[child_name])
+            else
+              seedlikes[child_name] = child[child_name] // child must land before the parent registers
+          }
+          this_seed.subspaces[action_name] = action_name
+        } else {
+          if(!continuation && templates[action_name])
+            continuation = templates[action_name]
+          this_seed.stations[action_name] = {value: continuation}
+        }
       }
 
+      maybe_subspace = false
+      subspace_buffer = []
       continuation = ''
       action = ''
     }
@@ -3257,6 +3285,10 @@ D.seedlikes_from_string = function(stringlike, templates) {
     if(continuation[0] == '{' || line.indexOf('->') == -1) {
       action_name = name
       action = 'station'
+      if(!continuation) {                           // bare name — may open a subspace block
+        maybe_subspace = true
+        subspace_buffer = []
+      }
       return
     }
 

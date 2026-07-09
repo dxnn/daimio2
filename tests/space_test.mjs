@@ -458,6 +458,88 @@ space_test(
   }
 )
 
+// Nested subspace block: an indented named block whose body is space
+// structure compiles to a child subspace registered in the parent, not a
+// station. Compile-shape check follows the [spacesyn-subspace-before-ref]
+// pattern (inspect the seed via D.SPACESEEDS).
+// [spacesyn-subspace-nested] (provisional tag — the nested block form is not
+// yet in D2-spec.md; TODO.md §0 is the authority for this syntax.)
+;(function() {
+  // [spacesyn-subspace-nested]
+  var nested = 'outer\n' +
+               '  @init from-js\n' +
+               '  @out  collect\n' +
+               '  inner\n' +
+               '    @in\n' +
+               '    @out\n' +
+               '    double {__ | times 2}\n' +
+               '    @in -> double -> @out\n' +
+               '  @init -> inner.in\n' +
+               '  inner.out -> @out\n'
+  var seed_id = D.make_some_space(nested)
+  var seed = D.SPACESEEDS[seed_id]
+  var ok = seed && seed.subspaces.length == 1 && seed.stations.length == 0
+  if(ok) pass++
+  else {
+    fail++
+    failures.push({ label: '[spacesyn-subspace-nested] compile shape',
+      expected: '1 subspace, 0 stations',
+      actual: seed ? (seed.subspaces.length + ' subspaces, ' + seed.stations.length + ' stations') : 'no seed' })
+  }
+})()
+
+// Behavior twin of the flat "subspace with named station" test above, but
+// with the subspace nested inside the parent block.
+// [spacesyn-subspace-nested] (provisional tag — see note above)
+space_test(
+  'nested subspace block with named station [spacesyn-subspace-nested]',
+  `
+  outer
+    @init from-js 5
+    @out  collect
+    inner
+      @in
+      @out
+      double {__ | times 2}
+      @in -> double -> @out
+    @init -> inner.in
+    inner.out -> @out`,
+  [{port: 'init', value: 5}],
+  1,
+  function(collected) {
+    assert_eq('nested subspace doubled', collected.out[0], '10')
+  }
+)
+
+// A bare-name station SIBLING of a nested block still compiles as a station
+// (maybe-subspace mode must reset cleanly after the subspace flush). Outer
+// ends up with exactly one real station (handler) and one subspace (inner).
+// [spacesyn-subspace-nested] (provisional tag — see note above)
+;(function() {
+  // [spacesyn-subspace-nested]
+  var sibling = 'outer\n' +
+                '  @init from-js\n' +
+                '  @out  collect\n' +
+                '  inner\n' +
+                '    @in\n' +
+                '    @out\n' +
+                '    double {__ | times 2}\n' +
+                '    @in -> double -> @out\n' +
+                '  handler\n' +
+                '    {__ | times 3}\n' +
+                '  @init -> handler -> @out\n'
+  var seed_id = D.make_some_space(sibling)
+  var seed = D.SPACESEEDS[seed_id]
+  var ok = seed && seed.subspaces.length == 1 && seed.stations.length == 1
+  if(ok) pass++
+  else {
+    fail++
+    failures.push({ label: '[spacesyn-subspace-nested] sibling station survives',
+      expected: '1 subspace, 1 station',
+      actual: seed ? (seed.subspaces.length + ' subspaces, ' + seed.stations.length + ' stations') : 'no seed' })
+  }
+})()
+
 // Station with named out port (side-effect send)
 // [spacesyn-named-port-route] [station-portsend-passthru]
 space_test(
