@@ -27,20 +27,14 @@ var known_failures = new Set([
   // §6 Round-trip port configurations
   'down-port: declared, request exits space, response returns',
   'up-port: only first response counts, rest are ghosts',
-  // §6 New port/wiring spec tests (RED — not yet implemented)
+  // §6 Signal-flip / up-port-target routing (RED — sync through paired
+  // space ports needs the flip machinery; guarded to sploot, not hang)
   'signal-flip-down: down port forwards requests outward',
   'roundtrip-response: <-> wiring sends request and returns response',
-  'cmd-transient: command port created per invocation and destroyed',
-  'cmd-forward: command port forwarding to parent boundary',
-  'wiring-default-timeout: space defaultTimeout applies to wiring rules',
-  'wiring-target-station: wiring rule targets a station',
   'wiring-target-upport: wiring rule targets sibling up-port',
-  'wiring-target-forward: wiring rule forwards to parent boundary',
-  'singleresponse-one: down-port carries one request/response at a time',
   'upport-inside-station: up-port wired to station inside space',
   'async-preserve-sender: sender survives async boundary',
   'timeout-inherit: timeout inherited from enclosing wire',
-  'effectful-unwired-sploot: unwired effectful command sploots in subspace',
   // Up-port mechanics: not yet implemented
   'up-port: station A output enters subspace, response to station B',
   'up-port: no down port involved, pure station coordination',
@@ -2088,8 +2082,9 @@ space_test(
     @init from-js
     @out  collect
     inner
-      worker {var read-out name :x | add 1 | var write-out name :x}
-      @init -> worker -> worker -> @out
+      first  {var read-out name :x | add 1 | var write-out name :x}
+      second {var read-out name :x | add 1 | var write-out name :x}
+      @in -> first -> second -> @out
     handler
       {__}
     inner@cmd:var:* <-> handler
@@ -2144,8 +2139,10 @@ space_test(
     middle
       inner
         worker {var read-out name :x}
-        @init -> worker -> @out
+        @in -> worker -> @out
       inner@cmd:*:* <-> @cmd
+      @in -> inner@in
+      inner@out -> @out
     middle@cmd:*:* <-> @cmd
     @init -> middle@in
     middle@out -> @out`,
@@ -2168,7 +2165,7 @@ space_test(
     @out  collect
     inner
       worker {var read-out name :x}
-      @init -> worker -> @out
+      @in -> worker -> @out
     inner@cmd:var:* <-> handler
     handler {__}
     @init -> inner@in
@@ -2190,7 +2187,7 @@ space_test(
     @out  collect
     inner
       caller {var read-out name :greeting}
-      @init -> caller -> @out
+      @in -> caller -> @out
     handler
       {:hello}
     inner@cmd:var:read-out <-> handler
@@ -2238,8 +2235,10 @@ space_test(
     middle
       inner
         caller {var read-out name :x}
-        @init -> caller -> @out
+        @in -> caller -> @out
       inner@cmd:var:* <-> @cmd
+      @in -> inner@in
+      inner@out -> @out
     middle@cmd:var:* <-> @cmd
     @init -> middle@in
     middle@out -> @out`,
@@ -2261,7 +2260,7 @@ space_test(
     @out  collect
     inner
       caller {var read-out name :x | add 1}
-      @init -> caller -> @out
+      @in -> caller -> @out
     handler {:42}
     inner@cmd:var:read-out <-> handler
     @init -> inner@in
@@ -2350,7 +2349,7 @@ space_test(
     @out  collect
     inner
       caller {var read-out name :x || :fallback}
-      @init -> caller -> @out
+      @in -> caller -> @out
     @init -> inner@in
     inner@out -> @out`,
   [{port: 'init', value: 'go'}],

@@ -123,16 +123,24 @@ import D from '../1_daimio.js'
     return false
   }
 
-  function match_rule(space, station_id, cmdname) {
+  function match_rule(space, holder_key, holder_index, cmdname) {
     var rules = space.seed.rules || []
       , best = null
     for(var i=0, l=rules.length; i < l; i++) {
       var rule = rules[i]
-      if(rule.holder_station != station_id) continue                // subspace holders match at the boundary crossing
+      if(rule[holder_key] != holder_index) continue
       if(!glob_match(rule.pattern, cmdname)) continue
       if(!best || more_specific(rule.pattern, best.pattern)) best = rule
     }
     return best
+  }
+
+  function boundary_rule(space, cmdname) {                          // the request surfaces at space's boundary:
+    var parent = space.parent                                       // the parent's rules govern it, holder = space
+    if(!parent) return null
+    var index = parent.subspaces.indexOf(space) + 1                 // 1-indexed, matches compile numbering
+    if(!index) return null
+    return match_rule(parent, 'holder_space', index, cmdname)
   }
 
   function run_effect(segment, inputs, prior_starter, process) {
@@ -140,11 +148,22 @@ import D from '../1_daimio.js'
       , cmdname = effect.portType.slice(4)                          // 'cmd:time:now' -> 'time:now' [cmd-name-encode]
       , space   = process.space
       , rule    = process.station_id
-              ? match_rule(space, process.station_id, cmdname)
+              ? match_rule(space, 'holder_station', process.station_id, cmdname)
               : null
+      , rule_space = space
 
-    if(!rule || rule.forward)                                       // no wiring (forwarding needs the boundary
-      return D.set_error('Unwired effectful command "'              // crossing) — sploot to empty
+    if(!rule) {                                                     // unmatched in my own space: surface at my boundary
+      rule = boundary_rule(rule_space, cmdname)
+      if(rule) rule_space = rule_space.parent
+    }
+
+    while(rule && rule.forward && rule_space.parent) {              // explicit @cmd forwarding surfaces the request
+      rule = boundary_rule(rule_space, cmdname)                     // at the matching space's own boundary [cmd-forward]
+      if(rule) rule_space = rule_space.parent
+    }
+
+    if(!rule || rule.forward)                                       // no wiring anywhere along the chain —
+      return D.set_error('Unwired effectful command "'              // sploot to empty
                        + segment.value.handler + ' '                // [effectful-unwired-sploot]
                        + segment.value.method + '"')
 
@@ -165,7 +184,13 @@ import D from '../1_daimio.js'
     }
 
     if(rule.target_port) {                                          // port target: request exits, response re-enters
-      var port = space.ports[rule.target_port - 1]
+      var port = rule_space.ports[rule.target_port - 1]
+
+      if(port.pair && port.pair.space)                              // a paired space port (sibling up-port / boundary
+        return D.set_error('Unrouteable effectful command "'        // down chain): the signal-flip crossing is not
+                         + segment.value.handler + ' '              // built yet — sploot rather than ping-pong the
+                         + segment.value.method + '"')              // paired syncs forever
+
       if(typeof port.sync === 'function')                           // sync defaults only onto down flavours;
         port.sync(request, respond_once)                            // world-ish out flavours ride the standard path
       else
@@ -173,18 +198,27 @@ import D from '../1_daimio.js'
       return NaN
     }
 
-    // station target: runs as a direct sub-process while the requester waits
-    // holding the space; its _out value is the contract response
+    // station target: its _out value is the contract response
     // [wiring-target-station] [station-contract-out]
-    var in_port = space.ports[rule.target_in - 1]
-      , block   = D.BLOCKS[space.seed.stations[in_port.station - 1]]
-      , sub     = new D.Process(space, block, {'__in': request}, respond_once, in_port.station, process.sender)
+    var in_port = rule_space.ports[rule.target_in - 1]
+      , block   = D.BLOCKS[rule_space.seed.stations[in_port.station - 1]]
 
-    var value = sub.run()
-    if(value === value)
-      return value                                                  // fully synchronous round-trip
+    if(rule_space === space) {                                      // same space: the requester holds it, so the
+      var sub = new D.Process(space, block, {'__in': request},      // target runs as a direct sub-process
+                              respond_once, in_port.station, process.sender)
+      var value = sub.run()
+      if(value === value)
+        return value                                                // fully synchronous round-trip
+      return NaN                                                    // sub went async; respond_once resumes us
+    }
 
-    return NaN                                                      // sub went async; respond_once resumes us
+    var pvalue = rule_space.execute(block, {'__in': request},       // ancestor space: normal serial execution —
+                                    respond_once, in_port.station,  // queues if busy [serial-one-at-a-time]
+                                    process.sender)
+    if(pvalue === pvalue)
+      return pvalue                                                 // ancestor was idle; synchronous round-trip
+
+    return NaN                                                      // queued or async; respond_once resumes us
   }
 
   function run_fun(segment, inputs, prior_starter, process) {
