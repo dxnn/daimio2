@@ -157,7 +157,12 @@ sploot — see TEST_TODO / det_time_test).
   scheme). Expose qname on the dock hook and in error-ship strings. Turns green:
   `det_test` `[qname-structure]`, `[qname-anon-station]`.
 - **`time now` purely effectful** — drop its `fun` fallback so it routes through
-  `cmd:time:now` (part of B). Turns green: `det_time` `[demandport-wire]`.
+  `cmd:time:now` (part of B); the Outside then provides the time via a scheduled
+  `cmd:time:now` response. **Also remove the `D.now` bridge** — it was added only
+  as an interim so `{time now}` is deterministic under test, and is flagged as
+  undesirable: remove it as soon as `{time now}` routes correctly. Turns green:
+  `det_time` `[demandport-wire]`; and the unwired `{time now}` sploot guides in
+  d2/space go green (`[effectful-unwired-sploot]`).
 - **Black holes** (spec §3/§8) — parse `((label))` → spaceseed `blackhole` flag;
   ports mirror the outer space (in/out only; flavour opposes direction; bare port
   = generic opposing flavour); no interior (empty stations/state/subspaces, no
@@ -178,9 +183,11 @@ sploot — see TEST_TODO / det_time_test).
 - **Recursion depth-bound knob** — a creation-time bound (default 100, per outer
   space; §5/§11); enforce at the block-eval demand (`apply`) — a nesting beyond
   the bound sploots the innermost eval to empty (value-producing). No creation
-  param exists today (`D.Space(seed_id, parent, prng_seed)` has no depth slot).
-  Turns green: the deferred depth guides (`[depth-bound-instance]`,
-  `[depth-nesting-only]`).
+  param exists today (`D.Space(seed_id, parent, prng_seed)` has no depth slot);
+  **proposed API:** extend to `D.Space(seed_id, parent, prng_seed, depth_bound)`
+  (or a per-instance options object) so a test can set a low bound (e.g. 3) and
+  assert the sploot fires at exactly that depth. Turns green: the deferred depth
+  guides (`[depth-bound-instance]`, `[depth-nesting-only]`).
 - **Cross-boundary `var read-out`/`var write-out`** — once B routes, these reach
   the **parent's** state, not the caller's (today's `fun` reads the caller's own
   space). `[socket-crossboundary-var]`.
