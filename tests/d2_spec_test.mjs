@@ -18,8 +18,8 @@ var reported = false
 // regression (and fails the suite).
 var known_failures = new Set([
   // pre-existing spec-gap RED tests
-  'is-in: keyed list finds matching value [coerce-list] [P-total]',
   'effectful command with unwired port sploots to empty [effectful-unwired-sploot] [P-liveness]',
+  'effectful command in space sploots to empty when unwired [effectful-unwired-sploot]',
   // (the two [WRONG:poke-key-scalar-affine] svar-coercion cases moved to det_test.mjs)
   // new RED guides (this session)
   'var write then var read by computed name [var-read] [var-write]',
@@ -95,13 +95,13 @@ test(
 // keyed list (object) as "in" — should search object values
 test(
   'is-in: keyed list finds matching value [coerce-list] [P-total]',
-  '{:x | time stampwrap | >data || logic is value 3 in _data | logic if then :yes else :no}',
+  '{* (:a 1 :b 3) | >data || logic is value 3 in _data | logic if then :yes else :no}',
   'yes'
 )
 
 test(
   'is-in: keyed list rejects missing value [coerce-list] [P-total]',
-  '{:x | time stampwrap | >data || logic is value :nope in _data | logic if then :yes else :no}',
+  '{* (:a 1 :b 2) | >data || logic is value :nope in _data | logic if then :yes else :no}',
   'no'
 )
 
@@ -255,12 +255,14 @@ test(
 
 
 // =====================================================
-// §3 Effectful commands: wired down port
+// §3 Effectful command in a space: unwired -> sploot to empty
 // =====================================================
 
-// Programmatic test for effectful commands in spaces
+// An unwired effectful command ({time now}, no cmd:time:now wiring) sploots to
+// empty (spec: "no effects without wiring"). RED until the fun fallback is
+// removed — today {time now} returns a wall-clock stamp.
 ;(function() {
-  // [P-duality] [singleresponse-one]
+  // [effectful-unwired-sploot]
   pending++
 
   // make_some_space returns a seed ID (number), not an object
@@ -318,17 +320,18 @@ test(
   }
 
   outside_port.outside_exit = function(value) {
-    // time.now with no wiring should use default handler
-    // stamp should be a real timestamp
+    // Spec: an unwired effectful command sploots to empty (no fun fallback).
+    // {time now} unwired -> empty -> __.stamp of empty is empty. RED until the
+    // fun fallback is removed (today it returns a wall-clock stamp).
     var actual = String(value)
-    if (actual && /^\d+$/.test(actual)) {
+    if (actual === '' || actual === '0') {
       pass++
     } else {
       fail++
       failures.push({
-        label: 'effectful command in space returns timestamp',
+        label: 'effectful command in space sploots to empty when unwired [effectful-unwired-sploot]',
         input: '{time now | __.stamp}',
-        expected: 'numeric timestamp',
+        expected: 'empty (sploot)',
         actual: actual
       })
     }
@@ -545,7 +548,7 @@ test(
 // Two ships entering the same space should execute sequentially.
 // Both increment a counter, so the final value should be 2.
 ;(function() {
-  // [serial-one-at-a-time] [queue-fifo]
+  // [serial-one-at-a-time] [space-queue]
   pending++
 
   var seed_id = D.make_some_space(
@@ -2170,9 +2173,11 @@ test('reduce: object from pipeline var [P-total]',
   '8'
 )
 
-// object from effectful command (the original crash pattern)
+// object piped into reduce (the original crash pattern — a keyed object, not a
+// scalar, filling the reduce input; was `time stampwrap`, whose wall-clock
+// output made this non-deterministic — see the de-flake note above)
 test('reduce: object piped into reduce does not crash [P-total]',
-  '{:x | time stampwrap | list reduce block "{_total | add _value}" | logic is value __ like "/^[0-9]+$/" | logic if then :yes else :no}',
+  '{* (:a 1 :b 2 :c 3) | list reduce block "{_total | add _value}" | logic is value __ like "/^[0-9]+$/" | logic if then :yes else :no}',
   'yes'
 )
 

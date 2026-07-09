@@ -85,10 +85,33 @@ det_test('socket-load: reloadable only if the new content re-declares a socket-l
   assert: function(t, e) { e.outputs('out', ['SECOND']) },
 })
 
+// [socket-svars-reset] space variables never survive a transition — the new
+// content starts from its own declared initial state (this replaces the old
+// dropped-concept "socket overlap" test that lived in space_test.mjs).
+det_test('socket-load: space variables do not survive a transition [socket-svars-reset]', {
+  seed: `outer
+    @go from-js
+    @load from-js
+    @out det-out
+    slot
+      body {$counter}
+      @in:x -> body -> @out:y
+      @reload socket-load
+    @load -> slot@reload
+    @go -> slot@in:x
+    slot@out:y -> @out`,
+  schedule: [
+    socket_load('load', 'whatever\n  $counter 99\n  body {$counter}\n  @in:x -> body -> @out:y'),
+    arrive('go', 'read'),
+  ],
+  assert: function(t, e) { e.outputs('out', [99]) },   // new content's initial $counter, not the old
+})
+
 ;[
   'socket-load: valid Astroglot replaces the subspace content [socket-load-replace]',
   'socket-load: parent wiring persists and re-applies to new content [socket-wiring-demand]',
   'socket-load: reloadable only if the new content re-declares a socket-load port [socket-load-reloadable]',
+  'socket-load: space variables do not survive a transition [socket-svars-reset]',
 ].forEach(function(l) { known_failures.add(l) })
 
 run()
@@ -104,7 +127,5 @@ run()
 //   exist and its later response ghosts. Same heavy deps.
 // [sched-transition-keys] a transition is deterministic (byte-identical replay
 //   for a fixed schedule + response script).
-// svars-do-not-survive — under BOTH modes, the subspace's $vars reset to the
-//   new content's initial state (testable at SPACE tier once loads complete).
 // [blackhole-no-socket-load] (runtime) loading a (( )) black hole borks the
 //   load. (The DEFINITION-form bork is already in space_test.)
