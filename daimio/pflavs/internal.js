@@ -32,32 +32,11 @@ D.import_port_flavour('down', {
       desc: 'A dom element contain thing. Defaults to document.',
       type: 'id'
     },
-  ],
-  exit: function(ship, process) {
-    // go down, then return back up...
-    // THINK: is the callback param the right way to do this?? it's definitely going to complicate things...
-
-    var self = this
-    D.setImmediate(function() {
-      // self.outs.forEach(function(port) {
-      //   port.enter(ship)
-      // })
-
-      // THINK: whether we can pass multiple ships or have to queue them depends on our routes: if they're all bidirectional we can chain the callbacks, otherwise we have to send them one at a time.
-
-      // THINK: ideally there's only ONE route from a downport. can we formalize that?
-      // DISABLED: `callback` is undefined, `port` is undeclared (missing `var`).
-      // Both will throw ReferenceError in strict mode (ES modules).
-      // Needs: callback as a third param on exit(), and `var port`.
-      // port = self.outs[0]
-      // if(port) {
-      //   port.enter(ship, process, callback) // wat
-      // }
-      // else {
-      //   callback(1234)
-      // }
-    })
-  }
+  ]
+  // exit falls through to port_standard_exit: a ship crossing a down-port
+  // pair rides the wires like any other crossing. (An earlier stub here
+  // swallowed every ship — round-trip discipline is the port occupancy
+  // machinery's job, not exit's. See design/roundtrip-signalflip-draft.md.)
 })
 
 

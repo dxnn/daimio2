@@ -22,22 +22,14 @@ var known_timeout_ms = 200  // known failures: fail fast
 var known_failures = new Set([
   // §8 Serialized space excludes dialect and wiring
   'serialized space excludes dialect and wiring',
-  // §6 Round-trip machinery (RED — down-flavour exit stub + contract
-  // correlation/ghost enforcement not built; see
-  // design/roundtrip-signalflip-draft.md)
-  'down-port: declared, request exits space, response returns',
-  'signal-flip-down: down port forwards requests outward',
-  'roundtrip-response: <-> wiring sends request and returns response',
-  'upport-inside-station: up-port wired to station inside space',
   // §6 Wiring rules targeting a sibling up-port (RED — run_effect sploots
-  // on paired space ports instead of crossing). Assert-failure labels
-  // listed beside the timeout (test) labels: a test that completes with a
-  // wrong value records the assertion's label instead.
+  // on paired space ports instead of crossing; and a sibling referenced
+  // only by a rule is never registered as a subspace). Assert-failure
+  // labels listed beside the timeout (test) labels: a test that completes
+  // with a wrong value records the assertion's label instead.
   'wiring-target-upport: wiring rule targets sibling up-port',
   '[wiring-target-upport]',
   'up-port: sibling subspace provides service via up-port',
-  'async-preserve-sender: sender survives async boundary',
-  '[async-preserve-sender]',
   // §3 Black-hole / socket-load / cmd-port compile borks — RED until the
   // (( )) form and these rules are implemented
   'black hole with a station borks [blackhole-only-ports]',
