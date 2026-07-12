@@ -2580,7 +2580,6 @@ D.Space = function(seed_id, parent, prng_seed) {
 //  }
 
   // yoiks
-  this.closed = !!seed.closed
   this.only_one_process = true
   this.processes = []
   this.queue = []
@@ -2822,11 +2821,6 @@ D.Space.prototype.change_seed = function(seed_id) {
 D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, station_id, sender, number) {
   var self = this
     , block = D.get_block(ablock_or_segment)
-
-  if(this.closed && !sender) {
-    D.set_error('Closed space requires a sender')
-    return ""
-  }
 
   // if(!when_done) {
   //   when_done = function(result) {

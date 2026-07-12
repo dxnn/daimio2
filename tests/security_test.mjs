@@ -338,27 +338,15 @@ test('chained dialect blocks base restriction', !strict_actor.get_method('proces
 test('chained dialect blocks sender restriction', !strict_actor.get_method('math', 'add'))
 test('chained dialect allows unrestricted', !!strict_actor.get_method('list', 'map'))
 
-// [independent:closed-space]
-console.log('\n=== Closed Space ===')
-var closed_seed = D.spaceseed_add({
-  dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}, closed: true
-})
-var closed_space = new D.Space(closed_seed)
-test('closed space has closed flag', closed_space.closed === true)
+// closed-space DROPPED (audit ruling 2026-07-12): the scenario it guarded
+// — the App executing directly inside an interior space — is forbidden
+// outright by the §4 App obligation [app-entry-outside-only] (ships enter
+// only at the outer boundary or black-hole out-ports). A guide for that
+// obligation lands once an enforcement point exists (e.g.
+// send_value_to_js_port refusing non-root spaces).
+console.log('\n=== Senderless execution ===')
 
-// Execute without sender in closed space -> should fail
-var closed_result = closed_space.execute(
-  D.Parser.string_to_block_segment('{math add value 1 to 2}'))
-test('closed space rejects execution without sender', closed_result === '')
-
-// Execute with sender in closed space -> should work
-var sender_for_closed = new D.Sender('testuser', {dialect: D.DIALECTS.top})
-var closed_result2 = closed_space.execute(
-  D.Parser.string_to_block_segment('{math add value 1 to 2}'),
-  null, null, null, sender_for_closed)
-test('closed space allows execution with sender', closed_result2 === 3)
-
-// [sender-effective-default] Open space (default) still works without sender
+// [sender-effective-default] A space works without sender (space dialect applies)
 test('open space works without sender', run('{math add value 1 to 2}') === '3')
 
 // ── Sender Tests ──────────────────────────────────────────────────────────────
