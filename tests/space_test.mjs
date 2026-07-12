@@ -20,26 +20,26 @@ var known_timeout_ms = 200  // known failures: fail fast
 // Known failures — tests for spec behaviors not yet implemented.
 // If a failure's label is in this set, it's expected; otherwise it's a regression.
 var known_failures = new Set([
-  // §6 Up-port direction: sibling provides service
-  'up-port: sibling subspace provides service via up-port',
   // §8 Serialized space excludes dialect and wiring
   'serialized space excludes dialect and wiring',
-  // §6 Round-trip port configurations
+  // §3 FAF parser: mid-chain port loses its outgoing hop (route reset bug)
+  'faf-mid-chain-port: port becomes source of next hop',
+  // §6 Round-trip machinery (RED — down-flavour exit stub + contract
+  // correlation/ghost enforcement not built; see
+  // design/roundtrip-signalflip-draft.md)
   'down-port: declared, request exits space, response returns',
-  'up-port: only first response counts, rest are ghosts',
-  // §6 Signal-flip / up-port-target routing (RED — sync through paired
-  // space ports needs the flip machinery; guarded to sploot, not hang)
   'signal-flip-down: down port forwards requests outward',
   'roundtrip-response: <-> wiring sends request and returns response',
-  'wiring-target-upport: wiring rule targets sibling up-port',
   'upport-inside-station: up-port wired to station inside space',
+  // §6 Wiring rules targeting a sibling up-port (RED — run_effect sploots
+  // on paired space ports instead of crossing). Assert-failure labels
+  // listed beside the timeout (test) labels: a test that completes with a
+  // wrong value records the assertion's label instead.
+  'wiring-target-upport: wiring rule targets sibling up-port',
+  '[wiring-target-upport]',
+  'up-port: sibling subspace provides service via up-port',
   'async-preserve-sender: sender survives async boundary',
-  'timeout-inherit: timeout inherited from enclosing wire',
-  // Up-port mechanics: not yet implemented
-  'up-port: station A output enters subspace, response to station B',
-  'up-port: no down port involved, pure station coordination',
-  'up-port: chained A -> X.up -> Y.up -> B',
-  'signal-flip-up: up port acts as round-trip processor from outside',
+  '[async-preserve-sender]',
   // §3 Black-hole / socket-load / cmd-port compile borks — RED until the
   // (( )) form and these rules are implemented
   'black hole with a station borks [blackhole-only-ports]',
@@ -1535,26 +1535,26 @@ space_test(
   'up-port: sibling subspace provides service via up-port',
   `
   provider
-    @in
-    @out
-    @in -> {__ | math add value __ to 100} -> @out
+    clock
+      {:42}
+    @up <-> clock
   consumer
-    @in
-    @out
-    @in -> {__ | time now} -> @out
+    caller
+      {time now}
+    @in -> caller -> @out
   outer
     @init from-js
     @out  collect
+    consumer@cmd:time:now <-> provider@up
     @init -> consumer@in
     consumer@out -> @out`,
   [{port: 'init', value: 'test'}],
   1,
   function(collected) {
-    // If up-port wiring worked, consumer's {time now} effect would route
-    // to provider's up-port, which would return the value + 100.
-    // Not currently implemented.
+    // consumer's {time now} effect routes to provider's up-port per the
+    // wiring rule; clock answers 42.
     assert_eq('up-port: sibling subspace provides service via up-port',
-      collected.out[0], '100')
+      collected.out[0], '42')
   }
 )
 
@@ -1598,7 +1598,8 @@ space_test(
 // [upport-roundtrip] [upport-first-response]
 space_test(
   'up-port: station A output enters subspace, response to station B',
-  `inner
+  `
+  inner
     processor
       {__ | string uppercase}
     @up <-> processor
@@ -1606,24 +1607,24 @@ space_test(
     @init from-js
     @out  collect
     stationA
-      {__ | string join value "-modified"}
+      {(__ "-modified") | string join}
     stationB
-      {__ | string join value "-received"}
+      {(__ "-received") | string join}
     @init -> stationA -> inner@up -> stationB -> @out`,
   [{port: 'init', value: 'hello'}],
   1,
   function(collected) {
     // hello -> stationA ("hello-modified") -> inner@up (uppercase: "HELLO-MODIFIED") -> stationB ("HELLO-MODIFIED-received")
     assert_eq('up-port station coordination', collected.out[0], 'HELLO-MODIFIED-received')
-  },
-  100
+  }
 )
 
 // Up-port: used without a down port (station-to-station via subspace)
 // [upport-roundtrip]
 space_test(
   'up-port: no down port involved, pure station coordination',
-  `worker
+  `
+  worker
     doubler
       {__ | math multiply value 2}
     @up <-> doubler
@@ -1640,8 +1641,7 @@ space_test(
   function(collected) {
     // 5 -> source (15) -> worker@up (doubler: 30) -> sink (130)
     assert_eq('up-port without down port', collected.out[0], '130')
-  },
-  100
+  }
 )
 
 // Down-port: declared in space definition, paired wiring
@@ -1653,17 +1653,22 @@ space_test(
     @out  collect
     inner
       requester
-        {__ | >@need}
-      @init -> requester
-      requester.need -> @out
+        {__ | >@need ||}
+      receiver
+        {__}
+      @in -> requester
+      requester@need -> @down:sync -> receiver -> @out
     handler
       {__ | string uppercase}
-    @init -> inner@down -> handler -> @out`,
+    inner@down:sync <-> handler
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'please'}],
   1,
   function(collected) {
-    // "please" enters inner -> requester sends to @need -> exits inner via down port
-    // -> handler uppercases -> "PLEASE" -> returns via down port -> inner continues -> exits inner -> @out
+    // "please" enters inner -> requester sends it out through @need into the
+    // declared down port -> the request exits inner -> handler uppercases ->
+    // the response re-enters through the down port -> receiver -> @out
     assert_eq('declared down-port', collected.out[0], 'PLEASE')
   }
 )
@@ -1672,7 +1677,8 @@ space_test(
 // [upport-roundtrip]
 space_test(
   'up-port: chained A -> X.up -> Y.up -> B',
-  `spaceX
+  `
+  spaceX
     adder
       {__ | math add value 10}
     @up <-> adder
@@ -1693,36 +1699,20 @@ space_test(
   function(collected) {
     // 5 -> source (5) -> spaceX.up (add 10: 15) -> spaceY.up (multiply 2: 30) -> sink (30)
     assert_eq('chained up-ports', collected.out[0], '30')
-  },
-  100
-)
-
-// Up-port: ghost handling (only first response delivered)
-// [upport-ghost-after-first]
-space_test(
-  'up-port: only first response counts, rest are ghosts',
-  `outer
-    @init from-js
-    @out  collect
-    @err  collect
-    multi
-      splitter
-        {__ | >@first || __ | >@second}
-      @init -> splitter
-      splitter.first -> @out
-      splitter.second -> @out
-    receiver
-      {__}
-    @init -> multi@up -> receiver -> @out`,
-  [{port: 'init', value: 'test'}],
-  2,
-  function(collected) {
-    // multi sends two ships out through @out. Only the first should arrive at receiver.
-    // The second should be a ghost (dropped + soft error to @err).
-    assert_eq('up-port ghost: receiver gets one', collected.out.length, 1)
-    assert_eq('up-port ghost: error reported', collected.err && collected.err.length > 0, true)
   }
 )
+
+// §6 [upport-ghost-after-first] [upport-first-response] — DEFERRED to a
+// det-harness guide, landing with the port-occupancy work. Under the
+// ordinal ruling (2026-07-12: while occupied, the first ship out of a
+// round-trip port IS the response, provenance-blind — "there is no real
+// response, just wiring"), which VALUE continues onward when an
+// unrelated route also feeds the contracted station is a deterministic
+// schedule artifact, not a spec-fixed value — a value assertion here
+// would encode the rejected provenance semantics. The honest form is a
+// dock-count assertion after settle (exactly one onward dock per
+// request; the extra ship ghosts at the FREE port with a soft error),
+// which needs the det harness's settle counting.
 
 // Space-level @err port: soft errors route to space, not station
 // [sploot-error-port]
@@ -1848,7 +1838,8 @@ space_test(
 // An up port is Enter-N-Exit from inside, Exit-N-Reenter from outside (child's perspective)
 space_test(
   'signal-flip-up: up port acts as round-trip processor from outside',
-  `inner
+  `
+  inner
     processor {__ | string uppercase}
     @up <-> processor
   outer
@@ -1859,30 +1850,57 @@ space_test(
   1,
   function(collected) {
     assert_eq('[signal-flip-up]', collected.out[0], 'HELLO')
-  },
-  100
+  }
 )
 
 // §4 [signal-flip-down]
-// A down port is Exit-N-Reenter from inside, Enter-N-Exit from outside (child's perspective)
+// A down port is Exit-N-Reenter from inside, Enter-N-Exit from outside
+// (child's perspective): the child's request exits outward, the parent's
+// contract serves it, and the response re-enters the child.
 space_test(
   'signal-flip-down: down port forwards requests outward',
   `outer
     @init from-js
     @out  collect
     inner
-      requester {__ | >@need}
-      @init -> requester
-      requester.need -> @out
+      @in -> @down:need -> @out
     handler {__ | string uppercase}
-    @init -> inner@down -> handler -> @out`,
+    inner@down:need <-> handler
+    @init -> inner@in
+    inner@out -> @out`,
   [{port: 'init', value: 'test'}],
   1,
   function(collected) {
     assert_eq('[signal-flip-down]', collected.out[0], 'TEST')
-  },
-  100
+  }
 )
+
+// §3 FAF chains: a mid-chain port is the source of the next hop —
+// `a -> @down:x -> b` must compile BOTH [a.out -> down:x] and
+// [down:x -> b.in]. (Parser: the port branch resets the pending route
+// instead of re-seeding it with the port, so the second hop vanishes
+// and b is treated as a fresh source.) [chain-exre-mid]
+;(function() {
+  var seed_id = D.make_some_space(
+    'ptest\n  a\n    {__}\n  b\n    {__}\n  @in -> a -> @down:x -> b -> @out\n'
+  )
+  var seed = D.SPACESEEDS[seed_id]
+  var down_index = 0, b_in_index = 0
+  seed.ports.forEach(function(port, i) {
+    if(port.name == 'down:x') down_index = i + 1
+    if(port.name == '_in' && port.station == 2) b_in_index = i + 1  // stations sort a=1, b=2
+  })
+  var found = seed.routes.some(function(route) {
+    return route[0] == down_index && route[1] == b_in_index
+  })
+  if(found) { pass++ }
+  else {
+    fail++
+    failures.push({ label: 'faf-mid-chain-port: port becomes source of next hop',
+      expected: 'route [down:x -> b._in] in compiled seed',
+      actual: 'routes: ' + JSON.stringify(seed.routes) + ' (down:x=' + down_index + ', b._in=' + b_in_index + ')' })
+  }
+})()
 
 // §4 [err-match-by-name]
 // Soft errors route to the port named out:err (matched by name, not flavour)
@@ -2055,23 +2073,26 @@ space_test(
 )
 
 // §6 [roundtrip-response]
-// <-> wiring: request goes one way, response comes back
+// <-> wiring: request goes one way, response comes back — the full
+// sibling round trip: consumer's down port bound to provider's up port.
 space_test(
   'roundtrip-response: <-> wiring sends request and returns response',
   `outer
     @init from-js
     @out  collect
-    inner
-      worker {__ | string uppercase}
-      @init -> worker -> @out
-    @init -> inner@down -> @out
-    inner@cmd:*:* <-> inner@up`,
+    provider
+      responder {__ | string uppercase}
+      @up <-> responder
+    consumer
+      @in -> @down:ask -> @out
+    consumer@down:ask <-> provider@up
+    @init -> consumer@in
+    consumer@out -> @out`,
   [{port: 'init', value: 'hello'}],
   1,
   function(collected) {
     assert_eq('[roundtrip-response]', collected.out[0], 'HELLO')
-  },
-  100
+  }
 )
 
 // §6 [cmd-transient]
@@ -2210,10 +2231,10 @@ space_test(
     @out  collect
     requester
       caller {var read-out name :x}
-      @init -> caller -> @out
+      @in -> caller -> @out
     provider
       responder {:provided}
-      @init -> responder -> @out
+      @up <-> responder
     requester@cmd:var:read-out <-> provider@up
     @init -> requester@in
     requester@out -> @out`,
@@ -2221,8 +2242,7 @@ space_test(
   1,
   function(collected) {
     assert_eq('[wiring-target-upport]', collected.out[0], 'provided')
-  },
-  100
+  }
 )
 
 // §6 [wiring-target-forward]
@@ -2284,7 +2304,7 @@ space_test(
     inner
       handler {__ | string uppercase}
       @up:service <-> handler
-      @init -> @down:need -> @out
+      @in -> @down:need -> @out
     inner@down:need <-> inner@up:service
     @init -> inner@in
     inner@out -> @out`,
@@ -2292,8 +2312,7 @@ space_test(
   1,
   function(collected) {
     assert_eq('[upport-inside-station]', collected.out[0], 'TEST')
-  },
-  100
+  }
 )
 
 // §7 [async-preserve-sender]
@@ -2305,7 +2324,7 @@ space_test(
     @out  collect
     inner
       caller {var read-out name :x}
-      @init -> caller -> @out
+      @in -> caller -> @out
     handler {:response}
     inner@cmd:var:read-out <-> handler
     @init -> inner@in
@@ -2314,31 +2333,16 @@ space_test(
   1,
   function(collected) {
     assert_eq('[async-preserve-sender]', collected.out[0], 'response')
-  },
-  100
+  }
 )
 
-// §7 [timeout-inherit]
-// A wire's nominal timeout is inherited from nearest enclosing wire with explicit value
-space_test(
-  'timeout-inherit: timeout inherited from enclosing wire',
-  `outer
-    @init from-js
-    @out  collect
-    inner
-      caller {var read-out name :slow}
-      @init -> caller -> @out
-    inner@cmd:var:* <-> @cmd
-    @init -> inner@in
-    inner@out -> @out`,
-  [{port: 'init', value: 'go'}],
-  1,
-  function(collected) {
-    // With no handler at outer level, this should timeout and sploot
-    assert_eq('[timeout-inherit] splooted', collected.out[0], '')
-  },
-  200
-)
+// §7 [timeout-inherit] — DEFERRED to the virtual-time backlog. A wire's
+// nominal timeout inherits from the nearest enclosing wire with an
+// explicit value. Untestable honestly today: with no timeout machinery,
+// an unwired forward sploots to '' immediately, indistinguishable from a
+// timeout sploot — a guide here would pass for the wrong reason. Lands
+// with [timeout-*] / [timeout-min-chain] once timeouts are schedule
+// events on the virtual clock.
 
 // §6 [effectful-unwired-sploot] (space-level)
 // Effectful command with unwired port sploots
