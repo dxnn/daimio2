@@ -22,8 +22,6 @@ var known_timeout_ms = 200  // known failures: fail fast
 var known_failures = new Set([
   // §8 Serialized space excludes dialect and wiring
   'serialized space excludes dialect and wiring',
-  // §3 FAF parser: mid-chain port loses its outgoing hop (route reset bug)
-  'faf-mid-chain-port: port becomes source of next hop',
   // §6 Round-trip machinery (RED — down-flavour exit stub + contract
   // correlation/ghost enforcement not built; see
   // design/roundtrip-signalflip-draft.md)

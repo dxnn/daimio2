@@ -3563,13 +3563,15 @@ D.seedlikes_from_string = function(stringlike, templates) {
         // TODO: lists should create complete N-partite graphs: (@in1 @in2) -> (s1 s2) -> (@out1 @out2)
 
         if(route.length == 2) {
-          // TODO: ensure pushed route isn't null,null
-          if(!route[0] || !route[1])
+          // only the port branch reaches here with a full pair
+          if(!route[0] || !route[1]) {
             D.set_error('Port not found in line: ' + line)
-          else
+            route = []
+          }
+          else {
             this_seed.routes.push(route)
-
-          route = []
+            route = [route[1]]          // a mid-chain port is the next hop's source
+          }
         }
       })
 
