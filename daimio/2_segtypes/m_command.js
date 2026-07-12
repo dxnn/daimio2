@@ -186,13 +186,15 @@ import D from '../1_daimio.js'
     if(rule.target_port) {                                          // port target: request exits, response re-enters
       var port = rule_space.ports[rule.target_port - 1]
 
-      if(port.pair && port.pair.space)                              // a paired space port (sibling up-port / boundary
-        return D.set_error('Unrouteable effectful command "'        // down chain): the signal-flip crossing is not
-                         + segment.value.handler + ' '              // built yet — sploot rather than ping-pong the
-                         + segment.value.method + '"')              // paired syncs forever
+      if(port.pair && port.pair.space) {                            // paired space port (sibling up-port / boundary
+        port.enter(request, { sender: process.sender                // down chain): occupy it, with the invoking
+                            , number: process.number                // transient cmd port as the return address
+                            , respond: respond_once })              // [wiring-target-upport]
+        return NaN
+      }
 
-      if(typeof port.sync === 'function')                           // sync defaults only onto down flavours;
-        port.sync(request, respond_once)                            // world-ish out flavours ride the standard path
+      if(typeof port.sync === 'function')                           // world ports: sync with callback;
+        port.sync(request, respond_once)                            // sync defaults only onto down flavours
       else
         D.port_standard_sync.call(port, request, respond_once)      // TODO: default timeout (virtual time backlog)
       return NaN

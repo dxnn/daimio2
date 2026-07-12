@@ -22,14 +22,6 @@ var known_timeout_ms = 200  // known failures: fail fast
 var known_failures = new Set([
   // §8 Serialized space excludes dialect and wiring
   'serialized space excludes dialect and wiring',
-  // §6 Wiring rules targeting a sibling up-port (RED — run_effect sploots
-  // on paired space ports instead of crossing; and a sibling referenced
-  // only by a rule is never registered as a subspace). Assert-failure
-  // labels listed beside the timeout (test) labels: a test that completes
-  // with a wrong value records the assertion's label instead.
-  'wiring-target-upport: wiring rule targets sibling up-port',
-  '[wiring-target-upport]',
-  'up-port: sibling subspace provides service via up-port',
   // §3 Black-hole / socket-load / cmd-port compile borks — RED until the
   // (( )) form and these rules are implemented
   'black hole with a station borks [blackhole-only-ports]',
