@@ -18,6 +18,17 @@ var reported = false
 // regression (and fails the suite).
 var known_failures = new Set([
   // (the two [WRONG:poke-key-scalar-affine] svar-coercion cases moved to det_test.mjs)
+  // §10 list delete / list values — spec'd, unimplemented. RED guides
+  // asserting spec-correct results (audit decision 2026-07-10; land with
+  // the pathfinder scalar/Empty refactor).
+  'delete key from keyed list [delete-key-keyed]',
+  'delete key coerced on unkeyed list [delete-key-unkeyed]',
+  'delete by position splices [delete-pos]',
+  'delete star removes all children [delete-star]',
+  'par-delete collects then removes in reverse [delete-par-collect]',
+  'overlapping par-delete removes entry once [delete-par-overlap]',
+  'DeleteDel: double delete equals single delete [law-deletedel]',
+  'list values drops keys [collection-values]',
 ])
 
 function test(label, input, expected) {
@@ -3150,49 +3161,59 @@ test(
 
 
 // =====================================================
-// §10 Delete (list delete is UNIMPLEMENTED — all produce soft error '')
+// §10 Delete — list delete is UNIMPLEMENTED. RED guides asserting the
+// spec-correct results (audit decision 2026-07-10: implement with the
+// pathfinder scalar/Empty refactor). The two tests whose correct
+// result IS Empty ('' — empty path, DeleteGet) pass vacuously via
+// unknown-command sploot until then.
 // =====================================================
 
 test(
-  'delete empty path returns Empty [delete-empty-path] (UNIMPLEMENTED: list delete)',
+  'delete empty path returns Empty [delete-empty-path] (vacuous until list delete lands)',
   '{(1 2 3) | list delete}',
   ''
 )
 
 test(
-  'delete key from keyed list [UNIMPLEMENTED:delete-key-keyed]',
+  'delete key from keyed list [delete-key-keyed]',
   '{* (:a 1 :b 2 :c 3) | list delete path :b}',
-  ''
+  '{"a":1,"c":3}'
 )
 
 test(
-  'delete key coerced on unkeyed list [UNIMPLEMENTED:delete-key-unkeyed]',
+  'delete key coerced on unkeyed list [delete-key-unkeyed]',
   '{(10 20 30) | list delete path :1}',
-  ''
+  '[10,30]'
 )
 
 test(
-  'delete by position splices [UNIMPLEMENTED:delete-pos]',
+  'delete by position splices [delete-pos]',
   '{(10 20 30) | list delete path "#2"}',
-  ''
+  '[10,30]'
 )
 
 test(
-  'delete star removes all children [UNIMPLEMENTED:delete-star]',
+  'delete star removes all children [delete-star]',
   '{(1 2 3) | list delete path "*"}',
-  ''
+  '[]'
 )
 
 test(
-  'par-delete collects then removes in reverse [UNIMPLEMENTED:delete-par-collect]',
+  'par-delete collects then removes in reverse [delete-par-collect]',
   '{(10 20 30 40) | list delete path (("#1" "#3"))}',
-  ''
+  '[20,40]'
 )
 
 test(
-  'overlapping par-delete removes entry once [UNIMPLEMENTED:delete-par-overlap]',
+  'overlapping par-delete removes entry once [delete-par-overlap]',
   '{(10 20 30) | list delete path (("#2" "#2"))}',
-  ''
+  '[10,30]'
+)
+
+test(
+  'list values drops keys [collection-values]',
+  '{* (:a 1 :b 2) | list values}',
+  '[1,2]'
 )
 
 
@@ -3305,15 +3326,15 @@ test(
 )
 
 test(
-  'DeleteGet: peek after delete returns Empty [UNIMPLEMENTED:law-deleteget]',
+  'DeleteGet: peek after delete returns Empty [law-deleteget] (vacuous until list delete lands)',
   '{* (:a 1 :b 2) | list delete path :a | __.a}',
   ''
 )
 
 test(
-  'DeleteDel: double delete equals single delete [UNIMPLEMENTED:law-deletedel]',
+  'DeleteDel: double delete equals single delete [law-deletedel]',
   '{* (:a 1 :b 2) | list delete path :a | list delete path :a}',
-  ''
+  '{"b":2}'
 )
 
 
