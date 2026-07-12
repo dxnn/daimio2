@@ -89,7 +89,7 @@ Remaining refinements:
 - Qname half of the dock hook: item E.
 
 ### B. Round-trip routing — effectful `cmd:` ports (spec §6/§7)
-### CORE DONE 2026-07-08 — up-port targets + timeouts remain
+### DONE 2026-07-12 (signal flip via port occupancy) — timeouts remain
 
 Landed: `run_fun` → `run_effect` in `m_command.js`. Wiring rules compile to
 index-resolved entries in the seed (`make_spaceseeds`; duplicate patterns bork
@@ -110,18 +110,32 @@ P-singleresponse; det_sender sender-propagate-downport; space_test
 wiring-target-station/-forward, cmd-forward, cmd-transient,
 singleresponse-one, wiring-default-timeout, effectful-unwired-sploot-subspace.
 
+Signal flip landed 2026-07-12 (design/roundtrip-signalflip-draft.md v2 —
+ports hold state, wires carry ships, no ship-carried contracts):
+- Two mundane bugs were most of the gap: the FAF parser dropped the hop
+  after a mid-chain port, and the `down` flavour's dead `exit` stub
+  swallowed every pair crossing. Fixed; double-FAF down chains and
+  `S@down <-> T@up` contracts ride end to end on plain wires.
+- **Port occupancy**: a spaced round-trip pair keeps FREE/OCCUPIED on its
+  inside half. Requests occupy from the requester's side and queue at the
+  port while occupied [port-one-at-a-time]; first ship at the other side
+  while occupied IS the response (ordinal, provenance-blind); while free
+  it ghosts with a soft error [upport-ghost-after-first] (det_test
+  dock-count guides). World-paired halves exempt.
+- Rule targets on paired space ports enter with the transient cmd port's
+  respond callback as the occupancy return address
+  (`[wiring-target-upport]`, sibling-serves — GREEN). Rules also register
+  referenced sibling seedlikes like wires do.
+- GREEN now: signal-flip-up/-down, down-port-declared, roundtrip-response,
+  upport-inside-station, async-preserve-sender, chained/FAF up-port set
+  (four of those had been red only from mis-indented test strings).
+
 Remaining:
-- **Up-port / signal-flip targets.** A rule targeting a paired space port
-  (sibling `S@up`, boundary down chains) sploots with a soft error today —
-  `port_standard_sync` ping-pongs between paired ports (each side defers to
-  `pair.sync`) with no inward-flip, so real delivery needs the signal-flip
-  machinery. Guards: `[wiring-target-upport]`, `roundtrip-response`
-  (space_test), `signal-flip-*`, `upport-inside-station`, the up-port set,
-  `async-preserve-sender`, `down-port: declared…`.
-- **Timeouts.** No default 10s / rule-timeout enforcement on a WAIT yet — a
-  target that never responds waits forever (liveness hole). Belongs to the
-  virtual-time backlog (`[timeout-*]`, `[wiring-default-timeout]` semantics —
-  its current guide only asserts completion).
+- **Timeouts.** No default 10s / rule-timeout enforcement yet — a target
+  that never responds leaves the port occupied and any waiter waiting
+  (liveness hole). Virtual-time backlog; decided semantics: the timeout
+  acts on the PORT (emits the empty response onward, frees); stale-ship
+  residual window accepted as anonymous flow (no number-floor hardening).
 - **`[demandport-create]` bork** (declaring a `cmd:` port) — still RED, small
   parser check, batched with the black-hole compile borks.
 
