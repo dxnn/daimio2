@@ -3424,9 +3424,21 @@ D.seedlikes_from_string = function(stringlike, templates) {
       var cmd_at = lhs.indexOf('@cmd:')
       if(cmd_at > 0) {                                   // cmd wiring rule: holder@cmd:glob <-> target [timeout]
         var rule_bits = rhs.split(/\s+/)
-        this_seed.rules.push({ holder:  lhs.slice(0, cmd_at)
+          , holder = lhs.slice(0, cmd_at)
+          , target = rule_bits[0]
+
+        if(seedlikes[holder])                            // a rule pulls referenced siblings in,
+          this_seed.subspaces[holder] = holder           // just like a wire does
+
+        if(target[0] != '@') {                           // sibling-port (name@up) or station target
+          var tname = target.split(/[@.]/)[0]
+          if(seedlikes[tname])
+            this_seed.subspaces[tname] = tname
+        }
+
+        this_seed.rules.push({ holder:  holder
                              , pattern: lhs.slice(cmd_at + 5)
-                             , target:  rule_bits[0]
+                             , target:  target
                              , timeout: rule_bits[1] ? +rule_bits[1] : undefined })
         return
       }
