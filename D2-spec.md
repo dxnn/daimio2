@@ -487,8 +487,9 @@ When new content is loaded into an occupied socket, the old content
 must give way, and there are two honest options: let it finish its
 in-flight work first (**drain**, briefly blocking new traffic) or
 discard it and swap at once (**smash**, losing in-flight work). Rather
-than pick one globally, the socket-load port carries the choice,
-defaulting to drain (the non-destructive one). The rejected
+than pick one globally, the channel carries the choice: every socket
+has one port-like per mode (`@socket-load` drains,
+`@socket-load-smash` smashes), and the parent picks per wire. The rejected
 alternative was *overlap* -- running old and new simultaneously until
 the old drained -- which never lets two definitions cleanly share the
 one name and slot (they collide) and forces the old content's output
@@ -600,15 +601,32 @@ surrounding topology is Astroglot.
 
 ### Grammar
 
-Astroglot is **indentation-based** with exactly two levels:
+Astroglot is **indentation-based**:
 
   - **Level 0** (column 0): space labels. Each label starts a new
-    space definition -- a bare name, or `((name))` for a black hole.
+    space definition -- a bare name, or `*name` for a black hole.
     [spacesyn-toplevel]
   - **Level 1** (indented): properties of the current space —
-    ports, stations, wires, state.
-  - **Deeper**: continuation of the previous property (e.g.,
-    multiline station DAML), joined with spaces.
+    ports, stations, wires, state, and nested space definitions.
+  - **Deeper**: the body of a property — multiline station DAML
+    (joined with spaces), or a nested space definition's own
+    properties. Nesting composes recursively.
+
+A space definition nested inside another is marked by a **sigil**
+on its label — the block's kind is never inferred from its body:
+
+```
++inner    -- nested subspace                       [spacesyn-subspace-nested]
+*inner    -- black hole                            [spacesyn-blackhole]
+!inner    -- socket (see section 8)                [spacesyn-socket]
+```
+
+A sigil label at column 0 is a bork for `+` and `!` (`*` is legal
+at top level — a shared sibling definition); a BARE indented block
+whose body contains space structure (a port or state declaration,
+or a wire) is a bork [spacesyn-sigil-required]. A bare indented
+name is therefore always a station, and an indentation slip is a
+compile error, never a silent reshape.
 
 Blank lines are ignored. Comment lines start with `/`.
 
@@ -618,12 +636,21 @@ file         ::= (space_def | comment | blank)*
 space_def    ::= space_label NL (indent property NL)*
                                         -- label at column 0 declares a space
 space_label  ::= name                   -- ordinary space
-               | '((' name '))'         -- black hole [spacesyn-blackhole]
+               | '*' name               -- black hole [spacesyn-blackhole]
 
 property     ::= port_decl
                | station_decl
                | wire_decl
                | state_decl
+               | dialect_decl
+               | subspace_def
+
+subspace_def ::= subspace_sigil name NL (indent+ property NL)+
+                                        -- nested space definition; recursive
+                                        -- [spacesyn-subspace-nested]
+subspace_sigil ::= '+' | '*' | '!'      -- subspace | black hole | socket
+                                        -- required when nested; '+'/'!' at
+                                        -- column 0 bork [spacesyn-sigil-required]
 
 -- Ports -------------------------------------------------------
 
@@ -664,17 +691,30 @@ state_decl   ::= '$' name (WS json_value)?
                                         -- value is JSON; if omitted, var is not set
                                         -- invalid JSON is a bork
 
+-- Dialect ------------------------------------------------------
+
+dialect_decl ::= '{' json_object '}'    -- outer space only [spacesyn-dialect]
+                                        -- e.g. {"blocked_methods":{"process":["unquote"]}}
+                                        -- restricts the instance dialect (AND);
+                                        -- in a subspace: soft error, ignored
+                                        -- [dialect-outer-only]; bad JSON borks
+
 -- Endpoints ---------------------------------------------------
 
 endpoint     ::= '@' dir (':' name)?    -- space-level port (@in, @out:display)
                | name '@' dir (':' name)?
                                         -- subspace port (sub@up, sub@up:adder)
                | name '@' name          -- station named port (splitter@left)
+               | name '@' 'socket-load' ('-smash')?
+                                        -- a socket's implicit port-likes
+                                        -- (valid only on a ! socket, §8)
+                                        -- [socket-portlike-endpoint]
                | '{' daml '}'           -- anonymous inline station
                | name                   -- station (implicit _in/_out)
-                                        -- NB: dir keywords (in/out/up/down) are
-                                        -- reserved in the @-position; station named
-                                        -- ports cannot use them as names
+                                        -- NB: dir keywords (in/out/up/down) and
+                                        -- socket-load(-smash) are reserved in the
+                                        -- @-position; station named ports cannot
+                                        -- use them as names
 
 -- Lexical -----------------------------------------------------
 
@@ -695,17 +735,44 @@ strings, state values, and other tokens to prevent resource
 exhaustion. The grammar defines syntax; the implementation
 defines capacity.
 
-**Subspaces** are referenced in wire endpoints by name. A
-subspace must be defined earlier in the file than the space that
-references it [spacesyn-subspace-before-ref]. The space named
-`outer` (if present) is the root; otherwise the last space
-defined. [spacesyn-outer-root]
+**Subspaces and scope.** A space may define subspaces two ways:
+nested (a sigil-marked block among its properties) or by
+referencing an earlier top-level definition by name. Name
+resolution inside a space's body is **lexical with exactly two
+layers**: (1) the space's own sigil-defined subspaces, else (2)
+top-level spaces defined earlier in the file
+[spacesyn-subspace-before-ref] [spacesyn-scope-two-layer]. Names
+defined in ENCLOSING spaces are not visible — a space can never
+reference its parent's other children or any ancestor, which keeps
+definitions well-founded (no space can include itself). A nested
+name shadows a same-named top-level space only within the exact
+space that defines it [spacesyn-shadow-local]; a collision is
+shadowing, never a merge. The space named `outer` (if present) is
+the root; otherwise the last top-level space defined
+[spacesyn-outer-root] — a nested definition is never root.
 
-**Black holes** are declared by wrapping the label in double
-parentheses: `((relay))` [spacesyn-blackhole]. The parentheses
-appear only at the definition site; wire endpoints and all other
-references use the bare name [blackhole-ref-bare]. See section 4,
-"Black holes".
+**Dialect declaration.** A space body may contain a single JSON
+object literal declaring dialect restrictions (`blocked_methods`,
+`blocked_aliases`). The restriction is intersected with the
+instance dialect at creation (AND logic — a command must survive
+both). Only the outer space may declare one; a dialect_decl in a
+subspace is a soft error and is ignored, preserving dialect
+monotonicity [dialect-inherit-parent] [spacesyn-dialect]
+[dialect-outer-only]. Invalid JSON is a bork. The declared
+restriction is part of the definition and survives serialization
+(§8) [serialize-keeps-dialect-decl]; the instance dialect does not.
+
+**Black holes** are declared with the `*` sigil: `*relay`
+[spacesyn-blackhole]. The sigil appears only at the definition
+site; wire endpoints and all other references use the bare name
+[blackhole-ref-bare]. See section 4, "Black holes".
+
+**Sockets** are declared with the `!` sigil: `!worker`
+[spacesyn-socket]. A socket is a hot-swappable slot whose content
+can be replaced at runtime through its two implicit port-likes
+(§8). The `!` sigil exists only in nested position — socketness is
+a property of a slot in a parent, so a root socket cannot be
+written ([socket-load-not-root] is structural).
 
 **Implicit port creation.** If a port endpoint (`@dir:name` or
 bare `@dir`) appears in wiring but was not explicitly declared,
@@ -829,6 +896,10 @@ Borks include:
   - State declaration with invalid JSON (`$count notjson`)
   - Station declaration with no DAML block
 
+  Sigil violations:
+  - A `+` or `!` label at column 0, or a bare indented block whose
+    body contains space structure [spacesyn-sigil-required]
+
   Black hole violations:
   - A black hole port whose flavour direction does not oppose the
     port direction [blackhole-flavour-oppose]
@@ -836,11 +907,12 @@ Borks include:
     [blackhole-inout-only]
   - A black hole definition containing a station, wire, or state
     declaration [blackhole-only-ports]
-  - A black hole declaring a `socket-load` port [blackhole-no-socket-load]
   - The root space declared as a black hole [blackhole-not-root]
-
-  Socket errors:
-  - A `socket-load` port on the outer (root) space [socket-load-not-root]
+  (A black-hole socket is unrepresentable — `*` and `!` are
+  mutually exclusive sigils — so the declaration side of
+  [blackhole-no-socket-load] is structural; its load side sploots,
+  see §8. Likewise a root socket is unrepresentable
+  [socket-load-not-root].)
 
   Scheduling errors:
   - A wiring cycle that passes through no station [sched-cycle-station]
@@ -901,7 +973,7 @@ instantiated into a live space (see Spaces below) with its own
 state and queue, but the topology definition is shared.
 [seed-share-instance]
 
-A spaceseed compiled from a `((label))` definition has
+A spaceseed compiled from a `*label` definition has
 `blackhole = true` (default false). This is the only structural
 difference in the compiled form; a black hole's `stations`,
 `state`, and interior `subspaces` are empty [blackhole-no-interior].
@@ -1486,11 +1558,10 @@ Daimio on the outside. Ships that enter a black hole's in-ports
 leave the runtime. Ships sent back by the external application
 emerge from its out-ports into the parent's wiring.
 
-A black hole is declared by wrapping its label in double
-parentheses [spacesyn-blackhole]:
+A black hole is declared with the `*` sigil [spacesyn-blackhole]:
 
 ```
-((relay))
+*relay
   @in:feed   websock-out
   @out:news  websock-in
 
@@ -1729,6 +1800,11 @@ inside -- the outer application supplies them. A conforming App MUST:
   - **Provide only intended flavours.** A port flavour that is not
     loaded cannot be created (§4 Port flavours), so the set of loaded
     flavours is a coarse capability gate the App controls.
+  - **Enter only at the boundary.** The App injects ships solely
+    through the outer space's world-paired ports and black-hole
+    out-ports. It never addresses an interior space directly — no
+    direct execute or dock into a subspace. Ships always come in
+    from the outside. [app-entry-outside-only]
 
 Where an obligation is unmet, the named invariant does not fail
 loudly inside Daimio -- it is simply no longer guaranteed, because
@@ -2655,66 +2731,84 @@ space variable holding a block is serialized as the block's source
 text and is **dead** on reload -- even if it was live in the running
 space; reviving it needs `process unquote`, like any dead string
 [serialize-block-dead].
-Socketed subspaces are serialized as regular subspace definitions
--- once loaded, a socketed space is just a subspace.
+Socketed subspaces are serialized as `!name` definitions holding
+their current content.
 
 A serialized space does NOT include:
-  - Dialect (the Daimio instance's dialect applies)
+  - The instance dialect (the Daimio instance's dialect applies;
+    a DECLARED dialect restriction is part of the definition and
+    IS serialized [serialize-keeps-dialect-decl], §3)
   - Port wiring (wiring comes from the socket's parent)
 
-### Socket-load port
+### Sockets and the socket-load port-likes
 
-A **socket** is a subspace with a port of flavour "socket-load". A
-socket-load port on the outer (root) space is a bork
-[socket-load-not-root] -- the root has no parent to hold its name or
-wiring, so it cannot be a socket.
+A **socket** is a subspace declared with the `!` sigil (§3)
+[spacesyn-socket]. Socketness is a property of the SLOT, not the
+content: the socket's frame — its name, the parent's wiring of it,
+and two implicit **port-likes** — is permanent, and everything else
+is replaceable. `!` exists only in nested position, so a root
+socket cannot be written [socket-load-not-root].
+
+Socket-load receivers are not ports: a port has an inside, and a
+load acts ON the slot rather than entering the space. Every socket
+has exactly two implicit port-likes, never declared
+[socket-portlike-implicit]:
 
 ```
-socketSpace = a subspace with at least one port where flavour = "socket-load"
+worker@socket-load          -- load with a drain transition
+worker@socket-load-smash    -- load with a smash transition
 ```
 
-When valid Astroglot arrives as a ship at a subspace's socket-load
-port, that subspace's internal content is **replaced** with the sent
-definition [socket-load]:
+The names `socket-load` / `socket-load-smash` are reserved in the
+@-position (§3 endpoints); the endpoint form is valid only when the
+referenced name is a `!`-declared socket [socket-portlike-endpoint].
+There is no declarable "socket-load" port flavour. Port-likes are
+addressable only from the parent's side — content has no way to
+wire its own reload, so self-replacement is unrepresentable; a
+space that wants to trigger its own reload must ask its parent
+through an ordinary down-port round trip.
+
+When valid Astroglot arrives as a ship at a socket's port-like,
+the socket's content is **replaced** with the sent definition
+[socket-load]:
 
   1. **Parse** the source text into a space definition and
-     **compile** it into a spaceseed. Invalid Astroglot borks the
-     load and the subspace's current content is untouched.
-  2. **Replace** the subspace's internals -- stations, internal
-     wiring, sub-subspaces, initial state, and port declarations --
-     with the compiled definition, instantiated fresh (recursively
-     instantiating any sub-subspaces). The sent Astroglot's top-level
-     label is discarded; the subspace keeps the name its parent gave
-     it. Otherwise the subspace becomes a faithful representation of
-     the sent Astroglot, exactly as if that had been its original
-     definition [socket-load-replace].
-  3. The **parent's wiring** of the subspace is unaffected: it lives
+     **compile** it into a spaceseed. A load never borks at
+     runtime — invalid Astroglot, a black-hole definition
+     ([blackhole-no-socket-load]'s load side), or any other bad
+     load SPLOOTS with a soft error and the current content is
+     untouched [socket-load-sploot]. (A bad DEFAULT definition
+     inside `!name` is still a compile-time bork.)
+  2. **Replace** the socket's internals -- stations, internal
+     wiring, sub-subspaces, initial state, and ALL port
+     declarations -- with the compiled definition, instantiated
+     fresh (recursively instantiating any sub-subspaces). The sent
+     Astroglot's top-level label is discarded; the socket keeps the
+     name its parent gave it. Otherwise the socket becomes a
+     faithful representation of the sent Astroglot, exactly as if
+     that had been its original definition [socket-load-replace].
+  3. The **parent's wiring** of the socket is unaffected: it lives
      in the parent (I11) and re-applies to the replaced content's
-     ports on demand [socket-wiring-demand]. Only the subspace's own
-     prior internal wiring -- its default before any load -- goes with
-     the old definition. A parent wire naming a port the new content
-     never declares sits inert until that port is demand-created.
+     ports on demand [socket-wiring-demand]. A parent wire naming a
+     port the new content never declares sits inert until that port
+     is demand-created.
   4. If content already occupied the socket, the transition follows
-     the socket-load port's **drain**/**smash** setting (below).
+     the port-like the load arrived at: **drain** or **smash**
+     (below).
 
-Because replacement is faithful and total, a subspace stays reloadable
-only if the loaded content itself declares a socket-load port
-[socket-load-reloadable].
-
-A socket cannot be loaded with a black hole: if the sent definition is
-a black hole (`((label))`), the load borks [blackhole-no-socket-load].
-A black hole's ports face the world and the App must bind them itself
-(§4, "Black holes"); they cannot arrive as hot-loaded data. (This may
-later relax to App-mediated binding of a loaded black hole; for now it
-is simply disallowed.)
+Because the frame is permanent, a socket is ALWAYS reloadable —
+content never controls its own evictability. (Loaded content that
+declares a port with an unknown flavour — including the retired
+"socket-load" flavour — is invalid Astroglot and the load sploots.)
 
 ### Socket transitions: drain or smash
 
-When a socket already holds content and a new definition arrives, the
-socket-load port's setting -- a flavour parameter, `socket-load drain`
-or `socket-load smash` -- decides how the old content gives way.
-**drain** is the default; to offer both, a subspace declares two
-socket-load ports.
+When a socket already holds content and a new definition arrives,
+the port-like it arrived at decides how the old content gives way:
+`name@socket-load` drains, `name@socket-load-smash` smashes. Both
+are always available; the PARENT chooses per wire, consistent with
+slot ownership (see §2 "Why drain-or-smash" — the choice rides the
+channel, not the payload).
 
 **Drain** [socket-drain]. The old content finishes its active process
 and every ship already in its queue, one at a time in key order (§5).
@@ -3771,10 +3865,15 @@ type depends on origin.
     pipeline turns data into code. If `unquote` is not in the
     dialect, strings are permanently inert [unquote-privilege].
     Space-level code arrives through a different door with a
-    different gate: a socket-load port (§8), gated by topology
+    different gate: a socket's port-likes (§8), gated by topology
     rather than dialect.
   - **run** (`process run`): evaluates a block, creating a
     sub-process under the sender's effective dialect.
+  - **Reflection** (`process dialect`, `process aliases`): return
+    the CURRENT process's effective command table (methods keyed by
+    handler) and alias table [process-reflect-effective]. These
+    reveal only the effective intersection, which is observable by
+    probing anyway; see §13 [dialect-not-exposed].
   - **String commands** (e.g., `string transform`): block →
     string. The block is coerced to its source text, the string
     command operates on it, and the result is a dead string
@@ -4403,9 +4502,9 @@ depends on configuration.
 code through exactly two routes, each with its own gate.
 **Programs** (strings) become blocks only via `process unquote`,
 gated by the effective dialect (§11). **Spaces** (Astroglot)
-become live subspaces only via a socket-load port, gated by
-topology: the parent must expose the port, and the parent's
-wiring confines the loaded space's effects (§8). The analyses
+become live subspaces only via a socket's port-likes, gated by
+topology: the parent must declare the `!` slot and wire into it,
+and the parent's wiring confines the loaded space's effects (§8). The analyses
 below cover what injected code can do once it is running; these
 two gates govern how code gets in.
 
@@ -4592,10 +4691,18 @@ the model):
 - `D.is_block` requires `instanceof D.Segment` -- blocks cannot be
   forged from DAML data values.
 - No DAML command creates, modifies, or forges a sender, or exposes
-  a sender's dialect. A process may read its own sender's id (a
-  read-only, unforgeable string) via `{process sender}` -- itself
-  dialect-gated, so a restricted dialect can withhold it. Senders are
-  otherwise App-level.
+  a sender's dialect beyond the **effective dialect** — which is
+  observable by construction (invoking a command reveals, by sploot
+  or success, whether the effective dialect contains it). A process
+  may read its own sender's id (a read-only, unforgeable string) via
+  `{process sender}`, and may reflect its own effective command and
+  alias tables via `{process dialect}` (methods keyed by handler)
+  and `{process aliases}` (the alias table)
+  [process-reflect-effective]. All three are themselves
+  dialect-gated, so a restricted dialect can withhold them; they
+  reveal the intersection, never the sender's or the space's
+  standalone dialect [dialect-not-exposed]. Senders are otherwise
+  App-level.
 - `intersect_dialects` uses AND logic: both sender and space must
   allow a command for it to execute.
 - Policy flags (e.g. `no_user_regex`) merge with OR logic:
@@ -4790,16 +4897,14 @@ this computation," and eliminates the tension between
 optimization and `process quote`: live blocks optimize freely;
 dead strings are untouched.
 
-### Persistent socket ports
+### Persistent socket ports — RESOLVED (2026-07-12)
 
-Socket-load replaces a subspace's content wholesale, so the socket-load
-port is replaced along with everything else: a subspace stays reloadable
-only if each loaded definition re-declares a socket-load port
-[socket-load-reloadable]. A future option would be an **always-socketed**
-subspace -- a socket-load port (or a subspace-level flag) that persists
-across loads, so a slot remains reloadable no matter what content
-occupies it. This separates the loadable slot from the content it holds,
-at the cost of a port the loaded content cannot remove.
+This future option became the design: sockets are declared `!name`
+and their frame (name, parent wiring, the two implicit port-likes)
+persists across every load — the slot is always reloadable no
+matter what content occupies it (§8). The former content-controlled
+rule ([socket-load-reloadable], "reloadable only if the loaded
+definition re-declares a socket-load port") is gone.
 
 ### Virtual round-trip pairing
 

@@ -24,13 +24,15 @@ var known_failures = new Set([
   'serialized space excludes dialect and wiring',
   // §3 Black-hole / socket-load / cmd-port compile borks — RED until the
   // (( )) form and these rules are implemented
+  'a + label at column 0 borks [spacesyn-sigil-required]',
+  'a bare nested block with space structure borks [spacesyn-sigil-required]',
   'black hole with a station borks [blackhole-only-ports]',
   'black hole in-port with a non-opposing (in) flavour borks [blackhole-flavour-oppose]',
   'black hole with an up/down port borks [blackhole-inout-only]',
   'a black hole as the root space borks [blackhole-not-root]',
-  'black hole declaring a socket-load port borks [blackhole-no-socket-load]',
-  'a (( )) endpoint reference borks (bare name required) [blackhole-ref-bare]',
-  'socket-load port on the root space borks [socket-load-not-root]',
+  'declaring the retired socket-load flavour borks [socket-portlike-implicit]',
+  'a *name endpoint reference borks (bare name required) [blackhole-ref-bare]',
+  'a ! label at column 0 borks [socket-load-not-root]',
   'a declared cmd: port borks [demandport-create]',
   // Spec gaps: behaviors not yet implemented
   '[err-match-by-name] error routed to @out:err',
@@ -2764,16 +2766,34 @@ parse_test(
 })()
 
 
-// ── §3 Black-hole / socket-load / cmd-port compile borks ─────────────
+// ── §3 Sigil / black-hole / socket / cmd-port compile borks ──────────
 // All PURE (parser/compiler only): the malformed definition must bork —
-// no spaceseed produced. RED until the black-hole (( )) form and these
-// rules are implemented; today they parse without error.
+// no spaceseed produced. RED until the space-label sigils (+ * !) and
+// these rules are implemented; today they parse without error.
+// Spec: 2026-07-12 sigil patch (design/audit-spec-patches-draft.md).
+
+// A nested-space sigil at column 0 borks.
+parse_test('a + label at column 0 borks [spacesyn-sigil-required]',
+  `+inner
+    @in -> @out
+  outer
+    @init from-js
+    @init -> inner@in`, true)
+
+// A bare indented block whose body contains space structure borks —
+// a bare nested name is always a station, never a silent subspace.
+parse_test('a bare nested block with space structure borks [spacesyn-sigil-required]',
+  `outer
+    @init from-js
+    inner
+      @in -> @out
+    @init -> inner@in`, true)
 
 // A black hole may contain only ports — a station/state/wire inside borks.
 parse_test('black hole with a station borks [blackhole-only-ports]',
   `outer
     @init from-js
-    ((relay))
+    *relay
       @in:feed websock-out
       worker {__}
     @init -> relay@in:feed`, true)
@@ -2782,7 +2802,7 @@ parse_test('black hole with a station borks [blackhole-only-ports]',
 parse_test('black hole in-port with a non-opposing (in) flavour borks [blackhole-flavour-oppose]',
   `outer
     @init from-js
-    ((relay))
+    *relay
       @in:feed websock-in
     @init -> relay@in:feed`, true)
 
@@ -2790,38 +2810,38 @@ parse_test('black hole in-port with a non-opposing (in) flavour borks [blackhole
 parse_test('black hole with an up/down port borks [blackhole-inout-only]',
   `outer
     @init from-js
-    ((relay))
+    *relay
       @down:fetch websock-out
     @init -> relay@in:feed`, true)
 
 // The root space cannot be a black hole.
 parse_test('a black hole as the root space borks [blackhole-not-root]',
-  `((relay))
+  `*relay
     @in:feed websock-out
     @out:news websock-in`, true)
 
-// A black-hole definition declaring a socket-load port borks.
-parse_test('black hole declaring a socket-load port borks [blackhole-no-socket-load]',
+// The socket-load flavour is retired — port-likes are implicit on ! sockets.
+parse_test('declaring the retired socket-load flavour borks [socket-portlike-implicit]',
   `outer
     @init from-js
-    ((relay))
-      @in:load socket-load
-    @init -> relay@in:load`, true)
-
-// References to a black hole use the bare name, never the (( )) form.
-parse_test('a (( )) endpoint reference borks (bare name required) [blackhole-ref-bare]',
-  `outer
-    @init from-js
-    ((relay))
-      @in:feed websock-out
-    @init -> ((relay))@in:feed`, true)
-
-// A socket-load port on the root/outer space borks (no parent to hold it).
-parse_test('socket-load port on the root space borks [socket-load-not-root]',
-  `outer
-    @init from-js
-    @reload socket-load
+    @in:load socket-load
     @init -> @out`, true)
+
+// References to a black hole use the bare name, never the sigil form.
+parse_test('a *name endpoint reference borks (bare name required) [blackhole-ref-bare]',
+  `outer
+    @init from-js
+    *relay
+      @in:feed websock-out
+    @init -> *relay@in:feed`, true)
+
+// A root socket is unrepresentable: ! exists only in nested position.
+parse_test('a ! label at column 0 borks [socket-load-not-root]',
+  `!worker
+    @in -> @out
+  outer
+    @init from-js
+    @init -> worker@in`, true)
 
 // A cmd: port cannot be declared — command ports are demand-created only.
 parse_test('a declared cmd: port borks [demandport-create]',
