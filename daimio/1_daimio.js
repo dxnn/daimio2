@@ -879,6 +879,55 @@ D.port_standard_enter = function(ship, process) {
   var sender = process && process.sender
     , number = process && process.number
 
+  // ── Round-trip port occupancy ──────────────────────────────────────
+  // A spaced round-trip pair (up/down flavour, both halves live in
+  // spaces) holds one piece of local state: occupancy, kept on the
+  // inside half. A request enters from the requester's side (parent
+  // side of an up port, inside of a down port) and occupies; requests
+  // arriving while occupied queue at the port [port-one-at-a-time].
+  // The first ship at the other side while occupied IS the response
+  // (ordinal, provenance-blind) and frees — delivered onward via the
+  // standard crossing, or to a recorded respond callback (wiring-rule
+  // targets). A ship there while free is a ghost: dropped with a soft
+  // error [upport-ghost-after-first]. World-paired halves are exempt.
+  // See design/roundtrip-signalflip-draft.md.
+  if(this.pair && this.pair.space && this.space
+      && (this.dir == 'up' || this.dir == 'down')) {
+    var inside = this.space.parent === this.pair.space ? this
+               : this.pair.space.parent === this.space ? this.pair
+               : null
+    var requesting = this.dir == 'up' ? this !== inside : this === inside
+
+    if(inside && requesting) {
+      if(inside._rt_occupied) {
+        inside._rt_queue = inside._rt_queue || []
+        inside._rt_queue.push({ port: this, ship: ship, sender: sender, number: number
+                              , respond: process && process.respond })
+        return
+      }
+      inside._rt_occupied = true
+      inside._rt_return = (process && process.respond) || null
+    }
+    else if(inside) {                                     // response side
+      if(!inside._rt_occupied)
+        return D.set_error('Ghost ship: unrequested arrival at round-trip port "' + this.name + '"')
+
+      inside._rt_occupied = false
+      var respond = inside._rt_return
+      inside._rt_return = null
+
+      var queued = inside._rt_queue && inside._rt_queue.shift()
+      if(queued)                                          // admit the next queued request
+        D.schedule_delivery(queued.number, function() {
+          queued.port.enter(queued.ship, { sender: queued.sender, number: queued.number
+                                         , respond: queued.respond })
+        })
+
+      if(respond)
+        return respond(ship)
+    }
+  }
+
   if(this.pair)
     return this.pair.exit(ship, (sender || number !== undefined) ? {sender: sender, number: number} : undefined)
 

@@ -142,6 +142,64 @@ det_test('scheduler: a station qname is its space path plus name [qname-structur
   assert: function(t, e) { e.dockTargets(['calc']) },
 })
 
+// ── Round-trip port occupancy (design/roundtrip-signalflip-draft.md) ──────
+// A round-trip port pair holds one piece of local state: occupancy. A ship
+// arriving at the response side while the port is FREE is a ghost — dropped
+// with a soft error, never continuing onward [upport-ghost-after-first].
+// Dock-count assertions need the settle-driven harness: a space_test value
+// assertion cannot express this under the ordinal ruling (which value
+// continues while OCCUPIED is a deterministic schedule artifact).
+
+// Up-port direction: the request round trip completes (step 1, port frees),
+// then an unrelated entry triggers the contracted station (step 2); its
+// output rides the same processor->@up wire but must not reach receiver.
+det_test('occupancy: unrequested ship at a free up-port ghosts [upport-ghost-after-first]', {
+  seed: `
+    multi
+      processor
+        {__}
+      ghostly
+        {:ghost}
+      @up <-> processor
+      @in -> ghostly -> processor
+    outer
+      @init from-js
+      @trigger from-js
+      @out det-out
+      receiver
+        {__}
+      @init -> multi@up -> receiver -> @out
+      @trigger -> multi@in`,
+  schedule: [ arrive('init', 'test'), arrive('trigger', 'x') ],
+  assert: function(t, e) {
+    e.outputs('out', ['test'])                      // the ghost never reaches @out
+    e.dockValues(['test', 'test', 'x', 'ghost'])    // receiver docks exactly once
+  },
+})
+
+// Down-port direction: the contracted handler is also reachable directly;
+// triggered with no request outstanding, its output rides the response leg
+// to the down port's parent side and must ghost there, not enter inner.
+det_test('occupancy: unrequested ship at a free down-port ghosts [upport-ghost-after-first]', {
+  seed: `
+    inner
+      @in -> @down:need -> @out
+    outer
+      @init from-js
+      @poke from-js
+      @out det-out
+      handler
+        {__ | string uppercase}
+      inner@down:need <-> handler
+      @poke -> handler
+      @init -> inner@in
+      inner@out -> @out`,
+  schedule: [ arrive('init', 'go'), arrive('poke', 'sneak') ],
+  assert: function(t, e) {
+    e.outputs('out', ['GO'])                        // SNEAK ghosts at the free port
+  },
+})
+
 // ── Known failures (RED guides) ──────────────────────────────────────────
 ;[
   'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
