@@ -204,10 +204,6 @@ det_test('occupancy: unrequested ship at a free down-port ghosts [upport-ghost-a
 ;[
   'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
   'poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
-  // qname guides — RED until the engine computes topology qnames
-  // (the dock hook exposes them then; scheduler numbers land there already)
-  'scheduler: anonymous stations get qnames s1, s2 in source order [qname-anon-station]',
-  'scheduler: a station qname is its space path plus name [qname-structure]',
 ].forEach(function(l) { known_failures.add(l) })
 
 run()

@@ -539,14 +539,23 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
   if (space.prng_seed === 'test_seed') pass++
   else ERRORS.push({in: 'prng: prng_seed stored on space', out: space.prng_seed, was: 'test_seed'})
 
-  // Subspace shares parent rng
+  // Subspace PRNG is derived, not shared: child_seed = hash(parent_seed, name)
+  // [random-seeded] [random-per-space] — a space's stream depends only on its
+  // own draws, and re-instantiating the same parent reproduces it exactly.
   var child_seed_id = D.spaceseed_add(
     {dialect: {}, stations: [], subspaces: [], ports: [], routes: [], state: {}})
   var parent_seed_id2 = D.spaceseed_add(
     {dialect: {}, stations: [], subspaces: [child_seed_id], ports: [], routes: [], state: {}})
   var parent_space = new D.Space(parent_seed_id2, false, 'parent_seed')
-  if (parent_space.subspaces.length && parent_space.subspaces[0].rng === parent_space.rng) pass++
-  else ERRORS.push({in: 'prng: subspace shares parent rng', out: 'different rng', was: 'same rng reference'})
+  if (parent_space.subspaces.length && parent_space.subspaces[0].rng !== parent_space.rng) pass++
+  else ERRORS.push({in: 'prng: subspace rng derived, not shared [random-seeded]', out: 'same rng reference', was: 'own derived rng'})
+
+  var parent_space2 = new D.Space(parent_seed_id2, false, 'parent_seed')
+  parent_space2.rng()                                    // parent draw must not shift the child's stream
+  var c1 = parent_space.subspaces.length && parent_space.subspaces[0].rng()
+  var c2 = parent_space2.subspaces.length && parent_space2.subspaces[0].rng()
+  if (c1 === c2) pass++
+  else ERRORS.push({in: 'prng: child stream independent of sibling/parent draws [random-per-space]', out: [c1, c2], was: 'identical first draws'})
 })()
 
 

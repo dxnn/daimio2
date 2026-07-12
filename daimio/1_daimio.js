@@ -2482,7 +2482,7 @@ D.Data = function(init) {
   8""88888P'  o888o        o88o     o8888o  `Y8bood8P'  o888oooooo*/
 
 
-D.Space = function(seed_id, parent, prng_seed) {
+D.Space = function(seed_id, parent, prng_seed, name) {
   // D.SPACESEEDS[seed_id] contains id, dialect, state, ports, stations, subspaces, routes
   // TODO: validate parent
   // THINK: validate seed_id?
@@ -2496,18 +2496,18 @@ D.Space = function(seed_id, parent, prng_seed) {
   this.seed = seed
   this.state = {}
   this.parent = parent || false // false is outer
+  this.name = name || ''        // '' for the outer root [qname-structure]
 
-  // Per-space PRNG: subspaces share parent's rng; outer spaces create their own
-  if(parent && parent.rng) {
-    this.prng_seed = parent.prng_seed
-    this.rng = parent.rng
-  } else {
-    this.prng_seed = prng_seed || Math.random().toString(36)
-    var old_random = Math.random
-    Math.seedrandom(this.prng_seed)
-    this.rng = Math.random
-    Math.random = old_random
-  }
+  // Per-space PRNG [random-seeded] [random-per-space]: each subspace derives
+  // its own seed from the parent's seed and its name — order-independent,
+  // and a space's stream depends only on its own draws.
+  this.prng_seed = parent
+    ? String(murmurhash(parent.prng_seed + ' ' + this.name))
+    : (prng_seed || Math.random().toString(36))
+  var old_random = Math.random
+  Math.seedrandom(this.prng_seed)
+  this.rng = Math.random
+  Math.random = old_random
 
   // set dialect before ports so port whitelist check works
   // subspaces inherit parent dialect (I2: dialect monotonicity)
@@ -2532,8 +2532,10 @@ D.Space = function(seed_id, parent, prng_seed) {
   // add outs to ports
   seed.routes.forEach(function(route) {self.ports[route[0]-1].outs.push(self.ports[route[1]-1])})
 
-  // add all my children
-  this.subspaces = seed.subspaces.map(function(seed_id) {return new D.Space(seed_id, self)})
+  // add all my children (names ride from the seed for qnames + PRNG derivation)
+  this.subspaces = seed.subspaces.map(function(seed_id, i) {
+    return new D.Space(seed_id, self, undefined, seed.subspace_names && seed.subspace_names[i])
+  })
 
   // pair my subspace ports
   this.subspaces.forEach(function(subspace, subspace_index) {
@@ -2583,6 +2585,29 @@ D.Space = function(seed_id, parent, prng_seed) {
   this.only_one_process = true
   this.processes = []
   this.queue = []
+}
+
+// Qualified names [qname-structure]: a space's qname is its path of
+// subspace names from the outer root, '/'-separated (root = '').
+D.Space.prototype.space_path = function() {
+  if(!this.parent) return ''
+  var parent_path = this.parent.space_path()
+  return parent_path ? parent_path + '/' + this.name : this.name
+}
+
+// A station appends its name to its space's path; anonymous stations are
+// named s1, s2, ... in source order [qname-anon-station].
+D.Space.prototype.station_qname = function(station_id) {
+  if(!this._qnames) {
+    var names = this.seed.station_names || []
+      , anon = 0
+    this._qnames = this.seed.stations.map(function(_, i) {
+      return names[i] != null ? names[i] : 's' + (++anon)
+    })
+  }
+  var name = this._qnames[station_id - 1] || String(station_id)
+    , path = this.space_path()
+  return path ? path + '/' + name : name
 }
 
 D.Space.prototype.root_frontier = function() {
@@ -2643,10 +2668,10 @@ D.Space.prototype.dock = function(ship, station_id, sender, ship_number) {
   this.raise_frontier(number)
 
   // Deterministic-harness trace hook (additive; no-op unless set). Fires on
-  // every station dock. The engine will enrich the info object with `qname`
-  // once topology-derived names exist.
+  // every station dock with the station's qualified name [qname-structure].
   if(D.Etc.on_dock)
-    D.Etc.on_dock({ space: this, station_id: station_id, ship: ship, sender: sender, number: number })
+    D.Etc.on_dock({ space: this, station_id: station_id, qname: this.station_qname(station_id)
+                  , ship: ship, sender: sender, number: number })
 
   var block_id = this.seed.stations[station_id - 1]
   var block    = D.BLOCKS[block_id]
@@ -3110,7 +3135,8 @@ D.Process.prototype.next = function(segment, current, wires, dialect) {
 */
 
 D.spaceseed_add = function(seed) {
-  var good_props = {dialect: 1, stations: 1, subspaces: 1, ports: 1, routes: 1, state: 1, closed: 1, rules: 1}
+  var good_props = { dialect: 1, stations: 1, subspaces: 1, ports: 1, routes: 1, state: 1, rules: 1
+                   , station_names: 1, subspace_names: 1 }   // source-order names [qname-structure]
     , item
 
   for(var key in seed)
@@ -3164,6 +3190,14 @@ D.spaceseed_add = function(seed) {
       if(rule.holder_station) rule.holder_station = station_map[rule.holder_station]
     })
 
+    if(seed.station_names) {                    // names ride the same permutation
+      var old_station_names = seed.station_names
+      seed.station_names = seed.stations.map(function(_, index) { return null })
+      seed.stations.forEach(function(_, index) {
+        seed.station_names[station_map[index + 1] - 1] = old_station_names[index]
+      })
+    }
+
     seed.stations = sorted_stations
   }
 
@@ -3200,6 +3234,14 @@ D.spaceseed_add = function(seed) {
     ;(seed.rules || []).forEach(function(rule) {
       if(rule.holder_space) rule.holder_space = space_map[rule.holder_space]
     })
+
+    if(seed.subspace_names) {                   // names ride the same permutation
+      var old_subspace_names = seed.subspace_names
+      seed.subspace_names = seed.subspaces.map(function() { return null })
+      seed.subspaces.forEach(function(_, index) {
+        seed.subspace_names[space_map[index + 1] - 1] = old_subspace_names[index]
+      })
+    }
 
     seed.subspaces = sorted_subspaces
   }
@@ -3511,7 +3553,7 @@ D.seedlikes_from_string = function(stringlike, templates) {
 
       if(rhs[0] == '{') {                                // inline block fulfills the contract: mint its station
         var confake = 'station-' + Math.random().toString().slice(2)
-        this_seed.stations[confake] = {value: rhs}
+        this_seed.stations[confake] = {value: rhs, anon: true}
         rhs = confake
       }
 
@@ -3557,7 +3599,7 @@ D.seedlikes_from_string = function(stringlike, templates) {
 
         if(part[0] == '{') {
           var fakename = 'station-' + Math.random().toString().slice(2)
-          this_seed.stations[fakename] = {value: part}
+          this_seed.stations[fakename] = {value: part, anon: true}
           part = fakename
         }
 
@@ -3672,8 +3714,10 @@ D.make_spaceseeds = function(seedlikes) {
 
     var station_key_to_index = {}
     newseed.stations = []
-    for(var key in stations) {
+    newseed.station_names = []                  // source-order names; null = anonymous
+    for(var key in stations) {                  // (qnames name anons s1, s2, ... [qname-anon-station])
       newseed.stations.push(D.Parser.string_to_block_segment(stations[key].value).value.id) // block id
+      newseed.station_names.push(stations[key].anon ? null : key)
       var index = newseed.stations.length // note 1-indexed
       station_key_to_index[key] = index
       // add my ports
@@ -3694,9 +3738,11 @@ D.make_spaceseeds = function(seedlikes) {
 
     var subspace_key_to_index = {}
     newseed.subspaces = []
+    newseed.subspace_names = []                 // source-order names [qname-structure]
     for(var key in subspaces) {
       var spacekey = subspaces[key]
       newseed.subspaces.push(seedmap[spacekey]) // space id // TODO: error if not in seedmap
+      newseed.subspace_names.push(key)
 
       var index = newseed.subspaces.length // note 1-indexed
       subspace_key_to_index[key] = index
