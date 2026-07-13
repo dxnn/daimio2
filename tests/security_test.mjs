@@ -503,11 +503,12 @@ await sender_test(
     badmath.done -> @out`,
   sender_actor,
   [{port: 'init', value: 42}],
-  1,
+  2,
   function(results) {
-    // The error ship goes to @err (sender-check), the main result may also exit
+    // The error ship routes to @err by name [err-match-by-name]; the main
+    // result (0, division sploots to zero) also exits via badmath.done.
     var has_sender_on_any = results.some(function(r) { return r.sender === sender_actor })
-    test('sender error routing: some ship exits', results.length >= 1)
+    test('sender error routing: both ships exit', results.length >= 2)
     test('sender error routing: sender preserved on error ship', has_sender_on_any)
   }
 )
