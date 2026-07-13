@@ -5,9 +5,9 @@
     "ports": [
       {
         "id": "p0",
-        "key": "up:svc",
-        "dir": "top",
-        "flavour": "up:svc"
+        "key": "down:svc",
+        "dir": "bottom",
+        "flavour": "down:svc"
       }
     ],
     "stations": [
@@ -23,28 +23,14 @@
       {
         "id": "c0",
         "from": {
-          "id": "p0",
-          "port": "up:svc"
-        },
-        "to": {
-          "id": "s0",
-          "port": "_in"
-        },
-        "type": "contract",
-        "pair": "c1"
-      },
-      {
-        "id": "c1",
-        "from": {
           "id": "s0",
           "port": "_out"
         },
         "to": {
           "id": "p0",
-          "port": "up:svc"
+          "port": "down:svc"
         },
-        "type": "contract",
-        "pair": "c0"
+        "type": "faf"
       }
     ],
     "state": {}

@@ -1,7 +1,7 @@
 worker
-  @up:svc
+  @down:svc
   h {handle}
-  @up:svc <-> h
+  h -> @down:svc
 outer
   @in
   @out
