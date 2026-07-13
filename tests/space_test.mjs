@@ -31,7 +31,6 @@ var known_failures = new Set([
   'declaring the retired socket-load flavour borks [socket-portlike-implicit]',
   'a *name endpoint reference borks (bare name required) [blackhole-ref-bare]',
   'a ! label at column 0 borks [socket-load-not-root]',
-  'a declared cmd: port borks [demandport-create]',
 ])
 
 // ── Assert port flavour ──────────────────────────────────────────────
