@@ -95,8 +95,26 @@ det_test('socket-load: space variables do not survive a transition [socket-svars
   assert: function(t, e) { e.outputs('out', [99]) },   // new content's initial $counter, not the old
 })
 
-// (no known failures — the load/replace guides went green with the sigil
-// engine + socket port-likes, 2026-07-12)
+// [socket-load-sploot] a runtime load never borks: invalid Astroglot
+// sploots with a soft error and the CURRENT content is untouched — a
+// later ship exercises the original body.
+det_test('socket-load: invalid Astroglot sploots and leaves content untouched [socket-load-sploot]', {
+  seed: `outer
+    @go from-js
+    @load from-js
+    @out det-out
+    !slot
+      body {:ORIGINAL}
+      @in:x -> body -> @out:y
+    @load -> slot@socket-load
+    @go -> slot@in:x
+    slot@out:y -> @out`,
+  schedule: [
+    socket_load('load', '!!!not astroglot@@@'),
+    arrive('go', 'ping'),
+  ],
+  assert: function(t, e) { e.outputs('out', ['ORIGINAL']) },
+})
 
 run()
 

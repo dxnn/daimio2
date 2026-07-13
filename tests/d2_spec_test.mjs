@@ -3202,6 +3202,12 @@ test(
   '[1,2]'
 )
 
+test(
+  'delete non-numeric key on unkeyed soft-errors, unchanged [delete-key-unkeyed]',
+  '{(10 20 30) | list delete path :abc}',
+  '[10,20,30]'
+)
+
 
 // =====================================================
 // §10 Peek: empty path, affine unwrap, star wrap

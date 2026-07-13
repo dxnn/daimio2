@@ -175,6 +175,27 @@ Remaining:
 
 ## Backlog / dependencies
 
+- **Effectful commands: full spec + coverage sweep (dann, 2026-07-12 eve).**
+  The stdlib has exactly three effectful commands today — `time now`
+  (cmd:time:now), `var read-out` (cmd:var:read-out), `var write-out`
+  (cmd:var:write-out) — and the fuzzer surfaces their unwired-sploot
+  errors constantly, so their semantics must be FULLY SPEC'D, each:
+  request value shape ([effcmd-request-val] covers the general keyed
+  form; per-command field lists are not written), response semantics
+  and coercion (what does cmd:var:read-out return for an unbound
+  parent var?), timeout interaction, sender/dialect gating, and the
+  §10-style canonical examples (they cannot have `examples:` today —
+  example_test runs in an unwired space and they'd sploot; the
+  example harness needs a wired fixture space, or the spec needs
+  prose examples). Cross-boundary `var read-out`/`write-out`
+  reaching the PARENT's state (not the caller's) is spec'd (§6
+  worked example) but untested end-to-end
+  ([socket-crossboundary-var] below). Any future effectful command
+  (network, storage, process sleep) follows the same template.
+  Fuzzer note: the unwired sploots are expected [effectful-unwired-
+  sploot] and the fuzzer allowlist now recognizes them (plus ghost/
+  timeout/socket-sploot messages) — 0 crashes at 3300 exprs.
+
 - **Virtual time — CORE DONE 2026-07-12 (eve).** D.register_timeout /
   D.advance_clock; cmd requests get rule-or-default deadlines
   ([timeout-resume-empty], [timeout-ghost-drop] green); occupied
