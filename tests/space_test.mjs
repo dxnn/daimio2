@@ -32,9 +32,6 @@ var known_failures = new Set([
   'a *name endpoint reference borks (bare name required) [blackhole-ref-bare]',
   'a ! label at column 0 borks [socket-load-not-root]',
   'a declared cmd: port borks [demandport-create]',
-  // Spec gaps: behaviors not yet implemented
-  // svar-read-unbound returns false instead of "" (spec says sploot to empty)
-  'space isolation: subspace cannot read parent vars directly',
 ])
 
 // ── Assert port flavour ──────────────────────────────────────────────

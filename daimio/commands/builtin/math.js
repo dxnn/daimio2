@@ -38,6 +38,7 @@ D.import_models({
             key: 'to',
             type: 'anything',
             desc: "Addend: a numeric value or array of the same",
+            undefined: true,      // absent = fold mode; explicit Empty = 0
           },
         ],
         fun: function(value, to) {
@@ -75,6 +76,7 @@ D.import_models({
             key: 'by',
             desc: "Factor the first: a numeric value or array of such",
             type: 'anything',
+            undefined: true,      // absent = fold mode; explicit Empty = 0
           },
         ],
         fun: function(value, by) {
@@ -112,6 +114,7 @@ D.import_models({
             key: 'from',
             desc: "Minuend: a numeric value or array of such",
             type: 'anything',
+            undefined: true,      // absent = fold mode; explicit Empty = 0
           },
         ],
         fun: function(value, from) {
@@ -149,6 +152,7 @@ D.import_models({
             key: 'by',
             desc: "Denominator: a numeric value or array of such",
             type: 'anything',
+            undefined: true,      // absent = fold mode; explicit Empty = 0
           },
         ],
         fun: function(value, by) {
@@ -180,6 +184,7 @@ D.import_models({
             key: 'by',
             desc: "Value to mod it by",
             type: 'anything',
+            undefined: true,      // absent = fold mode; explicit Empty = 0
           },
         ],
         fun: function(value, by) {
@@ -457,7 +462,7 @@ D.Etc.Math.singleArray = function(value, to, fun) {
   }
 
   // one array, one number
-  if(to === false || to === null) to = 0                             // false/null mean zero (e.g. undefined var)
+  if(to === false || to === null || to === '') to = 0                // Empty/false/null mean zero (e.g. unbound var)
   if(D.is_numeric(to)) {
     return value.map(function(val) {
       return fun(D.to_numeric(val), D.to_numeric(to)) || 0;
