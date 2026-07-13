@@ -47,7 +47,7 @@ D.SegmentTypes.Variable = {
 
     if(!D.is_nice(value))
       return type == 'space' ? '' : false
-      // an unbound svar read sploots to Empty [svar-read-unbound]; pipeline
+      // an unbound svar read sploots to Empty [svar-read-unbound-sploot]; pipeline
       // vars keep the internal false sentinel (load-bearing in the pipe
       // wiring / resume paths — see the 2026-07-12 probes)
 

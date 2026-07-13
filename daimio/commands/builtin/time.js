@@ -8,6 +8,13 @@ D.import_models({
 
       now: {
         desc: 'Returns the current time as a structured value',
+        help: ['Effectful: the response comes from the Outside through the',
+               'cmd:time:now port — canonically a {time stampwrap}-shaped value.',
+               'Unwired, it sploots [effect-outside-time].'],
+        examples: [
+          // third element = the wired handler [effcmd-time-now]
+          ['{time now | peek :stamp}', '42', '{* (:stamp 42)}'],
+        ],
         params: [],
         effect: {
           portType: 'cmd:time:now',

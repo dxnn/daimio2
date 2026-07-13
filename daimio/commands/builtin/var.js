@@ -53,6 +53,12 @@ D.import_models({
 
       'read-out': {
         desc: 'Read a space variable from the parent space via a down port',
+        help: ['Effectful: the request {handler, method, name} asks the',
+               'environment for a named variable [effcmd-var-read-out].'],
+        examples: [
+          // the handler sees the request's name field [effcmd-request-val]
+          ['{var read-out name :greeting}', 'greeting', '{__ | peek :name}'],
+        ],
         params: [
           {
             key: 'name',
@@ -68,6 +74,11 @@ D.import_models({
 
       'write-out': {
         desc: 'Write a value to a space variable in the parent space via a down port',
+        help: ['Effectful: the canonical handler answers with the written',
+               'value, so the pipeline continues with it [effcmd-var-write-out].'],
+        examples: [
+          ['{var write-out name :x value 5 | math add value 1}', '6', '{__ | peek :value}'],
+        ],
         params: [
           {
             key: 'name',

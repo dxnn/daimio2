@@ -2264,6 +2264,42 @@ user-provided code can access, you MUST run that code in a
 **subspace** where the parent's wiring rules control the effect
 surface.
 
+#### The stdlib's effectful commands
+
+Three commands ship with effects. Each is dialect-gated like any
+command AND requires wiring — the dialect gates whether the command
+exists, the wiring gates whether its effect connects; unwired
+invocations sploot [effectful-unwired-sploot]. Every request is the
+keyed list `{handler, method, …params}` [effcmd-request-val], carries
+the invoker's sender and number, and is bounded by its rule's timeout
+or the instance default [wiring-default-timeout], resuming Empty if
+unanswered [timeout-resume-empty].
+
+- **`{time now}`** — request `{handler: "time", method: "now"}`
+  [effcmd-time-now]. The canonical answer is a structured time value
+  in `{time stampwrap}`'s shape — `{year, month, day, hour, minute,
+  second, stamp}` with `stamp` in seconds; `stampwrap` is the pure
+  companion the Outside uses to build it. No engine clock can leak
+  in: unwired, `{time now}` sploots [effect-outside-time].
+- **`{var read-out name :x}`** — request `{handler: "var", method:
+  "read-out", name: "x"}` [effcmd-var-read-out]: asks the
+  environment for the value of a named variable. The canonical
+  wiring reads the PARENT's space variable (see "Example:
+  cross-boundary state access" below); an unbound name answers
+  Empty, the read splooting in the handler's space
+  [svar-read-unbound-sploot].
+- **`{var write-out name :x value 5}`** — request `{handler: "var",
+  method: "write-out", name: "x", value: 5}` [effcmd-var-write-out]:
+  asks the environment to bind a named variable. The canonical
+  handler answers with the written value, so the pipeline continues
+  with it (write-through).
+
+The MEANING of a request is the handler's to provide — these entries
+fix the request shapes and the canonical conventions, not the
+handler's behavior [P-handlersub]. Any future effectful command
+follows the same template: request = `{handler, method, …params}`,
+one response, timeout-bounded.
+
 ### Wiring rules
 
 Wiring rules govern command ports. They are declared in the
