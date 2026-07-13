@@ -35,7 +35,6 @@ var known_failures = new Set([
   'a ! label at column 0 borks [socket-load-not-root]',
   'a declared cmd: port borks [demandport-create]',
   // Spec gaps: behaviors not yet implemented
-  '[err-match-by-name] error routed to @out:err',
   // svar-read-unbound returns false instead of "" (spec says sploot to empty)
   'space isolation: subspace cannot read parent vars directly',
 ])
@@ -94,7 +93,12 @@ function finish_space(test_id) {
   if(!entry || entry.done) return
   entry.done = true
   clearTimeout(entry.timer)
-  if(entry.check) entry.check(entry.collected)
+  try {
+    if(entry.check) entry.check(entry.collected)
+  } catch(e) {
+    fail++
+    failures.push({ label: entry.label, expected: 'check runs', actual: 'check threw: ' + e.message })
+  }
   pending--
   maybe_report()
 }
@@ -650,15 +654,14 @@ space_test(
     @out  collect
     @out:err  collect
     badcmd {__ | nonexistent command}
-    @init -> badcmd -> @out
-    @out:err  -> @out`,
+    @init -> badcmd -> @out`,
   [{port: 'init', value: 'test'}],
-  1,
+  2,
   function(collected) {
-    // The error port should have received something (the error message)
-    // and the pipeline continues with empty value
-    var got = collected.out
-    assert_eq('error was collected', got && got.length > 0, true)
+    // The error ships to @out:err [err-match-by-name] [sploot-error-port];
+    // the pipeline continues with empty [sploot-pipeline-continues].
+    assert_eq('error was collected', collected['out:err'] && collected['out:err'].length > 0, true)
+    assert_eq('pipeline value passed', collected.out && collected.out.length > 0, true)
   }
 )
 
@@ -1710,11 +1713,11 @@ space_test(
       {__ | nonexistent command}
     @init -> badcmd -> @out`,
   [{port: 'init', value: 'test'}],
-  1,
+  2,
   function(collected) {
-    // The bad command sploots. Error goes to @err (space level).
-    // Pipeline continues with empty -> @out.
-    // We collect from @out; @err may or may not have fired depending on wiring
+    // The bad command sploots: the error ships to @out:err by name
+    // [err-match-by-name], and the pipeline continues with empty -> @out.
+    assert_eq('error routed by name', collected['out:err'] && collected['out:err'].length > 0, true)
     assert_eq('pipeline continued', collected.out && collected.out.length > 0, true)
   }
 )
@@ -1899,8 +1902,8 @@ space_test(
   [{port: 'init', value: 'test'}],
   1,
   function(collected) {
-    // Error should have routed to @err
-    if(collected.err && collected.err.length > 0) pass++
+    // The error routes to the port NAMED out:err [err-match-by-name]
+    if(collected['out:err'] && collected['out:err'].length > 0) pass++
     else {
       fail++
       failures.push({ label: '[err-match-by-name] error routed to @out:err',
@@ -2546,12 +2549,13 @@ space_test(
     tester {99 | >@undeclared || :continued}
     @init -> tester -> @out`,
   [{port: 'init', value: 'go'}],
-  1,
+  2,
   function(collected) {
-    // >@undeclared has no route, so the port doesn't exist on this station.
-    // It sploots (soft error), but pipeline continues.
-    // The || resets pipe, :continued flows to _out.
-    assert_eq('[station-port-requires-route] pipeline continued', collected.out[0], 'continued')
+    // >@undeclared has no route: it sploots, the error ships to @out:err
+    // [err-match-by-name], and the pipeline continues — the || resets the
+    // pipe and :continued flows to _out.
+    assert_eq('[station-port-requires-route] error shipped', collected['out:err'] && collected['out:err'].length > 0, true)
+    assert_eq('[station-port-requires-route] pipeline continued', collected.out && collected.out[0], 'continued')
   }
 )
 

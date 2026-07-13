@@ -99,16 +99,21 @@ D.set_error = function(error) {
 }
 
 D.on_error = function(command, error) {
-  // Route to space's error port if available; silent no-op otherwise
+  // Route to the space's error port if available; silent no-op otherwise.
+  // The runtime matches by NAME — 'out:err' (spec §4 [err-match-by-name]),
+  // with the legacy bare 'err' name/flavour still honored.
   var space = D.Etc.active_space
-  if(space) {
-    for(var i = 0, l = space.ports.length; i < l; i++) { // OPT: this is a slow way to find a port...
-      var port = space.ports[i]
-      if(port.flavour === 'err' && !port.station) {
-        port.enter(error || command, D.Etc.active_process || null)  // enter → pair.exit → outside_exit
-        break
+  if(space && !D.Etc.routing_error) {
+    D.Etc.routing_error = true                  // an error during delivery must not recurse
+    try {
+      for(var i = 0, l = space.ports.length; i < l; i++) { // OPT: this is a slow way to find a port...
+        var port = space.ports[i]
+        if((port.name === 'out:err' || port.name === 'err' || port.flavour === 'err') && !port.station) {
+          port.enter(error || command, D.Etc.active_process || null)  // enter → pair.exit → outside_exit
+          break
+        }
       }
-    }
+    } finally { D.Etc.routing_error = false }
   }
 
   return ""
