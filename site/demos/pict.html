@@ -36,7 +36,13 @@
         {__ | >branch | ( {* (:origin (0 0)   :a (.50  0) :b (0 1.00)  :children _branch)}
                           {* (:origin (.50 0) :a (1.00 0) :b (.50 1.00) :children _branch)})}
 
-      start -> below -> {__ | process sleep for 1000} -> below -> beside -> {__ | process sleep for 2333} -> beside -> finish
+      pause1 {__ | process sleep for 1000}
+      pause2 {__ | process sleep for 2333}
+      @clock clock
+      pause1@cmd:process:sleep <-> @clock
+      pause2@cmd:process:sleep <-> @clock
+
+      start -> below -> pause1 -> below -> beside -> pause2 -> beside -> finish
 
       // OUTPUT
       @draw draw-thing display

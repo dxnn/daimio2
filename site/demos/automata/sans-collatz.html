@@ -157,8 +157,12 @@
 // actually, reduce over $mods with $cells as the initial data -- then you can just >$cells once at the end.
 
 
+      pacer  {process sleep for $time}
+      @clock clock
+      pacer@cmd:process:sleep <-> @clock
+
       starter.go -> process -> changed
-      process -> {process sleep for $time} -> process
+      process -> pacer -> process
       process -> {$ticks | add 1 | >$ticks}
 
 

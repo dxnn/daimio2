@@ -56,8 +56,12 @@
           else _cells
         | run }
 
+      pacer  {__ | process sleep for $time}
+      @clock clock
+      pacer@cmd:process:sleep <-> @clock
+
       initializer -> process -> changed
-      process -> {__ | process sleep for $time} -> try-change -> process
+      process -> pacer -> try-change -> process
 
 
       // INPUT

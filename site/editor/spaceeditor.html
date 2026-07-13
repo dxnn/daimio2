@@ -437,10 +437,13 @@
 
   inc    {__ | add $count | >$count}
   block  {$count | then "" else "{1 | >@start}" | run}
+  pacer  {process sleep for $time | $step}
+  @clock clock
+  pacer@cmd:process:sleep <-> @clock
 
   @button -> block
   block.start -> inc -> @counter
-  inc -> {process sleep for $time | $step} -> inc`,
+  inc -> pacer -> inc`,
 
 'Excitebikes': `outer
   $colors ["#339", "#66B", "#66F", "#BBF", "#EEF"]
@@ -467,8 +470,12 @@
             4 3)}"}"
     | >$cells}
 
+  pacer  {process sleep for $time}
+  @clock clock
+  pacer@cmd:process:sleep <-> @clock
+
   initializer -> process -> changed
-  process -> {process sleep for $time} -> process
+  process -> pacer -> process
 
   @touched dom-on-click .touch
   activate

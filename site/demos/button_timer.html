@@ -49,10 +49,13 @@
 
       inc    {__ | add $count | >$count}
       block  {$count | then "" else "{1 | >@start}" | run}
+      pacer  {process sleep for $time | $step}
+      @clock clock
+      pacer@cmd:process:sleep <-> @clock
 
       @button -> block
       block.start -> inc -> @counter
-      inc -> {process sleep for $time | $step} -> inc
+      inc -> pacer -> inc
 
   </code></pre>
 
@@ -106,10 +109,13 @@
 
       inc    {__ | add $count | >$count}
       block  {$count | then "" else "{1 | >@start}" | run}
+      pacer  {process sleep for $time | $step}
+      @clock clock
+      pacer@cmd:process:sleep <-> @clock
 
       @button -> block
       block.start -> inc -> @counter
-      inc -> {process sleep for $time | $step} -> inc
+      inc -> pacer -> inc
 
   </script>
 
