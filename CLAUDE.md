@@ -316,6 +316,23 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
+## Test status (as of 2026-07-12, late — post known-red sweep)
+
+Late-session additions on top of the evening block below: fuzzer clean
+(0 crashes / 3300 exprs — allowlist recognizes the new spec'd soft
+errors); det_blackhole 3/3 (world-face binding: hole exits fire the
+flavour inward, hole out-ports are App entry surfaces with qname
+senders; port qnames prefer the NAME's dir over the flavour's);
+det_socket 9/9 (drain finishes busy content + buffers arrivals, smash
+severs the boundary and ghosts stragglers, hole-load sploots,
+transition replay byte-identical); +2 coverage guides (socket-load
+sploot on bad Astroglot, delete-key soft error). Remaining known-red:
+space_test 2 (serialize — seed source retention design; false
+sentinel — coercion-boundary design), sched frontier guides +
+[request-cycle-timeout] + [timeout-min-chain]/[timeout-inherit]
+(deferred, need harness/numbering machinery). TODO carries the
+effectful-commands full-spec sweep (dann).
+
 ## Test status (as of 2026-07-12, end of evening session)
 
 - d2_spec_test: 434/434 pass (0 known)
