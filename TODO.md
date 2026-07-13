@@ -202,13 +202,13 @@ Remaining:
   round-trip ports emit empty + free at their deadline (era-guarded);
   production uses unref'd wall timers, the det harness drives a
   mutable virtual clock (timeout events; respond_now; settle treats a
-  timeout-pending wait as quiescent). Remaining: [request-cycle-timeout]
-  guide (needs queue-behind-wait numbering), [timeout-min-chain]
-  enforcement (inner deadlines are independent today, not min-capped),
-  and the [timeout-inherit] chain-inheritance guide (explicit wire
-  timeouts landed 2026-07-12 late [wire-timeout-explicit]: trailing
-  integer on any wire; occupancy prefers it over the default; the
-  min-propagation-through-chains half remains).
+  timeout-pending wait as quiescent). [timeout-inherit] +
+  [timeout-min-chain] LANDED 2026-07-13 (bc9e4d7): a cmd request's
+  deadline is the min of the explicit timeouts along its walked rule
+  chain; contract chains had min-chain naturally (per-hop occupancy
+  deadlines + empty propagation — guarded by a det_time test).
+  Remaining: [request-cycle-timeout] guide (needs queue-behind-wait
+  numbering).
 - **`process sleep` — RESOLVED 2026-07-13 (dann: reclassify effectful).**
   Sleep declares effect cmd:process:sleep; the new `clock` port flavour
   is the canonical world handler (answers `then` at now+`for` via
