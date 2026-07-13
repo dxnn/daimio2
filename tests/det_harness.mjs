@@ -106,10 +106,10 @@ D.import_port_flavour('det-world', {
   }
 })
 
-// Internal-dock trace: record every station dock in order. `qname` and
-// `number` are undefined until the engine computes topology-derived names and
-// scheduler numbers (so the qname/number guides are RED for the right reason);
-// `target` falls back to the raw station id meanwhile.
+// Internal-dock trace: record every station dock in order, with the
+// engine-computed qname [qname-structure] and scheduler number
+// [sched-dock-max]; `target` falls back to the raw station id if a qname
+// is ever absent.
 D.Etc.on_dock = function(info) {
   if(!current) return
   current.docks.push({
@@ -123,9 +123,9 @@ D.Etc.on_dock = function(info) {
 
 // ── schedule constructors ─────────────────────────────────────────────────
 // arrive: an external ship at @port. opts.sender attaches a sender (attenuates
-// via I2); opts.number pins the intended frontier number (honored once the
-// scheduler exists; ignored today, so a number-divergent scenario docks FIFO
-// now and by number later — the failure is RED for the right reason).
+// via I2); opts.number pins the ship's number in the input schedule
+// [sched-input-schedule] — unpinned ships enter at the boundary frontier
+// [sched-entry-frontier].
 export function arrive(port, value, opts) {
   opts = opts || {}
   return { kind: 'arrive', port: port, value: value, sender: opts.sender, number: opts.number }

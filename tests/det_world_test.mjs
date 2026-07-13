@@ -59,11 +59,7 @@ det_test('world: only the first response to a round-trip counts [P-singlerespons
 
 run()
 
-// ── Deferred (compound dependency) ─────────────────────────────────────────
-// [sched-reentry-uniform] / [sched-advance] — a down-port response re-docks by
-//   max(counter, response#)+1 and a held station holds the space: needs round-
-//   trip routing AND scheduler numbers.
-// [blackhole-in-exit] / [blackhole-out-enter] / [blackhole-uncorrelated] —
-//   world crossing through a black hole: needs the (( )) form to parse (the
-//   compile borks are guarded in space_test).
-// [timeout-ghost-drop] / [request-cycle-timeout] — need virtual time.
+// ── Formerly deferred, all landed ───────────────────────────────────────────
+// [sched-reentry-uniform] / [sched-advance] — det_test.mjs (re-entry
+//   renumbering + advance guides). [blackhole-*] — det_blackhole_test.mjs.
+// [timeout-ghost-drop] / [request-cycle-timeout] — det_time_test.mjs.

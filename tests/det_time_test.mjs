@@ -349,13 +349,76 @@ det_replay('sleep: a slept pipeline replays byte-identical [sched-deterministic]
   ],
 })
 
+// ── Request cycles ─────────────────────────────────────────────────────────
+// A request cycle is a legal topology that resolves by timeout
+// [request-cycle-timeout]: alpha's station requests into beta, whose
+// handler requests back into alpha — the back-request queues behind
+// alpha's held wait [serial-one-at-a-time], so nothing can answer. The
+// first deadline sploots alpha's waiter to empty, freeing alpha; the
+// queued back-request then docks and is served, but every late response
+// finds its requester already resumed and ghosts [timeout-ghost-drop].
+// Liveness holds: the run settles, one empty output emerges.
+det_test('timeout: a request cycle resolves to empty by timeout [request-cycle-timeout]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    +alpha
+      @in
+      @out
+      @up
+      a {var read-out name :x | logic if then :got_a else :empty_a}
+      answer {__ | peek :name}
+      @in -> a -> @out
+      @up <-> answer
+      a@cmd:var:* <-> @cmd
+    +beta
+      @up
+      b {var read-out name :y | logic if then :got_b else :empty_b}
+      @up <-> b
+      b@cmd:var:* <-> @cmd
+    alpha@cmd:var:* <-> beta@up
+    beta@cmd:var:* <-> alpha@up
+    @go -> alpha@in
+    alpha@out -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 10001 }),
+  ],
+  assert: function(t, e) { e.outputs('out', ['empty_a']) },
+})
+
+// The cycle's unwind — deadline order, ghost drops, queue release — replays
+// byte-identical (I17).
+det_replay('timeout: a request cycle replays byte-identical [sched-deterministic]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    +alpha
+      @in
+      @out
+      @up
+      a {var read-out name :x | logic if then :got_a else :empty_a}
+      answer {__ | peek :name}
+      @in -> a -> @out
+      @up <-> answer
+      a@cmd:var:* <-> @cmd
+    +beta
+      @up
+      b {var read-out name :y | logic if then :got_b else :empty_b}
+      @up <-> b
+      b@cmd:var:* <-> @cmd
+    alpha@cmd:var:* <-> beta@up
+    beta@cmd:var:* <-> alpha@up
+    @go -> alpha@in
+    alpha@out -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 10001 }),
+  ],
+})
+
 // (the earlier timeout guides went green with virtual time)
 
 run()
-
-// ── Deferred: [request-cycle-timeout] — a cyclic request chain resolves to
-// empty by timeout (the first wire to time out frees its space; the rest
-// cascade). The mechanism pieces are covered above; an honest cycle guide
-// needs two spaces cmd-calling into each other plus queue-behind-wait
-// numbering, and belongs with the [sched-reentry-uniform] harness work.
-// The harness already accepts timeout()/respond() schedule events for then.

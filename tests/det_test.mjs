@@ -139,6 +139,28 @@ det_test('scheduler: a held-space wait renumbers uniformly [sched-reentry-unifor
   },
 })
 
+// The held-space scenario replays byte-identical (I17).
+det_replay('scheduler: held-space renumbering replays byte-identical [sched-deterministic]', {
+  seed: `outer
+    @go from-js
+    @in2 from-js
+    @out det-out
+    @world det-world
+    caller {var read-out name :x | logic if then :got else :empty}
+    pass  {__}
+    relay {__}
+    caller@cmd:var:* <-> @world
+    @go -> caller
+    caller -> relay -> @out
+    @in2 -> pass -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'a'),
+    arrive('in2', 'b'),
+    respond_now('world', '42'),
+  ],
+})
+
 // A timeout firing is an external event numbered at the boundary frontier —
 // the timed-out process renumbers before continuing, like any re-dock
 // [sched-reentry-uniform] [sched-entry-frontier]: caller = 1; the deadline
@@ -352,36 +374,14 @@ det_test('occupancy: unrequested ship at a free down-port ghosts [upport-ghost-a
 
 run()
 
-// ── Deferred guides (land with their machinery) ───────────────────────────
-// Written here as intent, not as tests: in v1 each would fail for a harness
-// reason (can't express the scenario) rather than because the engine lacks
-// the behavior, so shipping them now would be misleading. Each becomes a
-// real det_test / det_replay when its dependency lands.
-//
-// Scheduler (need the priority loop + true frontier interleaving):
-//   [sched-advance]           advance blocks a higher-numbered ship docking first
-//   [sched-wire-fifo]         single wire docks in emission order under concurrency
-//   [sched-entry-frontier]    self-feed never starves fresh external arrivals
-//   [sched-reentry-uniform]   ships behind a held-space wait re-number uniformly
-//
-// Virtual time (need vtime + timeouts-as-events, not wall-clock setTimeout):
-//   [sched-timeout-event]     a timeout placed before/after a response decides
-//                             the race; the loser ghosts [timeout-ghost-drop]
-//   [request-cycle-timeout]   a cyclic request chain resolves to empty by timeout
-//
-// Identifiers (need the internal-dock trace: qname + number + sender per dock;
-// procids were dropped from the spec — observable ids are qnames + content
-// hashes only, error ships name qnames):
-//   [id-deterministic]        error ships + sender ids byte-identical across runs
-//   [qname-structure]         qnames derive from the source (subspace path + name)
-//   [qname-anon-station]      anon stations named s1, s2 in source order
-//
-// Sender-at-entry (need the attachment rule):
-//   [sender-attach-entry]     senderless ship takes the entry port's qname
-//   [sender-attach-registry]  a registered attenuated dialect sploots forbidden cmds
-//
-// Black holes / socket-load (need the features; parse/bork guides belong in
-// space_test, world-I/O + transition determinism here):
-//   [blackhole-in-exit]       ship at @in emitted outward, fire-and-forget
-//   [blackhole-out-enter]     world value injected as a ship at @out
-//   [socket-drain] / [socket-smash] / [sched-transition-keys]
+// ── Deferred guides — the v1 backlog has landed with its machinery ─────────
+// Scheduler order/advance/frontier/re-entry/tie-wire guides live above
+// ([sched-advance] [sched-wire-fifo] [sched-entry-frontier]
+// [sched-reentry-uniform] [sched-tie-wire]); virtual time and the timeout
+// races live in det_time_test.mjs ([sched-timeout-event] [timeout-ghost-drop]
+// [request-cycle-timeout]); qnames + dock numbers ride the dock hook
+// ([qname-structure] [qname-anon-station]); sender-at-entry is in
+// det_sender_test.mjs; black holes / socket-load in det_blackhole_test.mjs /
+// det_socket_test.mjs. Still open:
+//   [id-deterministic]  error ships don't name qnames yet (§12 follow-up), so
+//                       their byte-identical replay isn't pinned.
