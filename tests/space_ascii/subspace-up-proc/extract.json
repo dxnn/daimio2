@@ -5,9 +5,9 @@
     "ports": [
       {
         "id": "p0",
-        "key": "down:svc",
-        "dir": "bottom",
-        "flavour": "down:svc"
+        "key": "up:svc",
+        "dir": "top",
+        "flavour": "up:svc"
       }
     ],
     "stations": [
@@ -24,7 +24,7 @@
         "id": "c0",
         "from": {
           "id": "p0",
-          "port": "down:svc"
+          "port": "up:svc"
         },
         "to": {
           "id": "s0",
@@ -41,7 +41,7 @@
         },
         "to": {
           "id": "p0",
-          "port": "down:svc"
+          "port": "up:svc"
         },
         "type": "contract",
         "pair": "c0"

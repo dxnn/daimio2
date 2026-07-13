@@ -4051,11 +4051,9 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
       else {
         var ldecl = this_seed.ports[lhs]
           , lflav = ldecl && D.PortFlavours[ldecl[0]]
-          , ldir  = lhs.split(':')[0]
-        if(lflav && lflav.dir != 'up' && lflav.dir != 'down')
-          throw new Error('One-way ports cannot participate in contracts: ' + line)
-        if(!ldecl && ldir != 'up' && ldir != 'down')
-          throw new Error('Contract LHS must be an up/down port or a subspace down port: ' + line)
+          , ldir  = lflav ? lflav.dir : lhs.split(':')[0]
+        if(ldir != 'up')                                 // my-own contract LHS is Enter-N-Exit: @up only
+          throw new Error('Contract LHS must be an @up port, or a subspace @down/@cmd port: ' + line)
         if(!ldecl)
           this_seed.ports[lhs] = [ldir]                  // implicit creation, default flavour for the direction
         lkey = lhs
@@ -4071,11 +4069,9 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
         var rport = rhs.slice(1)
           , rdecl = this_seed.ports[rport]
           , rflav = rdecl && D.PortFlavours[rdecl[0]]
-          , rdir  = rport.split(':')[0]
-        if(rflav && rflav.dir == 'in')
-          throw new Error('Contract RHS cannot be an in port: ' + line)
-        if(!rdecl && rdir != 'down')
-          throw new Error('Contract RHS must be a station, a down port, or a subspace up port: ' + line)
+          , rdir  = rflav ? rflav.dir : rport.split(':')[0]
+        if(rdir != 'down')                               // my-own contract RHS is Exit-N-Reenter: @down only
+          throw new Error('Contract RHS must be a station, an @down port, or a subspace @up port: ' + line)
         if(!rdecl)
           this_seed.ports[rport] = [rdir]
         rkey = rport

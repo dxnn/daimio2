@@ -356,15 +356,16 @@ var r_vp_lines = r_vp.split('\n')
 test('vport: unwired up renders x on top border', r_vp_lines[0].indexOf('x') >= 0, true)
 test('vport: unwired down renders x on bottom border', r_vp_lines[r_vp_lines.length - 1].indexOf('x') >= 0, true)
 
-// Wired down-port contract: ^v on the bottom border AND on the station's
-// bottom edge; no side-wall port at all.
-var def_dpc = 't\n  @down:svc\n  A {a}\n  @down:svc <-> A'
+// A down port renders as ^v on the bottom border, never a side-wall o.
+// (A down-port *contract* is a subspace pattern — see the down-port-contract
+// fixture; my-own @down can't be a contract LHS, so a single space exercises
+// the down glyph by feeding a station's output out the port.)
+var def_dpc = 't\n  @down:svc\n  A {a}\n  A -> @down:svc'
 var sl_dpc = D.seedlikes_from_string(def_dpc)
 var r_dpc = render_space('t', sl_dpc.t)
 var dpc_lines = r_dpc.split('\n')
-test('down contract: ^v on bottom border', /\^v/.test(dpc_lines[dpc_lines.length - 1]), true)
-test('down contract: no o anywhere', r_dpc.indexOf('o') < 0, true)
-test('down contract: station bottom has ^v', dpc_lines.some(function(l) { return /\\_*\^v_*\//.test(l) }), true)
+test('down port: ^v on bottom border', /\^v/.test(dpc_lines[dpc_lines.length - 1]), true)
+test('down port: no side-wall o', r_dpc.indexOf('o') < 0, true)
 
 // Wired up-port contract: ^v on the top border, station keeps paren attach
 var def_upc = 'cs\n  @up:req\n  hdl {handle}\n  @up:req <-> hdl'

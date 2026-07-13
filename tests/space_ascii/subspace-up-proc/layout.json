@@ -2,95 +2,99 @@
   "worker": {
     "id": "worker",
     "name": "worker",
-    "width": 21,
-    "height": 10,
+    "width": 36,
+    "height": 9,
     "elements": [
       {
         "type": "box",
         "x": 0,
         "y": 0,
-        "width": 21,
-        "height": 10,
+        "width": 36,
+        "height": 9,
         "name": "worker"
       },
       {
         "type": "station",
         "id": "s0",
-        "x": 5,
+        "x": 16,
         "y": 3,
         "width": 14,
         "height": 4,
         "source": "{handle}",
         "in": {
-          "x": 5,
+          "x": 16,
           "y": 5
         },
         "out": {
-          "x": 19,
+          "x": 30,
           "y": 5
         },
-        "name": "h",
-        "down": {
-          "n": 11,
-          "s": 12
-        },
-        "down_out": {
-          "x": 12,
-          "y": 7
-        },
-        "down_in": {
-          "x": 11,
-          "y": 7
-        }
+        "name": "h"
       },
       {
         "type": "port",
-        "dir": "bottom",
-        "key": "down:svc",
+        "dir": "top",
+        "key": "up:svc",
         "id": "p0",
         "glyph": "^v",
         "x": 11,
-        "y": 9,
+        "y": 0,
         "north_x": 11,
         "south_x": 12,
         "in": {
-          "x": 12,
-          "y": 8
+          "x": 11,
+          "y": 1
         },
         "out": {
-          "x": 11,
-          "y": 8
+          "x": 12,
+          "y": 1
         }
       }
     ],
     "paths": [
-      {
-        "conn": "c1",
-        "from": "s0",
-        "to": "p0",
-        "path": [
-          {
-            "x": 12,
-            "y": 7
-          },
-          {
-            "x": 12,
-            "y": 8
-          }
-        ]
-      },
       {
         "conn": "c0",
         "from": "p0",
         "to": "s0",
         "path": [
           {
-            "x": 11,
-            "y": 8
+            "x": 12,
+            "y": 1
+          },
+          {
+            "x": 12,
+            "y": 5
+          },
+          {
+            "x": 16,
+            "y": 5
+          }
+        ]
+      },
+      {
+        "conn": "c1",
+        "from": "s0",
+        "to": "p0",
+        "path": [
+          {
+            "x": 30,
+            "y": 5
+          },
+          {
+            "x": 33,
+            "y": 5
+          },
+          {
+            "x": 33,
+            "y": 7
           },
           {
             "x": 11,
             "y": 7
+          },
+          {
+            "x": 11,
+            "y": 1
           }
         ]
       }

@@ -1,4 +1,7 @@
-t
+worker
   @down:svc
-  A {a}
-  @down:svc <-> A
+  h {h}
+  h -> @down:svc
+outer
+  proc {handle}
+  worker@down:svc <-> proc

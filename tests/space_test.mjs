@@ -2707,6 +2707,48 @@ parse_test(
   true
 )
 
+// Contract signal types (§3, D2-spec.md:2096-2098): the LHS must be
+// Enter-N-Exit (my @up, a child's @down/@cmd) and the RHS must be
+// Exit-N-Reenter (my @down, a child's @up) or a station. Anything pointing
+// a boundary the wrong way borks — no longer a silent malformed parse.
+
+// My-own @down is Exit-N-Reenter (RHS only). As a contract LHS it borks.
+parse_test(
+  'my-own down port on contract LHS borks [roundtrip-enex-lhs]',
+  `outer
+    handler {:x}
+    @down:svc <-> handler`,
+  true
+)
+
+// My-own @up is Enter-N-Exit (LHS only). As a contract RHS it borks, even
+// when declared (the declared case used to slip past the RHS check).
+parse_test(
+  'my-own up port on contract RHS borks [roundtrip-enex-lhs]',
+  `outer
+    @up:b
+    @up:a <-> @up:b`,
+  true
+)
+
+// A one-way (out) port cannot fulfill a contract, even when declared.
+parse_test(
+  'declared one-way port on contract RHS borks [spacedef-hard-error]',
+  `outer
+    @out:x
+    @up:svc <-> @out:x`,
+  true
+)
+
+// Valid: my @up (Enter-N-Exit) forwards out my @down (Exit-N-Reenter).
+// (Parse-level guard — @down must still be accepted as an RHS.)
+parse_test(
+  'own up <-> own down is a valid contract',
+  `outer
+    @up:req <-> @down:fwd`,
+  false
+)
+
 // A subspace's down port is Enter-N-Exit — LHS only. On the RHS it borks.
 parse_test(
   'subspace down port on contract RHS borks [spacedef-hard-error]',

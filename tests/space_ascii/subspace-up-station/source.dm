@@ -1,7 +1,7 @@
 worker
-  @down:svc
+  @up:svc
   h {handle}
-  @down:svc <-> h
+  @up:svc <-> h
 outer
   proc {p}
   proc -> worker@up:svc

@@ -1,50 +1,83 @@
 {
-  "id": "t",
-  "name": "t",
-  "ports": [
-    {
-      "id": "p0",
-      "key": "down:svc",
-      "dir": "bottom",
-      "flavour": "down:svc"
-    }
-  ],
-  "stations": [
-    {
-      "id": "s0",
-      "name": "A",
-      "source": "{a}",
-      "ports": []
-    }
-  ],
-  "subspaces": [],
-  "connections": [
-    {
-      "id": "c0",
-      "from": {
+  "worker": {
+    "id": "worker",
+    "name": "worker",
+    "ports": [
+      {
         "id": "p0",
-        "port": "down:svc"
-      },
-      "to": {
+        "key": "down:svc",
+        "dir": "bottom",
+        "flavour": "down:svc"
+      }
+    ],
+    "stations": [
+      {
         "id": "s0",
-        "port": "_in"
-      },
-      "type": "contract",
-      "pair": "c1"
-    },
-    {
-      "id": "c1",
-      "from": {
+        "name": "h",
+        "source": "{h}",
+        "ports": []
+      }
+    ],
+    "subspaces": [],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "s0",
+          "port": "_out"
+        },
+        "to": {
+          "id": "p0",
+          "port": "down:svc"
+        },
+        "type": "faf"
+      }
+    ],
+    "state": {}
+  },
+  "outer": {
+    "id": "outer",
+    "name": "outer",
+    "ports": [],
+    "stations": [
+      {
         "id": "s0",
-        "port": "_out"
+        "name": "proc",
+        "source": "{handle}",
+        "ports": []
+      }
+    ],
+    "subspaces": [
+      "worker"
+    ],
+    "connections": [
+      {
+        "id": "c0",
+        "from": {
+          "id": "worker",
+          "port": "down:svc"
+        },
+        "to": {
+          "id": "s0",
+          "port": "_in"
+        },
+        "type": "contract",
+        "pair": "c1"
       },
-      "to": {
-        "id": "p0",
-        "port": "down:svc"
-      },
-      "type": "contract",
-      "pair": "c0"
-    }
-  ],
-  "state": {}
+      {
+        "id": "c1",
+        "from": {
+          "id": "s0",
+          "port": "_out"
+        },
+        "to": {
+          "id": "worker",
+          "port": "down:svc"
+        },
+        "type": "contract",
+        "pair": "c0"
+      }
+    ],
+    "state": {}
+  }
 }
