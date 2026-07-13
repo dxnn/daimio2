@@ -912,11 +912,6 @@ function emit(name, stations, subspaces, ports, state, connections) {
   for (var i = 0; i < routes.length; i++)
     lines.push('  ' + routes[i].join(' -> '))
 
-  // Trailing flush: seedlikes_from_string doesn't flush the last action,
-  // so append a {} dialect line that triggers flush of the real last property.
-  // When flushed, it sets dialect={} (same as default), so it's harmless.
-  if (lines.length > 1) lines.push('  {}')
-
   return lines.join('\n')
 }
 

@@ -128,7 +128,30 @@ det_test('timeout: an occupied round-trip port emits empty and frees [timeout-re
   assert: function(t, e) { e.outputs('out', ['']) },
 })
 
-// (no known failures — the timeout guides went green with virtual time)
+// A wire's trailing integer is its nominal timeout in ms — on a contract
+// it caps the round trip at both ports [wire-timeout-explicit]. provider@up
+// is unwired inside, so no response ever comes; the explicit 5000 fires
+// where the 10s default would still be waiting.
+det_test('timeout: an explicit wire timeout overrides the default [wire-timeout-explicit] [timeout-min-chain]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    +provider
+      @up
+    +consumer
+      @in -> @down:ask -> @out
+    consumer@down:ask <-> provider@up  5000
+    @go -> consumer@in
+    consumer@out -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'ping'),
+    timeout({ at: 1600000000000 + 5001 }),          // default (10s) has NOT passed
+  ],
+  assert: function(t, e) { e.outputs('out', ['']) },
+})
+
+// (the earlier timeout guides went green with virtual time)
 
 run()
 

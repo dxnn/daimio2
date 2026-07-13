@@ -1032,7 +1032,10 @@ D.port_standard_enter = function(ship, process) {
       inside._rt_era = (inside._rt_era || 0) + 1
       var era = inside._rt_era
         , response_half = this === inside ? inside.pair : inside
-      D.register_timeout(D.now() + D.Etc.default_timeout, function() {
+      var timeout_ms = this._wire_timeout || inside._wire_timeout
+                    || (inside.pair && inside.pair._wire_timeout)
+                    || D.Etc.default_timeout
+      D.register_timeout(D.now() + timeout_ms, function() {
         if(!inside._rt_occupied || inside._rt_era !== era) return
         D.set_error('Round-trip port timed out: "' + inside.name + '"')
         response_half.enter('')
@@ -2759,8 +2762,16 @@ D.Space = function(seed_id, parent, prng_seed, name) {
   // add all the ports at once
   this.ports = seed.ports.map(function(port, index) {return new D.Port(port, self)})
 
-  // add outs to ports
-  seed.routes.forEach(function(route) {self.ports[route[0]-1].outs.push(self.ports[route[1]-1])})
+  // add outs to ports; a wire's nominal timeout stamps the round-trip
+  // ports it touches [wire-timeout-explicit]
+  seed.routes.forEach(function(route) {
+    self.ports[route[0]-1].outs.push(self.ports[route[1]-1])
+    if(route[2]) {
+      ;[self.ports[route[0]-1], self.ports[route[1]-1]].forEach(function(p) {
+        if(p.dir == 'up' || p.dir == 'down') p._wire_timeout = route[2]
+      })
+    }
+  })
 
   // add all my children (names ride from the seed for qnames + PRNG derivation)
   this.subspaces = seed.subspaces.map(function(seed_id, i) {
@@ -3974,6 +3985,7 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
       var lhs = parts[0].replace(/^\s+|\s+$/g, '')
         , rhs = parts[1].replace(/^\s+|\s+$/g, '')
         , lkey, rkey
+        , wire_timeout
 
       var cmd_at = lhs.indexOf('@cmd:')
       if(cmd_at > 0) {                                   // cmd wiring rule: holder@cmd:glob <-> target [timeout]
@@ -3997,6 +4009,12 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
                              , target:  target
                              , timeout: rule_bits[1] ? +rule_bits[1] : undefined })
         return
+      }
+
+      var tmatch = rhs.match(/^(.*\S)\s+(\d+)$/)     // trailing integer: nominal
+      if(tmatch) {                                     // timeout in ms (all wires, §3)
+        wire_timeout = +tmatch[2]
+        rhs = tmatch[1]
       }
 
       if(lhs[0] == '@') lhs = lhs.slice(1)
@@ -4055,16 +4073,27 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
       }
 
       if(rkey) {
-        this_seed.routes.push([lkey, rkey])
-        this_seed.routes.push([rkey, lkey])
+        this_seed.routes.push(wire_timeout ? [lkey, rkey, wire_timeout] : [lkey, rkey])
+        this_seed.routes.push(wire_timeout ? [rkey, lkey, wire_timeout] : [rkey, lkey])
       } else {
-        this_seed.routes.push([lkey, rhs + '.in'])       // station implicit ports still use '.' internally
-        this_seed.routes.push([rhs + '.out', lkey])
+        this_seed.routes.push(wire_timeout ? [lkey, rhs + '.in', wire_timeout] : [lkey, rhs + '.in'])  // station implicit ports still use '.' internally
+        this_seed.routes.push(wire_timeout ? [rhs + '.out', lkey, wire_timeout] : [rhs + '.out', lkey])
       }
       return
     }
 
     if(/->/.test(line)) {                          // THINK: should this use continuations also?
+
+      var faf_timeout
+      var ftmatch = line.match(/^(.*\S)\s+(\d+)$/)   // trailing integer: nominal timeout
+      if(ftmatch && ftmatch[1].slice(-1) != '{') {     // in ms, applied to each hop (§3)
+        faf_timeout = +ftmatch[2]
+        line = ftmatch[1]
+      }
+
+      var push_route = function(r) {
+        this_seed.routes.push(faf_timeout ? r.concat(faf_timeout) : r)
+      }
 
       var route = []
       line.split('->').forEach(function(part, index) {
@@ -4111,7 +4140,7 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
               D.set_error('Port not found in line: ' + line)
               route = []
             } else {
-              this_seed.routes.push(route)
+              push_route(route)
               route = [part]                     // also becomes source for next route
             }
           } else {
@@ -4128,7 +4157,7 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
               route = []
             }
             else {
-              this_seed.routes.push(route)
+              push_route(route)
               route = [part + '.out']
             }
           }
@@ -4143,7 +4172,7 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
             route = []
           }
           else {
-            this_seed.routes.push(route)
+            push_route(route)
             route = [route[1]]          // a mid-chain port is the next hop's source
           }
         }
@@ -4320,7 +4349,7 @@ D.make_spaceseeds = function(seedlikes) {
         if(!one || !two)
           return []
 
-        return [one, two]
+        return route[2] ? [one, two, route[2]] : [one, two]
         // newseed.routes.push([port_key_to_index[route[0]], port_key_to_index[route[1]]])
       })
 

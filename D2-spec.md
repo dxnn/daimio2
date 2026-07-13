@@ -672,10 +672,14 @@ station_decl ::= name WS daml           -- single-line: processor {__ | add 1}
 -- Wiring ------------------------------------------------------
 
 wire_decl    ::= faf | contract | cmd_wire
-faf          ::= endpoint ('->' endpoint)+
+faf          ::= endpoint ('->' endpoint)+ (WS integer)?
                                         -- FAF: fire-and-forget [spacesyn-route]
-contract     ::= endpoint '<->' endpoint
+contract     ::= endpoint '<->' endpoint (WS integer)?
                                         -- contract: one out, one back
+                                        -- optional trailing integer on any wire:
+                                        -- its nominal timeout in ms
+                                        -- [wire-timeout-explicit]; omitted wires
+                                        -- accept the inherited/instance default
 cmd_wire     ::= name '@cmd:' glob '<->' endpoint (WS integer)?
                | name '@cmd:' glob '<->' '@cmd' (WS integer)?
                | name '@cmd:' glob
