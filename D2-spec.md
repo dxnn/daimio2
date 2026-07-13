@@ -1739,6 +1739,9 @@ socket transition drains the old subspace).
     out-ports: update DOM elements when ships exit.
   - `websock-in`, `websock-out` — in/out-ports for WebSocket
     communication.
+  - `clock` — down-port: the Outside's clock. Answers a
+    sleep-shaped request `{for, then}` with its `then` value once
+    `for` milliseconds have passed (§6 [effcmd-process-sleep]).
 
 **The flavour IS the handler.** There is no separate "handler
 map" passed in at space creation time. A space definition
@@ -2266,7 +2269,7 @@ surface.
 
 #### The stdlib's effectful commands
 
-Three commands ship with effects. Each is dialect-gated like any
+Four commands ship with effects. Each is dialect-gated like any
 command AND requires wiring — the dialect gates whether the command
 exists, the wiring gates whether its effect connects; unwired
 invocations sploot [effectful-unwired-sploot]. Every request is the
@@ -2293,6 +2296,16 @@ unanswered [timeout-resume-empty].
   asks the environment to bind a named variable. The canonical
   handler answers with the written value, so the pipeline continues
   with it (write-through).
+- **`{process sleep for 100 then :x}`** — request `{handler:
+  "process", method: "sleep", for: 100, then: "x"}`
+  [effcmd-process-sleep]: asks the environment to answer the `then`
+  value (usually the piped-in ship) once `for` milliseconds have
+  passed, resuming the pipeline where it left off. The canonical
+  handler is a `clock`-flavoured down port — the Outside's clock;
+  its deadline is a clock event like any timeout
+  [sched-timeout-event]. Time never comes from the engine: unwired,
+  a sleep sploots, and a sleep longer than its rule's timeout
+  resumes Empty like any request.
 
 The MEANING of a request is the handler's to provide — these entries
 fix the request shapes and the canonical conventions, not the
