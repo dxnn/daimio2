@@ -921,6 +921,11 @@ D.port_standard_exit = function(ship, process) {
   if(this.space && this.space.seed && this.space.seed.blackhole)
     return this.outside_exit(ship, sender)
 
+  // smashed socket content cannot emit: a late response from a destroyed
+  // process is a ghost [socket-smash]
+  if(this.space && this.space._smashed)
+    return D.set_error('Ghost ship: output from smashed socket content')
+
   // THINK: this makes the interface feel more responsive on big pages, but is it the right thing to do?
   if(this.space)
     for(var i=0, l=outs.length; i < l; i++)
@@ -979,6 +984,18 @@ D.port_standard_enter = function(ship, process) {
   // sender. [sender-attach-entry] [sender-attach-no-override]
   if(!sender && !this.space && this.pair && this.pair.space)
     sender = D.entry_sender(this.pair, this)
+
+  // no new ship enters draining content: it buffers at the socket and
+  // releases into the fresh content after the swap [socket-drain]
+  if(this.pair && this.pair.space && this.pair.space._drain_pending) {
+    this.pair.space._drain_buffer.push({ port: this, ship: ship, sender: sender, number: number })
+    return
+  }
+
+  // a smashed content's boundary is severed: anything still crossing in
+  // is a ghost [socket-smash]
+  if(this.pair && this.pair.space && this.pair.space._smashed)
+    return D.set_error('Ghost ship: arrival at smashed socket content')
 
   // ── Round-trip port occupancy ──────────────────────────────────────
   // A spaced round-trip pair (up/down flavour, both halves live in
@@ -2831,6 +2848,32 @@ D.socket_load = function(port, src, mode) {
   if(newseed.blackhole)                             // [blackhole-no-socket-load] (load side)
     return D.set_error('Socket load splooted: a black hole cannot be loaded')
 
+  var busy = old && (old.processes.length || old.queue.length || old._drain_pending)
+
+  if(mode == 'drain' && busy) {
+    // the old content finishes its in-flight work first; ships arriving
+    // mid-drain buffer at the socket (numbers unchanged [sched-hop-free])
+    // and release into the new content when it lands [socket-drain]. The
+    // swap fires from cleanup() when the old content goes idle — bounded
+    // by the in-flight work's own timeouts, so a drain cannot hang.
+    old._drain_pending = { parent: parent, idx: idx, seed_id: seed_id }
+    old._drain_buffer = old._drain_buffer || []
+    return
+  }
+
+  if(busy) {
+    // smash: the old content is destroyed at once — svars, queued and
+    // in-flight ships; a waiting process ceases to matter and its later
+    // response ghosts at the severed boundary [socket-smash]
+    old._smashed = true
+    old.processes = []
+    old.queue = []
+  }
+
+  D.perform_socket_swap(parent, idx, seed_id, old)
+}
+
+D.perform_socket_swap = function(parent, idx, seed_id, old) {
   var fresh = new D.Space(seed_id, parent, undefined, old && old.name)
   parent.subspaces[idx] = fresh
 
@@ -3171,6 +3214,22 @@ D.Space.prototype.cleanup = function(process) {
   }
 
   this.run_queue()
+
+  // a pending drain swaps once the old content is idle; buffered ships
+  // release into the new content in key order via the delivery heap
+  // [socket-drain] [sched-hop-free]
+  if(this._drain_pending && this.is_idle()) {
+    var pend = this._drain_pending
+      , buffered = this._drain_buffer || []
+    this._drain_pending = null
+    this._drain_buffer = []
+    D.perform_socket_swap(pend.parent, pend.idx, pend.seed_id, this)
+    buffered.forEach(function(b) {
+      D.schedule_delivery(b.number, function() {
+        b.port.enter(b.ship, { sender: b.sender, number: b.number })
+      })
+    })
+  }
 }
 
 D.Space.prototype.run_queue = function() {

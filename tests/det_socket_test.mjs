@@ -8,7 +8,7 @@
 // Delivery: socket_load(port, src) sends the Astroglot to an outer port
 // wired to the slot's port-like.
 
-import { det_test, arrive, socket_load, known_failures, run } from './det_harness.mjs'
+import { det_test, arrive, socket_load, respond_now, known_failures, run } from './det_harness.mjs'
 
 // [socket-load-replace] valid Astroglot replaces the subspace's content; a
 // later ship through the slot exercises the NEW content. The sent label is
@@ -116,18 +116,68 @@ det_test('socket-load: invalid Astroglot sploots and leaves content untouched [s
   assert: function(t, e) { e.outputs('out', ['ORIGINAL']) },
 })
 
+// ── Transitions under busy content ─────────────────────────────────────────
+// Busy = the content's station is waiting on an effectful request parked at
+// an unscripted det-world port (rule slot@cmd:var:* <-> @world).
+
+// [socket-smash] the new content replaces the old AT ONCE: the old waiting
+// process ceases to exist and its later response ghosts; the next ship
+// exercises the new content.
+det_test('socket-smash: busy old content is destroyed; late response ghosts [socket-smash]', {
+  seed: `outer
+    @go from-js
+    @load from-js
+    @out det-out
+    @world det-world
+    !slot
+      body {var read-out name :x | logic if then :OLD-GOT else :OLD-EMPTY}
+      @in:x -> body -> @out:y
+    slot@cmd:var:* <-> @world
+    @load -> slot@socket-load-smash
+    @go -> slot@in:x
+    slot@out:y -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'first'),                                    // docks, waits at @world
+    socket_load('load', 'x\n  body {:NEW}\n  @in:x -> body -> @out:y'),
+    arrive('go', 'second'),                                   // exercises the NEW content
+    respond_now('world', '42'),                               // late: the old waiter is gone
+  ],
+  assert: function(t, e) { e.outputs('out', ['NEW']) },
+})
+
+// [socket-drain] (default) the old content finishes its in-flight work first;
+// ships arriving mid-drain buffer at the socket and release into the new
+// content; nothing in flight is lost.
+det_test('socket-drain: old content finishes, buffered arrivals release into new [socket-drain]', {
+  seed: `outer
+    @go from-js
+    @load from-js
+    @out det-out
+    @world det-world
+    !slot
+      body {var read-out name :x | logic if then :OLD-GOT else :OLD-EMPTY}
+      @in:x -> body -> @out:y
+    slot@cmd:var:* <-> @world
+    @load -> slot@socket-load
+    @go -> slot@in:x
+    slot@out:y -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'first'),                                    // docks, waits at @world
+    socket_load('load', 'x\n  body {:NEW}\n  @in:x -> body -> @out:y'),
+    arrive('go', 'second'),                                   // buffers at the draining socket
+    respond_now('world', '42'),                               // old completes: OLD-GOT, then swap +
+  ],                                                          // the buffered ship exercises NEW
+  assert: function(t, e) { e.outputs('out', ['OLD-GOT', 'NEW']) },
+})
+
 run()
 
-// ── Deferred transition guides (same triple block + more) ──────────────────
-// [socket-drain] (default) the old content finishes its active process and its
-//   queue in key order; ships arriving mid-drain buffer (numbers unchanged) and
-//   release into the new content, re-docking by max(counter,#)+1; nothing in
-//   flight is lost. Needs a BUSY old content (a down-port wait) => round-trip
-//   routing + virtual time, on top of the triple block.
-// [socket-smash] the new content replaces the old at once; old svars + all
-//   non-exited ships are destroyed; a process waiting on a down-port ceases to
-//   exist and its later response ghosts. Same heavy deps.
+// ── Deferred transition guides ──────────────────────────────────────────────
 // [sched-transition-keys] a transition is deterministic (byte-identical replay
-//   for a fixed schedule + response script).
-// [blackhole-no-socket-load] (runtime) loading a (( )) black hole borks the
-//   load. (The DEFINITION-form bork is already in space_test.)
+//   for a fixed schedule + response script) — needs det_replay over a
+//   transition schedule with respond_now support.
+// [blackhole-no-socket-load] (runtime) loading a *name black hole sploots the
+//   load. (The DEFINITION-form bork is already in space_test; the sploot path
+//   is covered by D.socket_load's check, untested pending a hole-source guide.)
