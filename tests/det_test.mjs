@@ -164,6 +164,97 @@ det_test('scheduler: a timeout resume renumbers at the frontier [sched-reentry-u
   },
 })
 
+// [sched-tie-wire] Equal numbers resolve by the declaration order of the
+// carrying wire in the space's source. Two sibling subspaces dock at equal
+// numbers (independent counters) and both emit toward the parent's sink;
+// the sink wire declared FIRST (w2's) wins the tie, regardless of the
+// injection order that fed the heap.
+det_test('scheduler: equal numbers dock by wire declaration order [sched-tie-wire]', {
+  seed: `outer
+    @go1 from-js
+    @go2 from-js
+    @out det-out
+    +w1
+      @in
+      @out
+      s1 {__}
+      @in -> s1 -> @out
+    +w2
+      @in
+      @out
+      s2 {__}
+      @in -> s2 -> @out
+    sink {__}
+    @go1 -> w1@in
+    @go2 -> w2@in
+    w2@out -> sink
+    w1@out -> sink
+    sink -> @out`,
+  schedule: [ batch(
+    arrive('go1', 'A', { number: 5 }),
+    arrive('go2', 'B', { number: 5 }),
+  ) ],
+  assert: function(t, e) { e.outputs('out', ['B', 'A']) },
+})
+
+// [sched-wire-fifo] A single wire is a FIFO channel: equal-numbered ships on
+// the same wire dock in emission order. GREEN control.
+det_test('scheduler: a single wire docks in emission order [sched-wire-fifo]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    sink {__}
+    @go -> sink -> @out`,
+  schedule: [ batch(
+    arrive('go', 'x', { number: 5 }),
+    arrive('go', 'y', { number: 5 }),
+  ) ],
+  assert: function(t, e) { e.dockValues(['x', 'y']) },
+})
+
+// [sched-advance] A lower-numbered ship still in flight (mid-chain, one hop
+// upstream) docks at the convergence point before a higher-numbered ship
+// whose delivery was already pending. GREEN since the heap pops globally
+// lowest-first.
+det_test('scheduler: advance — an in-flight lower number beats a pending higher [sched-advance]', {
+  seed: `outer
+    @go1 from-js
+    @go2 from-js
+    @out det-out
+    relay {__}
+    sink {__}
+    @go1 -> sink
+    @go2 -> relay -> sink
+    sink -> @out`,
+  schedule: [ batch(
+    arrive('go1', 'H', { number: 9 }),
+    arrive('go2', 'L', { number: 4 }),
+  ) ],
+  assert: function(t, e) { e.outputs('out', ['L', 'H']) },
+})
+
+// [sched-entry-frontier] A self-feeding loop cannot starve fresh external
+// arrivals: the external ship enters at the boundary frontier, below the
+// loop's ever-rising numbers, so it docks at the next opportunity. GREEN
+// control (the loop counts 1→4 via its own @again port; EXT interleaves
+// right after the first iteration).
+det_test('scheduler: self-feed never starves an external arrival [sched-entry-frontier]', {
+  seed: `outer
+    @go from-js
+    @in2 from-js
+    @out det-out
+    loop {__ | add 1 | >n || _n | less than 4 | then "{_n | >@again}" else "" | run || _n}
+    pass {__}
+    loop.again -> loop
+    @go -> loop -> @out
+    @in2 -> pass -> @out`,
+  schedule: [ batch(
+    arrive('go', 0),
+    arrive('in2', 'EXT'),
+  ) ],
+  assert: function(t, e) { e.dockValues([0, 'EXT', 1, 2, 3]) },
+})
+
 // [sched-ship-vtime] A ship's number is carrier metadata, never payload — no
 // DAML expression can recover it. GREEN and stable.
 det_test('scheduler: a ship number is carrier metadata, not payload [sched-ship-vtime]', {

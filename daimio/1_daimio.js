@@ -821,14 +821,16 @@ D.send_value_to_js_port = function(space, port_name, value, port_flavour, sender
 
 
 // ── Deterministic dispatch ───────────────────────────────────────────
-// Every deferred ship delivery is keyed (number, seq): number is the
+// Every deferred ship delivery is keyed (number, wire, seq): number is the
 // emitting process's scheduler number (virtual time, carrier metadata like
-// sender — never payload [sched-ship-vtime]); seq is a global monotone
-// tiebreak that keeps per-wire FIFO. schedule_delivery still defers one
-// D.setImmediate tick per item (the det harness counts those for settle),
-// but each tick delivers the LOWEST pending item, not the one that
-// scheduled it — so a space docks its lowest-numbered pending ship next.
-// [space-queue] [sched-dock-lowest]
+// sender — never payload [sched-ship-vtime]); wire is the carrying wire's
+// declaration ordinal in its space's source (no-wire deliveries sort after
+// all wired ones at their number [sched-tie-wire]); seq is a global
+// monotone tiebreak that keeps per-wire FIFO [sched-wire-fifo].
+// schedule_delivery still defers one D.setImmediate tick per item (the det
+// harness counts those for settle), but each tick delivers the LOWEST
+// pending item, not the one that scheduled it — so a space docks its
+// lowest-numbered pending ship next. [space-queue] [sched-dock-lowest]
 
 // ── Virtual-time timeouts ────────────────────────────────────────────
 // A timeout is a clock event [sched-timeout-event]: deadlines register
@@ -865,12 +867,14 @@ D.Etc.delivery_heap = []
 D.Etc.delivery_seq = 0
 
 var delivery_before = function(a, b) {
-  return a.n < b.n || (a.n == b.n && a.s < b.s)
+  return a.n < b.n
+      || (a.n == b.n && (a.w < b.w
+      || (a.w == b.w && a.s < b.s)))
 }
 
-D.schedule_delivery = function(number, fn) {
+D.schedule_delivery = function(number, fn, wire_ordinal) {
   var heap = D.Etc.delivery_heap
-    , item = {n: number || 0, s: D.Etc.delivery_seq++, fn: fn}
+    , item = {n: number || 0, w: wire_ordinal === undefined ? Infinity : wire_ordinal, s: D.Etc.delivery_seq++, fn: fn}
     , i = heap.length
 
   heap.push(item)
@@ -931,7 +935,7 @@ D.port_standard_exit = function(ship, process) {
     for(var i=0, l=outs.length; i < l; i++)
       D.schedule_delivery(number, function(out) {
         return function() { out.enter(ship, {sender: sender, number: number}) }
-      }(outs[i]))
+      }(outs[i]), this.out_ordinals[i])
   else
     this.outside_exit(ship, sender) // ORLY? No delay?
 }
@@ -2657,6 +2661,7 @@ D.Port = function(port_template, space) {
   var port = Object.create(pflav)
 
   port.outs = []
+  port.out_ordinals = []                  // per-out: the carrying wire's declaration ordinal [sched-tie-wire]
   port.name = name
   port.space = space
   port.flavour = flavour
@@ -2762,10 +2767,12 @@ D.Space = function(seed_id, parent, prng_seed, name) {
   // add all the ports at once
   this.ports = seed.ports.map(function(port, index) {return new D.Port(port, self)})
 
-  // add outs to ports; a wire's nominal timeout stamps the round-trip
-  // ports it touches [wire-timeout-explicit]
-  seed.routes.forEach(function(route) {
+  // add outs to ports; each out remembers its wire's declaration ordinal
+  // (the tie-break key [sched-tie-wire]); a wire's nominal timeout stamps
+  // the round-trip ports it touches [wire-timeout-explicit]
+  seed.routes.forEach(function(route, ri) {
     self.ports[route[0]-1].outs.push(self.ports[route[1]-1])
+    self.ports[route[0]-1].out_ordinals.push(ri)
     if(route[2]) {
       ;[self.ports[route[0]-1], self.ports[route[1]-1]].forEach(function(p) {
         if(p.dir == 'up' || p.dir == 'down') p._wire_timeout = route[2]

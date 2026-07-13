@@ -1262,7 +1262,7 @@ space_test(
 )
 
 // State persists across ships entering different ports
-// [I6]
+// [I6] [sched-tie-wire]
 space_test(
   'state: mutations from different entry ports accumulate',
   `outer
@@ -1279,8 +1279,10 @@ space_test(
   ],
   3,
   function(collected) {
-    // $log accumulates: ["1A"], ["1A","2B"], ["1A","2B","3A"]
-    assert_eq('state: final log', collected.out[2], '["1A","2B","3A"]')
+    // All three sends inject back-to-back (frontier 0, equal numbers), so
+    // the tie resolves by wire declaration order then FIFO within the wire
+    // [sched-tie-wire]: @a's ships (1A, 3A) dock before @b's (2B).
+    assert_eq('state: final log', collected.out[2], '["1A","3A","2B"]')
   }
 )
 

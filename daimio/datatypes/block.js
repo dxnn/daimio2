@@ -21,7 +21,7 @@ D.import_type('block', function(value) {
       for(var key in scope)                                  // caller scope overrides
         inherited[key] = scope[key]
 
-      return space.real_execute(D.BLOCKS[value.value.id], inherited, prior_starter, station_id, process && process.sender)
+      return space.real_execute(D.BLOCKS[value.value.id], inherited, prior_starter, station_id, process && process.sender, process && process.number)
     }
   }
   else {
