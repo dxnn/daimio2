@@ -369,6 +369,35 @@ det_test('occupancy: unrequested ship at a free down-port ghosts [upport-ghost-a
   },
 })
 
+// ── Error-ship identity: source names, never runtime handles ──────────────
+// §12: an error ship's value is a string, and any identifiers in it are
+// source-derived (qnames / cmd names) — never runtime handles (I16)
+// [id-internal-handles]. An unwired effectful command sploots, and its error
+// names the cmd:handler:method verbatim from source. The `err:out:err` key
+// is the det-err flavour recording the ship the runtime routes to @out:err.
+det_test('error ship names the source cmd, not a handle [id-internal-handles]', {
+  seed: `outer
+    @go from-js
+    @out:err det-err
+    boom {time now}
+    @go -> boom`,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) {
+    e.outputs('err:out:err', ['Unwired effectful command "time now"'])
+  },
+})
+
+// Given identical topology and inputs, error ships are byte-identical across
+// runs [id-deterministic] — the whole trace (the err entry included) matches.
+det_replay('error ships replay byte-identical [id-deterministic]', {
+  seed: `outer
+    @go from-js
+    @out:err det-err
+    boom {time now}
+    @go -> boom`,
+  schedule: [ arrive('go', 'x') ],
+})
+
 // ── Known failures (RED guides) ──────────────────────────────────────────
 // (empty — the poke scalar guides went green with the pathfinder refactor)
 
@@ -382,6 +411,8 @@ run()
 // [request-cycle-timeout]); qnames + dock numbers ride the dock hook
 // ([qname-structure] [qname-anon-station]); sender-at-entry is in
 // det_sender_test.mjs; black holes / socket-load in det_blackhole_test.mjs /
-// det_socket_test.mjs. Still open:
-//   [id-deterministic]  error ships don't name qnames yet (§12 follow-up), so
-//                       their byte-identical replay isn't pinned.
+// det_socket_test.mjs.
+//   [id-deterministic] LANDED 2026-07-13: error ships name only source-derived
+//   identifiers (the engine's soft errors carry cmd:handler:method / port /
+//   station names, never runtime handles [id-internal-handles]); pinned above
+//   by the unwired-sploot error-string + byte-identical replay tests.
