@@ -275,26 +275,28 @@ Remaining: (nothing — the two below both landed)
 - **Cross-boundary `var read-out`/`var write-out`** — once B routes, these reach
   the **parent's** state, not the caller's (today's `fun` reads the caller's own
   space). `[socket-crossboundary-var]`.
-- **Seedlike `<->` parser hardening** (reviewer-reported) — `seedlikes_from_string`
-  (1_daimio.js:3234) assumes `port <-> station`: it mints a port from *any* LHS token (with a
-  garbage direction) and always appends `.in`/`.out` to the RHS as if it were a station. So
-  station-first `A <-> @down:svc` silently mints a bogus port `A` + malformed routes (no error),
-  and port-on-RHS contracts (`S@down <-> T@up`, per §6) also misparse. A **subspace-qualified
-  LHS** (`worker.down:svc <-> proc`, per §6) hits the same path: it mints a bogus port named
-  `worker.down:svc` with direction `worker.down` — confirmed 2026-07-07 while adding subspace
-  down ports to the layout engine (had to wire fixtures with FAF `->` instead). Fix: reject a
-  `<->` whose LHS isn't a valid Enter-N-Exit port, and handle RHS ports — enforce the §3 contract
-  signal-type bork instead of failing silently. Fail loud, not silent.
-- **Inline block on `<->` RHS is silently dropped** (found 2026-07-07) — the `<->` branch of
-  `seedlikes_from_string` (1_daimio.js:3234) pushes routes referencing `{…}.in`/`.out` but,
-  unlike the FAF `->` branch (line ~3259), never registers the anonymous `{…}` as a station. So
-  `@up:svc <-> {__ | add 1}` produces routes to a station that doesn't exist; `resolve_endpoint`
-  returns null, the connection is skipped, and the contract vanishes with no error (the port
-  renders as an unwired standalone). Fix: mint a `station-<n>` for a `{…}` RHS (and LHS) in the
-  `<->` branch, mirroring the FAF branch. Fail loud or, better, just handle it.
+- **Seedlike `<->` parser hardening — LANDED 2026-07-13.** The reviewer-reported
+  fail-silent bugs were already fixed during the signal-flip rework: station-first
+  LHS (`A <-> @down:svc`) borks, port-on-RHS (`S@down <-> T@up`) and
+  subspace-qualified LHS (`worker@down:svc <-> proc`) route correctly, and an
+  inline `{block}` on either side is minted as a station. This session added the
+  remaining piece — strict §3 signal-type enforcement (D2-spec.md:2096-2098): a
+  contract LHS must be Enter-N-Exit (my `@up`, a child's `@down`/`@cmd`) and the
+  RHS Exit-N-Reenter (my `@down`, a child's `@up`) or a station. Previously a
+  DECLARED my-own `@down` slipped through as LHS and a declared my-own `@up`/one-way
+  port slipped through as RHS. Now both bork (1_daimio.js contract branch;
+  guides in space_test [roundtrip-enex-lhs]). Three fixtures used the invalid
+  own-`@down`-as-LHS shape (dann ruled them bad); rewritten to valid down/up
+  contracts and regenerated (down-port-contract, subspace-up-proc/-station).
 
 ## Space layout: vertical-to-vertical port contracts
 
+- **Minimal crash repro (2026-07-13):** `@up:req <-> @down:fwd` in one space —
+  a valid contract pairing two wall ports (top `@up`, bottom `@down`) — throws
+  in `render_space` (`space_ascii.js:68`, `grid[y]` undefined) rather than
+  mis-routing. Any vertical-to-vertical contract fixture must avoid this until
+  the route below is built; the down-port-contract fixture uses a subspace-down
+  contract (down `^v` on a box edge, handled by a parent station) instead.
 - **A contract between two round-trip ports mis-routes to a side + orphans a glyph**
   (found 2026-07-07, `site/js/space_layout.js`). When a connection joins a wall vertical
   port and a subspace down port — e.g. `@down <-> inner.down`, which should desugar to
