@@ -77,8 +77,7 @@ det_test('scheduler: fan-in docks by wire-declaration order [sched-tie-wire]', {
 
 // [sched-dock-lowest] A space docks its lowest-numbered pending ship next.
 // Batch three numbered arrivals at one station; they must dock in NUMBER
-// order (4,7,9), not injection order (9,4,7). RED: numbers are ignored today,
-// so they dock FIFO.
+// order (4,7,9), not injection order (9,4,7). GREEN since the scheduler landed.
 det_test('scheduler: docks lowest-numbered pending ship first [sched-dock-lowest]', {
   seed: `outer
     @go from-js
@@ -95,7 +94,7 @@ det_test('scheduler: docks lowest-numbered pending ship first [sched-dock-lowest
 
 // [sched-dock-max] On docking, the process's number = max(space counter,
 // ship number) + 1. A fresh space (counter 0) docking a ship numbered 2 gives
-// number 3. RED: ships carry no number today, so the dock trace has none.
+// number 3. GREEN since the scheduler landed (dock renumbering).
 det_test('scheduler: dock number = max(counter, ship number) + 1 [sched-dock-max]', {
   seed: `outer
     @go from-js
@@ -119,7 +118,7 @@ det_test('scheduler: a ship number is carrier metadata, not payload [sched-ship-
 })
 
 // [qname-anon-station] Anonymous inline stations get qnames s1, s2 in source
-// order. RED: the dock trace has no qname yet (falls back to the raw id).
+// order. GREEN since qnames landed (2026-07-12).
 det_test('scheduler: anonymous stations get qnames s1, s2 in source order [qname-anon-station]', {
   seed: `outer
     @go from-js
@@ -129,7 +128,7 @@ det_test('scheduler: anonymous stations get qnames s1, s2 in source order [qname
   assert: function(t, e) { e.dockTargets(['s1', 's2']) },
 })
 
-// [qname-structure] A station's qname is its space path + name. RED: no qname yet.
+// [qname-structure] A station's qname is its space path + name.
 det_test('scheduler: a station qname is its space path plus name [qname-structure]', {
   seed: `outer
     @go from-js

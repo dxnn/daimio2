@@ -91,8 +91,7 @@ D.import_port_flavour('det-err', {
 })
 
 // Mock world for `respond`: services an outward request on a down/command
-// port with the next scripted response for that port.  (v1: down-port
-// round-trips aren't implemented, so respond-based tests are RED.)
+// port with the next scripted response for that port.
 D.import_port_flavour('det-world', {
   dir: 'out',
   outside_exit: function(ship, callback) {

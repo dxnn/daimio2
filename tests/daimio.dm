@@ -1155,7 +1155,7 @@
   push via union; poke with no path replaces
     {(1 2 3 4) | >$ints}
       [1,2,3,4]
-    {5 | >$ints.{$ints | count}}  {// (DATA BUG) //}
+    {5 | >$ints.{$ints | count}}
       5
     {$ints | poke 6}
       6
@@ -1184,7 +1184,7 @@
       {1234 | >$qwe.rty}
         1234
 
-    the second set should override the first one (DATA BUG)
+    the second set replaces the scalar with a keyed list [poke-key-scalar-affine]
       {"{:foo}x" | >$xxx || 123 | >$xxx.y | $xxx}
         {"y":123}
     pos poke on block (scalar) is no-op; block is finalized at end of pipeline [poke-pos-scalar]
@@ -1895,7 +1895,7 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
 
   <h3>GROUP</h3>
 
-    THINK: these values are all correct, but they're keyed instead of simple arrays. and, hence, sorted poorly. (DATA BUG)
+    group by returns a keyed list: each key is a group, sorted by key [groupby-keyed]
 
     {(1 2 3 4 5 6) | list group by "{__ | mod 2}"}
       {"0":[2,4,6],"1":[1,3,5]}
@@ -2130,7 +2130,7 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
     {(3 2 4 1) | list reverse}
       [1,4,2,3]
 
-    This smashes keys currently (DATA BUG)
+    reverse preserves key associations on keyed lists
       {* (:x 3 :y 2 :z 4 :q 1) | list reverse}
         {"q":1,"z":4,"y":2,"x":3}
 
@@ -2170,7 +2170,7 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
       {* (:c 3 :b 2 :a 4) | >l | list keys | sort | map block "{_l.{_value}}"}
         [4,2,3]
 
-    sort should preserve keys (DATA BUG)
+    sort preserves key associations on keyed lists
       {* (:c 3 :b 2 :a 1) | list sort}
         {"a":1,"b":2,"c":3}
 
@@ -2414,7 +2414,7 @@ Tests for pass-by-value. Changing a Daimio variable shouldn't change other varia
     5 x [1,2,3,4]
 
 Tests for self-reference. PBV cures these ills.
-Poke should be returning the poked value, not the whole tree. (DATA BUG)
+>$x.path passes the piped value through; the svar holds the poked tree.
   {* (:a 1 :b 2) | >$x | >$x.c}
     {"a":1,"b":2}
   {$x | >$x.d}

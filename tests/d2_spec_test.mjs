@@ -3403,7 +3403,7 @@ test(
 )
 
 // =====================================================
-// §6 Dynamic svar access: {var read} / {var write}  (RED — not yet implemented)
+// §6 Dynamic svar access: {var read} / {var write}
 // =====================================================
 
 test(

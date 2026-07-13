@@ -37,6 +37,34 @@ Add items freely.
 
 ## Major engine work (detailed)
 
+### C. Space label sigils + lexical scope + socket port-likes (spec §3/§8, merged 2026-07-12)
+
+The sigil spec is merged (commit 80afcd1; decision trail in
+extra/coverage/DECISIONS.md + design/audit-spec-patches-draft.md); the
+engine still parses the old forms. To build, in seedlikes_from_string
+and friends:
+- Label sigils: `*name` black hole at top level or nested (blackhole
+  flag on the seedlike → make_spaceseeds); `+name` / `!name` nested
+  only; `+`/`!` at column 0 bork; a BARE nested block whose body has
+  space structure borks [spacesyn-sigil-required] (replaces today's
+  silent structural inference).
+- Two-layer lexical scope: per-space name resolution (own sigil-defined
+  children, else earlier top-level), shadowing local to the defining
+  space, collision = shadow never merge [spacesyn-scope-two-layer]
+  [spacesyn-shadow-local]. Kills the current file-scope leak + merge.
+- Sockets: `!name` mints the two implicit port-likes
+  (name@socket-load / name@socket-load-smash) [socket-portlike-*];
+  socket-load flavour no longer exists; runtime loads sploot
+  [socket-load-sploot]; parse the endpoint form (reserved names in
+  @-position). Reframe det_socket guides from content-declared ports
+  to frame port-likes.
+- Migration in the same commits: nested-form tests gain `+`; blackhole
+  guides already use `*` (red); ASCII layout/parse + fixtures follow
+  LATER (non-normative per dann; emission format decision pending).
+- RED guides waiting: the two [spacesyn-sigil-required] parse guides,
+  [blackhole-*] set, [socket-portlike-implicit], [socket-load-not-root],
+  [blackhole-ref-bare] (all in space_test).
+
 These are the two big unlocks; almost every RED guide in the determinism suite
 is waiting on one of them. Each lists what to build, where, and which tests go
 green when it lands.

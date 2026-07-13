@@ -316,20 +316,21 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
-## Test status (as of 2026-07-12)
+## Test status (as of 2026-07-12, end of session)
 
-- d2_spec_test: 426/434 pass (8 known RED guides: list delete/values,
-  awaiting the pathfinder visit)
-- daimio_test: 829/843 pass (14 known failures)
-- node_code: 86/86 pass
-- security_test: 179/179 pass
-- space_test: 162 pass, 7 known spec-gap failures, 0 new
+- d2_spec_test: 434/434 pass (0 known)
+- daimio_test: 842/843 pass (1 known: the [peek-par] fold guide — par
+  semantics decision pending, see extra/coverage/DECISIONS.md)
+- node_code: 87/87 pass
+- security_test: 172/172 pass (closed-space tests removed)
+- space_test: 161 pass, 10 known (sigil/blackhole/socket compile borks
+  awaiting the sigil parser; err-match-by-name; serialize; false sentinel)
 - det suites: det_time 3/3, det_world 3/3, det_sender 6/7 (sender-attach-entry
-  needs qnames), det_test 11/15 (4 known: poke-WRONG ×2, qname ×2),
+  needs the entry-attachment rule), det_test 15/15,
   det_blackhole / det_socket per their known sets
 - space_ascii_test: 421/421 pass (59/59 fixtures round-trip; fixture sources
   and parse emission now use name@port endpoints)
-- example_test: 106/106 pass
+- example_test: 110/110 pass (delete/values examples added)
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass
 
@@ -346,9 +347,16 @@ renders are identical because labels never reach the picture.
   (+nested/*hole/!socket, lexical scoping, implicit socket port-likes),
   closed-space dropped for [app-entry-outside-only], process
   dialect/aliases as effective-dialect reflection.
-- PRNG derivation (task) discovered to need subspace names in the compiled
-  seed — same format addition qnames need; ride together, ask re seed-hash
-  invariants first.
+- Second half (dann AFK, queue pushed through): four spec patches APPLIED
+  to D2-spec.md (sigils/sockets/dialect/reflection — engine work for
+  sigils is TODO item C, red guides staged); closed-space flag removed
+  ([app-entry-outside-only]); qnames landed (seeds carry source-order
+  station/subspace names, dock hook exposes qname, anons s1/s2) + PRNG
+  now derived per space (hash(parent_seed, name)); pathfinder
+  scalar/Empty refactor + list delete/values landed with full test
+  reconciliation. NEW OPEN DECISION: [peek-par] fold vs the corpus's
+  designed par STAGING — staging kept, one red guide marks it, dann to
+  rule (extra/coverage/DECISIONS.md).
 
 ### 2026-07-08 session: engine features landed
 - Nested subspace parsing (indented block with structure → child spaceseed)
@@ -367,11 +375,14 @@ renders are identical because labels never reach the picture.
   so the det harness settle counting holds); dock hook exposes number
 
 ### Known failure root causes
-- **daimio_test (14)**: 11x peek-scalar (Pos/Key on scalar yields scalar instead of Empty),
-  1x poke-key-unkeyed-fail, 2x poke-pos-scalar (Pos on scalar coerces to list)
-- **space_test (7)**: black-hole / socket-load / cmd-port compile borks (4),
-  err-match-by-name, serialize, 1x k_variable.js `false` sentinel for
-  unbound svar
+- **daimio_test (1)**: the [peek-par] fold guide — the merged spec's par
+  formula (fold: sub-paths extend with the remaining path) conflicts with
+  the corpus's designed series/parallel STAGING semantics (the "Series
+  and parallel" tutorial chapter). Staging kept in the engine; decision
+  pending (extra/coverage/DECISIONS.md).
+- **space_test (10)**: sigil / black-hole / socket compile borks awaiting
+  the sigil parser (TODO item C), err-match-by-name, serialize, 1x
+  k_variable.js `false` sentinel for unbound svar
 
 ## Provisional spec decisions (revisit later)
 - **Block in a space variable → serialized as a dead string.** A block held

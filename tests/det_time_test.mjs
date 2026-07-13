@@ -37,7 +37,7 @@ det_replay('time: {time now} is byte-identical under a frozen clock [sched-deter
   now: 1600000000000,
 })
 
-// ── cmd:time:now port routing (RED until effectful round-trips work) ──
+// ── cmd:time:now port routing (GREEN since effectful round-trips landed) ──
 // {time now} is effectful — its value should come from the Outside via its
 // cmd:time:now port. Wire that port to a handler that answers with a known
 // time; the pipeline should then use the HANDLER's value, not the local clock.

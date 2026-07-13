@@ -3063,6 +3063,14 @@ production in the grammar. The tokenizer recognizes `*` as a
 valid token despite not matching `name`; it is then expanded
 during munging like any other alias (`[alias-expand-munge]`).
 
+**Collection-shape rules for stdlib commands.** This spec does not
+enumerate every stdlib command (canonical per-command behavior lives
+in the tested examples — `example_test`); it does pin the shape
+decisions: `list group by` returns a KEYED list, one group per key,
+sorted by key [groupby-keyed]; order-mutating commands (`list
+sort`, `list reverse`) preserve key associations on keyed lists —
+they reorder pairs, never strip keys [order-ops-preserve-keys].
+
 Ideally, the distinction would be invisible to the end user: anything
 you want to do with a collection, you should be able to do. Achieving
 this idyll is non-trivial. There are sharp edges on interop and
@@ -5009,11 +5017,12 @@ parameter level: allow `db query` but deny `sql` values matching
 certain patterns, or allow `asset send` only to whitelisted
 recipients.
 
-### Remove the exec port
+### Remove the exec port — DONE
 
-The exec port is a legacy mechanism for running dynamic code with
-metadata threading (the "secret" hack). The sender model makes it
-obsolete: sender identity propagates automatically through all
+(Removed; retained for the rationale.) The exec port was a legacy
+mechanism for running dynamic code with metadata threading (the
+"secret" hack). The sender model made it obsolete: sender identity
+propagates automatically through all
 ports, and dynamic code execution is handled by
 `{process unquote | process run}` with explicit pipeline data
 flow. Removing exec eliminates three core hacks (secret stashing

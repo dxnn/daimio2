@@ -5,9 +5,8 @@
 //     same path det-out uses) — a green anchor for the mechanism.
 //   - round-trip (request/response): an effectful command's cmd: port routes
 //     through the parent's <-> wiring to a handler / the world, which returns
-//     one response. Routing is unimplemented today (a <->-wired request never
-//     reaches its target and sploots), so those guides are RED. The det-world
-//     flavour + respond() scaffolding are ready for when routing lands.
+//     one response. Round-trip routing landed 2026-07-08..12 (cmd rules,
+//     port occupancy) — these guides are GREEN.
 
 import { det_test, arrive, respond, world_in, known_failures, run } from './det_harness.mjs'
 
@@ -41,7 +40,7 @@ det_test('world: an effectful request receives its scripted response [roundtrip-
 })
 
 // [P-singleresponse] Only the first response to a round-trip counts; a second
-// is a ghost. RED: routing unimplemented (can't deliver even the first).
+// is a ghost.
 det_test('world: only the first response to a round-trip counts [P-singleresponse]', {
   seed: `outer
     @go from-js
