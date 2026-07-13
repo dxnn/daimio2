@@ -12,6 +12,8 @@
 
 import { det_test, arrive, sender, known_failures, run } from './det_harness.mjs'
 
+var D = (await import('../daimio/daimio.js')).default
+
 var ECHO = `outer
   @go from-js
   @out det-out
@@ -93,8 +95,26 @@ det_test('sender: a senderless ship takes the entry port qname as sender [sender
   assert: function(t, e) { e.outputs('out', ['@in:go']) },
 })
 
+// [sender-attach-registry] — a sender registered under the entry port's
+// qname is attached instead of the default, carrying its attenuated
+// dialect: {math add} is blocked for bob, so calc sploots to ''.
+if(D.register_sender)
+  D.register_sender('@in:reg', sender('bob', { math: ['add'] }))
+det_test('sender: a registered sender attaches at its entry port [sender-attach-registry]', {
+  seed: `outer
+    @reg from-js
+    @out det-out
+    who {process sender}
+    calc {math add value 1 to 2}
+    @reg -> who -> @out
+    @reg -> calc -> @out`,
+  schedule: [ arrive('reg', 'x') ],
+  assert: function(t, e) { e.outputs('out', ['bob', '']) },
+})
+
 ;[
   'sender: a senderless ship takes the entry port qname as sender [sender-attach-entry]',
+  'sender: a registered sender attaches at its entry port [sender-attach-registry]',
 ].forEach(function(l) { known_failures.add(l) })
 
 run()

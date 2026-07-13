@@ -582,7 +582,9 @@ await sender_test(
   }
 )
 
-// 9. No sender at all: ships without sender still work (regression) [sender-effective-default]
+// 9. No explicit sender: the ship takes the entry port's qname as its
+// sender with the space's base dialect — behaviorally identical to the
+// old senderless run [sender-effective-default] [sender-attach-entry]
 await sender_test(
   'no sender',
   `
@@ -596,7 +598,7 @@ await sender_test(
   1,
   function(results) {
     test('no sender: ship exits', results.length >= 1)
-    test('no sender: sender is absent', results.length >= 1 && !results[0].sender)
+    test('no sender: entry qname attached', results.length >= 1 && results[0].sender && results[0].sender.id === '@in:init')
     test('no sender: value correct', results.length >= 1 && results[0].ship == 15)
   }
 )
@@ -856,7 +858,7 @@ await sender_test(
   [{port: 'init', value: 0}],
   1,
   function(results) {
-    test('process sender: returns empty without sender', results.length >= 1 && results[0].ship === '')
+    test('process sender: returns entry qname without explicit sender', results.length >= 1 && results[0].ship === '@in:init')
   }
 )
 

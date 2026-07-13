@@ -875,9 +875,41 @@ D.port_standard_pairup = function(port) {
   port.pair = this
 }
 
+// A port's qualified name: its space's path plus the §3 endpoint form
+// ('@dir' bare, '@dir:name' named) [qname-structure]. Pass the INSIDE half.
+D.port_qname = function(port) {
+  var dir = port.dir || ''
+    , name = port.name
+    , endpoint = (name == dir || name.indexOf(dir + ':') == 0)
+                 ? '@' + name
+                 : '@' + dir + ':' + name
+    , path = port.space ? port.space.space_path() : ''
+  return path ? path + endpoint : endpoint
+}
+
+// [sender-attach-registry]: the App registers (attenuated) senders under
+// entry-port qnames; a senderless ship entering there carries that sender.
+D.Etc.sender_registry = {}
+D.register_sender = function(qname, sender) {
+  D.Etc.sender_registry[qname] = sender
+}
+
 D.port_standard_enter = function(ship, process) {
   var sender = process && process.sender
     , number = process && process.number
+
+  // ── Sender attachment at entry ─────────────────────────────────────
+  // A senderless ship crossing in from the world takes the entry port's
+  // qname as its sender (registered sender if the App bound one, else
+  // the qname with the space's base dialect — behaviorally identical to
+  // before, but attributed). Attachment never overrides an existing
+  // sender. [sender-attach-entry] [sender-attach-no-override]
+  if(!sender && !this.space && this.pair && this.pair.space) {
+    var entry_qname = D.port_qname(this.pair)
+    sender = D.Etc.sender_registry[entry_qname]
+          || this._entry_sender
+          || (this._entry_sender = new D.Sender(entry_qname, {dialect: this.pair.space.dialect}))
+  }
 
   // ── Round-trip port occupancy ──────────────────────────────────────
   // A spaced round-trip pair (up/down flavour, both halves live in
