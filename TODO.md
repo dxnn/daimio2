@@ -205,8 +205,18 @@ Remaining:
   timeout-pending wait as quiescent). Remaining: [request-cycle-timeout]
   guide (needs queue-behind-wait numbering), [timeout-min-chain]
   enforcement (inner deadlines are independent today, not min-capped),
-  wire-level timeout declarations ([timeout-inherit]), and
-  process.js sleep off the virtual clock.
+  and the [timeout-inherit] chain-inheritance guide (explicit wire
+  timeouts landed 2026-07-12 late [wire-timeout-explicit]: trailing
+  integer on any wire; occupancy prefers it over the default; the
+  min-propagation-through-chains half remains).
+- **`process sleep` is a partition violation (found 2026-07-12 late):**
+  a `fun` that suspends on wall-clock setTimeout — non-deterministic,
+  invisible to the det clock. Fork for dann: (a) reclassify effectful
+  (cmd:process:sleep — pure, but unwired spaces lose sleep; demos use
+  it), (b) keep as fun but suspend on D.register_timeout (deterministic
+  under the virtual clock; needs a blessed category for clock-suspended
+  funs), or (c) deprecate. Blocks the effectful-commands spec sweep's
+  sleep entry only; time/var entries can proceed.
 - **Sender attachment at entry + registry — DONE 2026-07-12 (eve).**
   Senderless world entries take the entry port's qname (D.port_qname)
   with the space base dialect; D.register_sender(qname, sender) wins;
@@ -215,13 +225,13 @@ Remaining:
   source-order station/subspace names; dock hook exposes qnames; anons
   s1, s2 in source order; PRNG derives per-space from them). Error-ship
   strings don't name qnames yet (§12 follow-up).
-- **Space serialization (§8)** — `space.serialize()` does not exist, and
-  compiled blocks/seeds retain NO source text (blocks are {segments,
-  wiring, id}), so emitting Astroglot needs seed-format source
-  retention first (station source beside block ids) — interacts with
-  content-hashing and [serialize-block-dead], and the amended rule that
-  a DECLARED dialect restriction serializes [serialize-keeps-dialect-decl].
-  Design pass required; the space_test serialize guide stays RED.
+- **Space serialization (§8) — DONE 2026-07-12 late.** Sources were
+  already retained as OriginalString block decorators (the earlier
+  "needs seed-format source retention" premise was wrong); serialize
+  emits definition + current svars, declared dialect kept, subspaces
+  recursively sigiled, round-trip verified. Follow-up: rules/routes
+  emission is index-reconstructed — fidelity beyond the round-trip
+  test unaudited.
 - **`time now` purely effectful** — drop its `fun` fallback so it routes through
   `cmd:time:now` (part of B); the Outside then provides the time via a scheduled
   `cmd:time:now` response. **Also remove the `D.now` bridge** — it was added only
