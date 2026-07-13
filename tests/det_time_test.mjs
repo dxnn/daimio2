@@ -151,6 +151,94 @@ det_test('timeout: an explicit wire timeout overrides the default [wire-timeout-
   assert: function(t, e) { e.outputs('out', ['']) },
 })
 
+// ── Effectful sleep ────────────────────────────────────────────────────────
+// {process sleep} is effectful: the request {handler, method, for, then}
+// rides cmd:process:sleep to a wired handler [effcmd-process-sleep]. The
+// canonical world handler is a `clock`-flavoured down port, which answers
+// the request's `then` value once `for` milliseconds have passed — on the
+// virtual clock, so wall timers drive it in production and this harness
+// drives it here. Unwired, a sleep sploots like any effect: no engine
+// timer ever runs.
+
+det_test('sleep: unwired {process sleep} sploots, no engine timer runs [effectful-unwired-sploot]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    sleeper {process sleep for 5000 then :woke | logic if then :woke else :sploot}
+    @go -> sleeper -> @out`,
+  now: 1600000000000,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) { e.outputs('out', ['sploot']) },
+})
+
+det_test('sleep: the clock answers `then` when the duration passes [effcmd-process-sleep] [sched-timeout-event]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @clock clock
+    sleeper {process sleep for 5000 then :woke}
+    sleeper@cmd:process:sleep <-> @clock
+    @go -> sleeper -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 5001 }),          // the rule default (10s) has NOT passed
+  ],
+  assert: function(t, e) { e.outputs('out', ['woke']) },
+})
+
+// Pipeline vars survive the async boundary a sleep creates within one
+// process (§7/§10) — migrated from the bare-run corpus when sleep went
+// effectful (a bare sleep sploots; the boundary needs a wired clock).
+det_test('sleep: pipeline vars survive async — set before sleep, read after', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @clock clock
+    keeper {42 | >foo || :ok | process sleep for 3000 || _foo | add _foo}
+    keeper@cmd:process:sleep <-> @clock
+    @go -> keeper -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 3001 }),
+  ],
+  assert: function(t, e) { e.outputs('out', [84]) },
+})
+
+// Space vars stay consistent across the boundary (§1) — same migration.
+det_test('sleep: space var consistent across the async boundary', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @clock clock
+    keeper {99 | >$x || $x | process sleep for 3000 || $x}
+    keeper@cmd:process:sleep <-> @clock
+    @go -> keeper -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 3001 }),
+  ],
+  assert: function(t, e) { e.outputs('out', [99]) },
+})
+
+// A slept pipeline replays byte-identical under the virtual clock (I17).
+det_replay('sleep: a slept pipeline replays byte-identical [sched-deterministic]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @clock clock
+    sleeper {process sleep for 5000 then :woke}
+    sleeper@cmd:process:sleep <-> @clock
+    @go -> sleeper -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 5001 }),
+  ],
+})
+
 // (the earlier timeout guides went green with virtual time)
 
 run()

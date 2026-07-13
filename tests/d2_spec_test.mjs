@@ -2745,24 +2745,13 @@ test(
 
 // =====================================================
 // §7/§10 Pipeline vars survive async boundary
-// =====================================================
-
-test(
-  'pipeline vars survive async: set before sleep, read after',
-  '{42 | >foo || :ok | process sleep for 0 || _foo | add _foo}',
-  '84'
-)
-
-
-// =====================================================
 // §1 Space var consistency across async
 // =====================================================
-
-test(
-  'space var consistent across async boundary',
-  '{99 | >$x || $x | process sleep for 0 || $x}',
-  '99'
-)
+// These lived here as bare-run tests riding {process sleep for 0}'s
+// setImmediate. Sleep is effectful now — a bare sleep sploots, so the
+// bare versions were vacuous (barrier pipes carry the vars regardless).
+// The real async-boundary tests live in det_time_test.mjs, where a wired
+// clock creates the boundary deterministically.
 
 
 // =====================================================

@@ -344,9 +344,10 @@ funtest('{(1 2 3 4 5) | map block "{times (__ __ __)}"}', '[1,8,27,64,125]')
 
 funtest('{(1 2 3 4 5) | map block "{(__ __ __) | times}"}', '[1,8,27,64,125]')
 
-// [async-boundary] [async-preserve-vars]
-// async test: process sleep for 0 uses D.setImmediate, returns NaN (async signal)
-funtest('{:hello | process sleep for 0}', 'hello')
+// [effectful-unwired-sploot]
+// sleep is effectful: bare-run has no wiring, so it sploots to empty.
+// (The wired/async behavior lives in det_time_test.mjs [effcmd-process-sleep].)
+funtest('{:hello | process sleep for 0}', '')
 
 funtest('{(1 2 3 4 5) | map block "{__ | times __ | times __}"}', '[1,16,81,256,625]')
 

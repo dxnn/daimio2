@@ -8,6 +8,14 @@ D.import_models({
 
       sleep: {
         desc: "'Did I fall asleep? Shall I go now?'",
+        help: ['Effectful: the request {handler, method, for, then} asks the',
+               'Outside to answer the `then` value once `for` milliseconds have',
+               'passed [effcmd-process-sleep]. The canonical world handler is a',
+               'clock-flavoured down port. Unwired, it sploots.'],
+        examples: [
+          // the canonical answer is the request's `then` value [effcmd-process-sleep]
+          ['{:hi | process sleep for 5}', 'hi', '{__ | peek :then}'],
+        ],
         params: [
           {
             key: 'for',
@@ -21,19 +29,8 @@ D.import_models({
             type: 'anything',
           },
         ],
-        fun: function(_for, then, prior_starter) {
-          if(!_for) {
-            D.setImmediate(function() {
-              prior_starter(then)
-            })
-          }
-          else {
-            setTimeout(function() {
-              prior_starter(then)
-            }, _for)
-          }
-
-          return NaN
+        effect: {
+          portType: 'cmd:process:sleep',
         },
       },
 

@@ -60,6 +60,7 @@ import './optimizations/simple_peek.js'
 
 // Port flavours
 import './pflavs/internal.js'
+import './pflavs/clock.js'
 import './pflavs/dom-do-submit.js'
 import './pflavs/dom-on-arrow.js'
 import './pflavs/dom-on-blur.js'

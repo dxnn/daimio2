@@ -37,10 +37,11 @@ function pick(arr) { return arr[Math.floor(rng() * arr.length)] }
 function rand_int(lo, hi) { return lo + Math.floor(rng() * (hi - lo + 1)) }
 
 // Collect available handlers, methods, params, aliases from D
-// Exclude specialized handlers and intentionally-async commands
+// Exclude specialized handlers. (Effectful commands need no exclusion:
+// unwired they sploot, which the allowlist recognizes — sleep included.)
 var effectful_handlers = new Set(['dagoba', 'daggr'])
-var effectful_pairs = new Set(['process.sleep'])
-var effectful_aliases = new Set(['sleep', 'wait'])
+var effectful_pairs = new Set([])
+var effectful_aliases = new Set([])
 
 var handlers = Object.keys(D.Commands).filter(h => !effectful_handlers.has(h))
 var aliases = Object.keys(D.Aliases).filter(a => !effectful_aliases.has(a))
