@@ -5,13 +5,10 @@
 // inside, up/down port, root, socket-load port, (( )) endpoint) are guarded in
 // space_test.mjs; these are the runtime CROSSING guides.
 //
-// ALL RED — triple-blocked, and deliberately written to document the target:
-//   1. make_some_space does not parse subspaces at all today (an indented block
-//      becomes a station; a (( )) block likewise) — TODO "subspace parsing".
-//   2. subspace routing is unimplemented — a ship can't cross a boundary.
-//   3. black-hole semantics (the (( )) flag + world-face flavours) don't exist.
-// Each seed is written the spec-correct way, so the guides become live and
-// correct once that chain lands. The det-world flavour observes world emissions.
+// GREEN since 2026-07-12: the *name sigil compiles holes, exits at hole
+// ports fire the flavour's world-face bound inward, and hole out-ports are
+// App entry surfaces (send_value_to_js_port reaches them; entering ships
+// take the out-port's qname as sender). det-world observes world emissions.
 
 import { det_test, arrive, world_in, sender, known_failures, run } from './det_harness.mjs'
 
@@ -24,7 +21,7 @@ det_test('black hole: a ship at the in-port is emitted to the world [blackhole-i
       @in:feed det-world
     @go -> relay@in:feed`,
   schedule: [ arrive('go', 'EMITME') ],
-  assert: function(t, e) { e.outputs('world:feed', ['EMITME']) },
+  assert: function(t, e) { e.outputs('world:in:feed', ['EMITME']) },  // det-world keys by the port's full name
 })
 
 // [blackhole-out-enter] a world value at the out-port becomes a ship that
@@ -52,11 +49,8 @@ det_test('black hole: an emerging ship takes the out-port qname as sender [black
   assert: function(t, e) { e.outputs('out', ['relay@out:news']) },
 })
 
-;[
-  'black hole: a ship at the in-port is emitted to the world [blackhole-in-exit]',
-  'black hole: a world value at the out-port enters the parent [blackhole-out-enter]',
-  'black hole: an emerging ship takes the out-port qname as sender [blackhole-sender-outer]',
-].forEach(function(l) { known_failures.add(l) })
+// (no known failures — the crossing guides went green with the world-face
+// binding, 2026-07-12 late)
 
 run()
 

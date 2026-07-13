@@ -796,6 +796,25 @@ D.send_value_to_js_port = function(space, port_name, value, port_flavour, sender
       { space.ports[i].pair.enter(value, (sender || number !== undefined) ? {sender: sender, number: number} : undefined)
         return true }
 
+  // black-hole out-ports are App entry surfaces too [app-entry-outside-only]:
+  // a world value there enters the parent's wiring as a ship, senderless →
+  // it takes the out-port's qname [blackhole-out-enter] [blackhole-sender-outer]
+  for(var i=0, l=space.subspaces.length; i < l; i++) {
+    var sub = space.subspaces[i]
+    if(sub.seed && sub.seed.blackhole) {
+      for(var j=0, k=sub.ports.length; j < k; j++) {
+        var hp = sub.ports[j]
+        if((hp.name == port_name || hp.name == 'out:' + port_name)
+            && hp.name.split(':')[0] == 'out' && hp.pair) {
+          hp.pair.exit(value, { sender: sender || D.entry_sender(hp, hp), number: number })
+          return true
+        }
+      }
+    }
+    else if(D.send_value_to_js_port(sub, port_name, value, port_flavour, sender, number))
+      return true
+  }
+
   return false
 }
 
@@ -896,6 +915,12 @@ D.port_standard_exit = function(ship, process) {
     , sender = process && process.sender
     , number = process && process.number
 
+  // a black hole has the world INSIDE: a ship exiting at one of its ports
+  // fires the flavour's world-facing method bound inward, fire-and-forget
+  // [blackhole-in-exit] [blackhole-flavour-inside]
+  if(this.space && this.space.seed && this.space.seed.blackhole)
+    return this.outside_exit(ship, sender)
+
   // THINK: this makes the interface feel more responsive on big pages, but is it the right thing to do?
   if(this.space)
     for(var i=0, l=outs.length; i < l; i++)
@@ -914,11 +939,11 @@ D.port_standard_pairup = function(port) {
 // A port's qualified name: its space's path plus the §3 endpoint form
 // ('@dir' bare, '@dir:name' named) [qname-structure]. Pass the INSIDE half.
 D.port_qname = function(port) {
-  var dir = port.dir || ''
-    , name = port.name
-    , endpoint = (name == dir || name.indexOf(dir + ':') == 0)
-                 ? '@' + name
-                 : '@' + dir + ':' + name
+  var name = port.name
+    , name_dir = name.split(':')[0]
+    , endpoint = (name_dir == 'in' || name_dir == 'out' || name_dir == 'up' || name_dir == 'down')
+                 ? '@' + name                     // the name carries its dir (dir keywords are
+                 : '@' + (port.dir || '') + ':' + name  // reserved in @-position); else the flavour's
     , path = port.space ? port.space.space_path() : ''
   return path ? path + endpoint : endpoint
 }
@@ -928,6 +953,18 @@ D.port_qname = function(port) {
 D.Etc.sender_registry = {}
 D.register_sender = function(qname, sender) {
   D.Etc.sender_registry[qname] = sender
+}
+
+// The sender a senderless ship acquires at an entry point (a world-paired
+// port or a black-hole out-port [blackhole-sender-outer]): the registered
+// sender for the port's qname, else the qname with the space's base
+// dialect [sender-attach-entry]. Pass the INSIDE half; the default is
+// memoized on `memo_on` (the entering half).
+D.entry_sender = function(inside_port, memo_on) {
+  var qname = D.port_qname(inside_port)
+  return D.Etc.sender_registry[qname]
+      || memo_on._entry_sender
+      || (memo_on._entry_sender = new D.Sender(qname, {dialect: inside_port.space.dialect}))
 }
 
 D.port_standard_enter = function(ship, process) {
@@ -940,12 +977,8 @@ D.port_standard_enter = function(ship, process) {
   // the qname with the space's base dialect — behaviorally identical to
   // before, but attributed). Attachment never overrides an existing
   // sender. [sender-attach-entry] [sender-attach-no-override]
-  if(!sender && !this.space && this.pair && this.pair.space) {
-    var entry_qname = D.port_qname(this.pair)
-    sender = D.Etc.sender_registry[entry_qname]
-          || this._entry_sender
-          || (this._entry_sender = new D.Sender(entry_qname, {dialect: this.pair.space.dialect}))
-  }
+  if(!sender && !this.space && this.pair && this.pair.space)
+    sender = D.entry_sender(this.pair, this)
 
   // ── Round-trip port occupancy ──────────────────────────────────────
   // A spaced round-trip pair (up/down flavour, both halves live in
