@@ -183,6 +183,16 @@ import D from '../1_daimio.js'
       prior_starter(value)
     }
 
+    // every request gets a deadline: the rule's timeout, else the instance
+    // default [wiring-default-timeout]. When it fires unanswered, the
+    // waiting process resumes EMPTY [timeout-resume-empty] and any later
+    // response ghosts against the answered flag [timeout-ghost-drop].
+    D.register_timeout(D.now() + (rule.timeout || D.Etc.default_timeout), function() {
+      if(answered) return
+      D.set_error('Request timed out: ' + effect.portType)
+      respond_once('')
+    })
+
     if(rule.target_port) {                                          // port target: request exits, response re-enters
       var port = rule_space.ports[rule.target_port - 1]
 

@@ -806,6 +806,37 @@ D.send_value_to_js_port = function(space, port_name, value, port_flavour, sender
 // scheduled it — so a space docks its lowest-numbered pending ship next.
 // [space-queue] [sched-dock-lowest]
 
+// ── Virtual-time timeouts ────────────────────────────────────────────
+// A timeout is a clock event [sched-timeout-event]: deadlines register
+// here and fire when the clock passes them — deterministically via an
+// injected clock advance (the det harness sets D.Etc.wall_timeouts =
+// false and drives D.advance_clock itself), or by wall timers in
+// production. Due deadlines fire in (deadline, registration) order.
+D.Etc.default_timeout = 10000
+D.Etc.pending_timeouts = []
+D.Etc.timeout_seq = 0
+D.Etc.wall_timeouts = true
+
+D.register_timeout = function(deadline, fn) {
+  D.Etc.pending_timeouts.push({ deadline: deadline, seq: D.Etc.timeout_seq++, fn: fn })
+  if(D.Etc.wall_timeouts && typeof setTimeout == 'function') {
+    var t = setTimeout(function() { D.advance_clock() }, Math.max(0, deadline - D.now()) + 1)
+    if(t && t.unref) t.unref()                    // never hold a host process open
+  }
+}
+
+D.advance_clock = function() {
+  var now = D.now()
+    , due = []
+    , rest = []
+  D.Etc.pending_timeouts.forEach(function(item) {
+    (item.deadline <= now ? due : rest).push(item)
+  })
+  D.Etc.pending_timeouts = rest
+  due.sort(function(a, b) { return a.deadline - b.deadline || a.seq - b.seq })
+  due.forEach(function(item) { item.fn() })
+}
+
 D.Etc.delivery_heap = []
 D.Etc.delivery_seq = 0
 
@@ -939,6 +970,18 @@ D.port_standard_enter = function(ship, process) {
       }
       inside._rt_occupied = true
       inside._rt_return = (process && process.respond) || null
+
+      // the occupancy carries a deadline: past it, the PORT emits the empty
+      // response onward itself and frees [timeout-resume-empty]; the era
+      // guard keeps a stale deadline off a later occupant.
+      inside._rt_era = (inside._rt_era || 0) + 1
+      var era = inside._rt_era
+        , response_half = this === inside ? inside.pair : inside
+      D.register_timeout(D.now() + D.Etc.default_timeout, function() {
+        if(!inside._rt_occupied || inside._rt_era !== era) return
+        D.set_error('Round-trip port timed out: "' + inside.name + '"')
+        response_half.enter('')
+      })
     }
     else if(inside) {                                     // response side
       if(!inside._rt_occupied)

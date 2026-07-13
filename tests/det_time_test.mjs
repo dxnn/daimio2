@@ -8,7 +8,7 @@
 // ({time stampwrap} is pure — it wraps a given stamp and never reads the clock;
 // its tests live in d2_spec_test.mjs.)
 
-import { det_test, det_replay, arrive, known_failures, run } from './det_harness.mjs'
+import { det_test, det_replay, arrive, timeout, respond_now, known_failures, run } from './det_harness.mjs'
 
 var CLOCK = `outer
   @go from-js
@@ -58,15 +58,83 @@ det_test('time: {time now} routes through its cmd:time:now port to a handler [de
   assert: function(t, e) { e.outputs('out', [42]) },
 })
 
+// ── Virtual-time timeouts ──────────────────────────────────────────────────
+// A timeout is a clock event on the schedule [sched-timeout-event]: the
+// harness advances the virtual clock and due deadlines fire deterministically.
+
+// A cmd request to a world port that never answers resumes EMPTY when its
+// (default 10s) deadline passes. Routing works (see [demandport-wire]
+// above), so timed-out-empty is distinguishable from unrouted-empty: a
+// response, had it come, would be 42.
+det_test('timeout: an unanswered request resumes empty [timeout-resume-empty] [sched-timeout-event]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @world det-world
+    caller {var read-out name :x | logic if then :got else :empty}
+    caller@cmd:var:* <-> @world
+    @go -> caller -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 10001 }),
+  ],
+  assert: function(t, e) { e.outputs('out', ['empty']) },
+})
+
+// A response that arrives after its request timed out is a ghost — dropped,
+// never resuming anything [timeout-ghost-drop]. The caller docks once and
+// produces one output.
+det_test('timeout: a late response is a ghost [timeout-ghost-drop]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @world det-world
+    caller {var read-out name :x | logic if then :got else :empty}
+    caller@cmd:var:* <-> @world
+    @go -> caller -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 10001 }),
+    respond_now('world', '42'),
+  ],
+  assert: function(t, e) {
+    e.outputs('out', ['empty'])
+    e.dockValues(['x'])
+  },
+})
+
+// An occupied round-trip port whose deadline passes emits the empty response
+// onward itself and frees; the requester's pipeline continues with Empty.
+// provider@up is declared but unwired inside, so no response ever comes; a
+// second empty arriving at the already-freed consumer port ghosts quietly.
+det_test('timeout: an occupied round-trip port emits empty and frees [timeout-resume-empty]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    +provider
+      @up
+    +consumer
+      @in -> @down:ask -> @out
+    consumer@down:ask <-> provider@up
+    @go -> consumer@in
+    consumer@out -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'ping'),
+    timeout({ at: 1600000000000 + 10001 }),
+  ],
+  assert: function(t, e) { e.outputs('out', ['']) },
+})
+
+// (no known failures — the timeout guides went green with virtual time)
+
 run()
 
-// ── Deferred: virtual-time timeouts ────────────────────────────────────────
-// [timeout-resume-empty] / [timeout-ghost-drop] / [sched-timeout-event] /
-// [request-cycle-timeout] — a timeout firing is a scheduled external event; a
-// request whose timeout beats its response resumes EMPTY and the late response
-// ghosts. These can't be honest guides yet: with round-trip routing
-// unimplemented, an unrouted request already sploots to empty, so "timed out
-// (empty)" is indistinguishable from "unrouted (empty)" — a timeout-wins guide
-// would pass for the wrong reason. They land with round-trip routing (so the
-// response-wins case yields a distinguishable value) plus the vtime scheduler.
+// ── Deferred: [request-cycle-timeout] — a cyclic request chain resolves to
+// empty by timeout (the first wire to time out frees its space; the rest
+// cascade). The mechanism pieces are covered above; an honest cycle guide
+// needs two spaces cmd-calling into each other plus queue-behind-wait
+// numbering, and belongs with the [sched-reentry-uniform] harness work.
 // The harness already accepts timeout()/respond() schedule events for then.

@@ -18,6 +18,7 @@ var D = (await import('../daimio/daimio.js')).default
 // pending — so a multi-hop cascade (a completes → b docks → b's output exits),
 // which is idle *between* stages, is not mistaken for finished. A tick budget
 // turns a non-settling self-feed into cb(false) instead of a hang.
+D.Etc.wall_timeouts = false        // timeouts fire only via injected clock events
 var raw_setImmediate = D.setImmediate
 var pending_defers = 0
 D.setImmediate = function(fn) {
@@ -28,7 +29,8 @@ D.setImmediate = function(fn) {
 function settle(space, cb, budget) {
   budget = budget || 100000
   function tick() {
-    if(space.is_idle() && pending_defers === 0) return cb(true)
+    var timeout_pending = D.Etc.pending_timeouts && D.Etc.pending_timeouts.length
+    if((space.is_idle() || timeout_pending) && pending_defers === 0) return cb(true)
     if(--budget <= 0) return cb(false)
     raw_setImmediate(tick)
   }
@@ -99,6 +101,8 @@ D.import_port_flavour('det-world', {
     if(current) current.trace.push({ port: 'world:' + port, value: ship })
     var rs = current && current.responses && current.responses[port]
     if(rs && rs.length && typeof callback === 'function') callback(rs.shift().value)
+    else if(current && typeof callback === 'function')     // park for respond_now
+      (current.world_waits[port] = current.world_waits[port] || []).push(callback)
   }
 })
 
@@ -128,6 +132,7 @@ export function arrive(port, value, opts) {
 }
 export function respond(o)               { return { kind: 'respond', port: o.port, nth: o.nth, value: o.value, delay: o.delay } }
 export function timeout(o)               { return { kind: 'timeout', port: o.port, at: o.at } }
+export function respond_now(port, value)  { return { kind: 'respond_now', port: port, value: value } }
 export function world_in(port, value)    { return { kind: 'world_in', port: port, value: value } }
 export function socket_load(port, src, o){ return { kind: 'socket_load', port: port, src: src, mode: (o && o.mode) || 'drain' } }
 
@@ -149,7 +154,9 @@ function apply_event(space, ev) {
     case 'arrive':      D.send_value_to_js_port(space, ev.port, ev.value, 'from-js', ev.sender, ev.number); break
     case 'world_in':    D.send_value_to_js_port(space, ev.port, ev.value); break
     case 'socket_load': D.send_value_to_js_port(space, ev.port, ev.src); break  // Astroglot arrives at an outer port wired to the subspace's socket-load port; the mode is declared on that port
-    case 'timeout':     break  // no-op until virtual time exists; the timeout RED guides assert the outcome
+    case 'timeout':     current.vnow = ev.at; D.advance_clock(); break  // a clock event [sched-timeout-event]
+    case 'respond_now': var q = current.world_waits[ev.port]
+                        if(q && q.length) q.shift()(ev.value); break
     case 'batch':       ev.events.forEach(function(e) { apply_event(space, e) }); break
     default:            throw new Error('unknown schedule event: ' + ev.kind)
   }
@@ -199,9 +206,12 @@ export function det_daml(label, expr, expected) {
 // Space + schedule; assert on the captured trace via the `expect` object.
 export function det_test(label, opts) {
   queue.push(function(done) {
-    current = { label: label, trace: [], docks: [] }
+    current = { label: label, trace: [], docks: [], world_waits: {},
+                vnow: opts.now !== undefined ? opts.now : Date.now() }
+    D.Etc.pending_timeouts = []                       // per-test timeout isolation
     var saved_now = D.now
-    if(opts.now !== undefined) D.now = function() { return opts.now }   // runner freezes the clock
+    var ctx = current
+    D.now = function() { return ctx.vnow }            // mutable virtual clock
     function finish() { D.now = saved_now; current = null; done() }
     var space
     try { space = new D.Space(D.make_some_space(dedent(opts.seed))) }
@@ -232,9 +242,12 @@ export function det_replay(label, opts) {
 }
 
 function run_once(opts, cb) {
-  current = { label: '(replay)', trace: [], docks: [] }
+  current = { label: '(replay)', trace: [], docks: [], world_waits: {},
+              vnow: opts.now !== undefined ? opts.now : Date.now() }
+  D.Etc.pending_timeouts = []
   var saved_now = D.now
-  if(opts.now !== undefined) D.now = function() { return opts.now }   // runner freezes the clock
+  var rctx = current
+  D.now = function() { return rctx.vnow }
   var space
   try { space = new D.Space(D.make_some_space(dedent(opts.seed))) }
   catch(e) { D.now = saved_now; current = null; return cb(false, e.message) }
