@@ -151,14 +151,17 @@ import D from '../1_daimio.js'
               ? match_rule(space, 'holder_station', process.station_id, cmdname)
               : null
       , rule_space = space
+      , chain_timeouts = []                                         // explicit timeouts along the walked chain
 
     if(!rule) {                                                     // unmatched in my own space: surface at my boundary
       rule = boundary_rule(rule_space, cmdname)
       if(rule) rule_space = rule_space.parent
     }
+    if(rule && rule.timeout) chain_timeouts.push(rule.timeout)
 
     while(rule && rule.forward && rule_space.parent) {              // explicit @cmd forwarding surfaces the request
       rule = boundary_rule(rule_space, cmdname)                     // at the matching space's own boundary [cmd-forward]
+      if(rule && rule.timeout) chain_timeouts.push(rule.timeout)
       if(rule) rule_space = rule_space.parent
     }
 
@@ -183,11 +186,16 @@ import D from '../1_daimio.js'
       prior_starter(value)
     }
 
-    // every request gets a deadline: the rule's timeout, else the instance
-    // default [wiring-default-timeout]. When it fires unanswered, the
-    // waiting process resumes EMPTY [timeout-resume-empty] and any later
-    // response ghosts against the answered flag [timeout-ghost-drop].
-    D.register_timeout(D.now() + (rule.timeout || D.Etc.default_timeout), function() {
+    // every request gets a deadline: the MIN of the explicit timeouts
+    // along the walked rule chain — an unset hop inherits the nearest
+    // enclosing explicit value [timeout-inherit], and no outer value can
+    // extend an inner one [timeout-min-chain] — else the instance default
+    // [wiring-default-timeout]. When it fires unanswered, the waiting
+    // process resumes EMPTY [timeout-resume-empty] and any later response
+    // ghosts against the answered flag [timeout-ghost-drop].
+    D.register_timeout(D.now() + (chain_timeouts.length
+                                  ? Math.min.apply(null, chain_timeouts)
+                                  : D.Etc.default_timeout), function() {
       if(answered) return
       D.set_error('Request timed out: ' + effect.portType)
       respond_once('')

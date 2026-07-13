@@ -2336,13 +2336,11 @@ space_test(
   }
 )
 
-// §7 [timeout-inherit] — DEFERRED to the virtual-time backlog. A wire's
-// nominal timeout inherits from the nearest enclosing wire with an
-// explicit value. Untestable honestly today: with no timeout machinery,
-// an unwired forward sploots to '' immediately, indistinguishable from a
-// timeout sploot — a guide here would pass for the wrong reason. Lands
-// with [timeout-*] / [timeout-min-chain] once timeouts are schedule
-// events on the virtual clock.
+// §7 [timeout-inherit] [timeout-min-chain] — LANDED (det_time_test.mjs):
+// a cmd request's deadline is the min of the explicit timeouts along its
+// walked rule chain (unset hops inherit the nearest enclosing explicit;
+// no outer value extends an inner one); contract chains get min-chain
+// naturally from per-hop occupancy deadlines + empty propagation.
 
 // §6 [effectful-unwired-sploot] (space-level)
 // Effectful command with unwired port sploots

@@ -151,6 +151,116 @@ det_test('timeout: an explicit wire timeout overrides the default [wire-timeout-
   assert: function(t, e) { e.outputs('out', ['']) },
 })
 
+// ── Timeout inheritance along chains ───────────────────────────────────────
+// A wire's nominal timeout is its own explicit value, else inherited from
+// the nearest enclosing wire with one, else the default [timeout-inherit];
+// the effective timeout of a round trip is the min along the chain
+// [timeout-min-chain]. For cmd rule chains the requester registers one
+// deadline, so it must be the min of the explicit timeouts along the
+// walked rules — an inner forward rule's explicit value counts.
+
+// Inner forward rule explicit, outer rule unset: the inner 3000 governs
+// (an unset outer inherits inward-nothing; it cannot stretch the inner
+// wire's explicit bound to the default).
+det_test('timeout: inner forward rule explicit governs an unset outer [timeout-min-chain]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @world det-world
+    +worker
+      @in
+      @out
+      caller {var read-out name :x | logic if then :got else :empty}
+      @in -> caller -> @out
+      caller@cmd:var:* <-> @cmd 3000
+    worker@cmd:var:* <-> @world
+    @go -> worker@in
+    worker@out -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 3001 }),          // default (10s) has NOT passed
+  ],
+  assert: function(t, e) { e.outputs('out', ['empty']) },
+})
+
+// Both explicit: min wins — the outer 8000 cannot extend the inner 3000,
+// and the inner 3000 tightens the outer.
+det_test('timeout: effective is the min along a rule chain [timeout-min-chain]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @world det-world
+    +worker
+      @in
+      @out
+      caller {var read-out name :x | logic if then :got else :empty}
+      @in -> caller -> @out
+      caller@cmd:var:* <-> @cmd 3000
+    worker@cmd:var:* <-> @world 8000
+    @go -> worker@in
+    worker@out -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 3001 }),          // neither 8000 nor the default has passed
+  ],
+  assert: function(t, e) { e.outputs('out', ['empty']) },
+})
+
+// Unset inner forward rule inherits the outer's explicit value: the walked
+// chain's only explicit is the outer 5000, so the requester fires there.
+det_test('timeout: unset forward rule inherits the enclosing explicit [timeout-inherit]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @world det-world
+    +worker
+      @in
+      @out
+      caller {var read-out name :x | logic if then :got else :empty}
+      @in -> caller -> @out
+      caller@cmd:var:* <-> @cmd
+    worker@cmd:var:* <-> @world 5000
+    @go -> worker@in
+    worker@out -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'x'),
+    timeout({ at: 1600000000000 + 5001 }),
+  ],
+  assert: function(t, e) { e.outputs('out', ['empty']) },
+})
+
+// Contract chains need no requester-side min: every traversed hop carries
+// its own deadline, so the outer wire's 5000 fires at its own port and the
+// empty propagates back through the inner (unset) hop's response leg —
+// min-chain arises from the mechanics (§7.2). This guards the propagation.
+det_test('timeout: an enclosing contract timeout reaches through an unset inner wire [timeout-inherit] [timeout-min-chain]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    +provider
+      @up
+    +middle
+      @in
+      @out
+      +consumer
+        @in -> @down:ask -> @out
+      @in -> consumer@in
+      consumer@out -> @out
+      consumer@down:ask <-> @down:fwd
+    middle@down:fwd <-> provider@up  5000
+    @go -> middle@in
+    middle@out -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'ping'),
+    timeout({ at: 1600000000000 + 5001 }),          // default (10s) has NOT passed
+  ],
+  assert: function(t, e) { e.outputs('out', ['']) },
+})
+
 // ── Effectful sleep ────────────────────────────────────────────────────────
 // {process sleep} is effectful: the request {handler, method, for, then}
 // rides cmd:process:sleep to a wired handler [effcmd-process-sleep]. The
