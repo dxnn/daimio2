@@ -11,7 +11,7 @@
 
 import {
   det_daml, det_test, det_replay,
-  arrive, batch, respond, timeout, world_in, socket_load,
+  arrive, batch, respond, respond_now, timeout, world_in, socket_load,
   known_failures, run,
 } from './det_harness.mjs'
 
@@ -103,6 +103,65 @@ det_test('scheduler: dock number = max(counter, ship number) + 1 [sched-dock-max
     @go -> sink -> @out`,
   schedule: [ arrive('go', 'x', { number: 2 }) ],
   assert: function(t, e) { e.dockNumbers([3]) },
+})
+
+// [sched-reentry-uniform] A down-port response re-docks the held process by
+// the entry rule: its number becomes max(space counter, response number) + 1
+// — post-wait work numbers above everything the space issued during the
+// wait. A ship arriving DURING the wait queues and is numbered when it
+// actually docks (after the wait), not at arrival; the world response
+// carries no number, so it enters at the boundary frontier
+// [sched-entry-frontier]. Docks: caller 'a' = 1; the response (frontier 1)
+// renumbers the waiting process to 2; queued 'b' docks post-wait at
+// max(2, entry 1)+1 = 3; the resumed emission docks relay at max(3, 2)+1 = 4.
+det_test('scheduler: a held-space wait renumbers uniformly [sched-reentry-uniform] [sched-dock-max]', {
+  seed: `outer
+    @go from-js
+    @in2 from-js
+    @out det-out
+    @world det-world
+    caller {var read-out name :x | logic if then :got else :empty}
+    pass  {__}
+    relay {__}
+    caller@cmd:var:* <-> @world
+    @go -> caller
+    caller -> relay -> @out
+    @in2 -> pass -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'a'),
+    arrive('in2', 'b'),
+    respond_now('world', '42'),
+  ],
+  assert: function(t, e) {
+    e.dockTargets(['caller', 'pass', 'relay'])
+    e.dockNumbers([1, 3, 4])
+  },
+})
+
+// A timeout firing is an external event numbered at the boundary frontier —
+// the timed-out process renumbers before continuing, like any re-dock
+// [sched-reentry-uniform] [sched-entry-frontier]: caller = 1; the deadline
+// (frontier 1) renumbers the process to 2; relay docks at max(2, 2)+1 = 3.
+det_test('scheduler: a timeout resume renumbers at the frontier [sched-reentry-uniform] [sched-timeout-event]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @world det-world
+    caller {var read-out name :x | logic if then :got else :empty}
+    relay {__}
+    caller@cmd:var:* <-> @world
+    @go -> caller
+    caller -> relay -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'a'),
+    timeout({ at: 1600000000000 + 10001 }),
+  ],
+  assert: function(t, e) {
+    e.outputs('out', ['empty'])
+    e.dockNumbers([1, 3])
+  },
 })
 
 // [sched-ship-vtime] A ship's number is carrier metadata, never payload — no

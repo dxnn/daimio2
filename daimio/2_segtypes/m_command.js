@@ -186,6 +186,22 @@ import D from '../1_daimio.js'
       prior_starter(value)
     }
 
+    // A response that crossed a port re-docks the held process by the entry
+    // rule [sched-reentry-uniform]: its number becomes max(space counter,
+    // response number) + 1 and the counter follows. A world/App/timeout
+    // response carries no number and enters at the boundary frontier
+    // [sched-entry-frontier]. Station-target rule responses stay flat
+    // (same-space sub-process, no port crossing).
+    var respond_redock = function(value, resp_number) {
+      if(answered)
+        return D.set_error('Ghost ship: late response for ' + effect.portType)
+      if(resp_number === undefined) resp_number = space.root_frontier()
+      process.number = Math.max(space.counter || 0, resp_number) + 1
+      space.counter = process.number
+      space.raise_frontier(process.number)
+      respond_once(value)
+    }
+
     // every request gets a deadline: the MIN of the explicit timeouts
     // along the walked rule chain — an unset hop inherits the nearest
     // enclosing explicit value [timeout-inherit], and no outer value can
@@ -198,8 +214,8 @@ import D from '../1_daimio.js'
                                   : D.Etc.default_timeout), function() {
       if(answered) return
       D.set_error('Request timed out: ' + effect.portType)
-      respond_once('')
-    })
+      respond_redock('')                                            // a timeout firing is an external event: it
+    })                                                              // enters at the frontier [sched-entry-frontier]
 
     if(rule.target_port) {                                          // port target: request exits, response re-enters
       var port = rule_space.ports[rule.target_port - 1]
@@ -207,14 +223,14 @@ import D from '../1_daimio.js'
       if(port.pair && port.pair.space) {                            // paired space port (sibling up-port / boundary
         port.enter(request, { sender: process.sender                // down chain): occupy it, with the invoking
                             , number: process.number                // transient cmd port as the return address
-                            , respond: respond_once })              // [wiring-target-upport]
+                            , respond: respond_redock })            // [wiring-target-upport]
         return NaN
       }
 
       if(typeof port.sync === 'function')                           // world ports: sync with callback;
-        port.sync(request, respond_once)                            // sync defaults only onto down flavours
+        port.sync(request, respond_redock)                          // sync defaults only onto down flavours
       else
-        D.port_standard_sync.call(port, request, respond_once)      // TODO: default timeout (virtual time backlog)
+        D.port_standard_sync.call(port, request, respond_redock)
       return NaN
     }
 
@@ -228,16 +244,20 @@ import D from '../1_daimio.js'
                               respond_once, in_port.station,        // the requester's number (flat numbering)
                               process.sender, process.number)
       var value = sub.run()
-      if(value === value)
+      if(value === value) {
+        answered = true                                             // sync round trip: the deadline must not re-fire it
         return value                                                // fully synchronous round-trip
+      }
       return NaN                                                    // sub went async; respond_once resumes us
     }
 
     var pvalue = rule_space.execute(block, {'__in': request},       // ancestor space: normal serial execution —
                                     respond_once, in_port.station,  // queues if busy [serial-one-at-a-time]
                                     process.sender, process.number)
-    if(pvalue === pvalue)
+    if(pvalue === pvalue) {
+      answered = true                                               // sync round trip: the deadline must not re-fire it
       return pvalue                                                 // ancestor was idle; synchronous round-trip
+    }
 
     return NaN                                                      // queued or async; respond_once resumes us
   }

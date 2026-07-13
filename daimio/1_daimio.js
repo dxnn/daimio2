@@ -1057,7 +1057,7 @@ D.port_standard_enter = function(ship, process) {
         })
 
       if(respond)
-        return respond(ship)
+        return respond(ship, number)                      // the response crossing's number rides to the re-dock
     }
   }
 
@@ -3070,17 +3070,7 @@ D.Space.prototype.loadSubspace = function(daml) {
 
 D.Space.prototype.dock = function(ship, station_id, sender, ship_number) {
   if(ship_number === undefined)                                     // external entry: numbered at the runtime
-    ship_number = this.root_frontier()                              // boundary's frontier [sched-entry-frontier]
-
-  var number = Math.max(this.counter || 0, ship_number) + 1         // [sched-dock-max]
-  this.counter = number
-  this.raise_frontier(number)
-
-  // Deterministic-harness trace hook (additive; no-op unless set). Fires on
-  // every station dock with the station's qualified name [qname-structure].
-  if(D.Etc.on_dock)
-    D.Etc.on_dock({ space: this, station_id: station_id, qname: this.station_qname(station_id)
-                  , ship: ship, sender: sender, number: number })
+    ship_number = this.root_frontier()                              // boundary's frontier at ENTRY [sched-entry-frontier]
 
   var block_id = this.seed.stations[station_id - 1]
   var block    = D.BLOCKS[block_id]
@@ -3089,10 +3079,17 @@ D.Space.prototype.dock = function(ship, station_id, sender, ship_number) {
   if(!out_port)
     return D.set_error('That out port is unavailable')
 
+  // The process number is assigned when the ship actually STARTS — a ship
+  // queued behind a held space re-numbers past the wait [sched-dock-max],
+  // and the dock hook fires then, not at arrival. The output closure takes
+  // the number at completion time (via my_starter), so a process renumbered
+  // across an async boundary [sched-reentry-uniform] emits at its current
+  // number; the docking slot backstops the synchronous-completion paths.
+  var docking = { ship: ship }
   var prior_starter =                                               // THINK: we're jumping straight to exit here.
-        function(value) {out_port.exit(value, {sender: sender, number: number})}  // also do it for implicit station output ports...
+        function(value, number_out) {out_port.exit(value, {sender: sender, number: number_out !== undefined ? number_out : docking.number})}
   var scope = {"__in": ship}                                        // TODO: find something better...
-  var value = this.execute(block, scope, prior_starter, station_id, sender, number)
+  var value = this.execute(block, scope, prior_starter, station_id, sender, ship_number, docking)
 
   if(value === value)
     prior_starter(value)
@@ -3252,7 +3249,7 @@ D.Space.prototype.change_seed = function(seed_id) {
 
 // TODO: move this all into a Process, instead of doing it here.
 // THINK: there's no protection in here again executing multiple processes concurrently in the same space -- which is bad. find a way to bake that in. [except for those cases of desired in-pipeline parallelism, of course]
-D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, station_id, sender, number) {
+D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, station_id, sender, number, docking) {
   var self = this
     , block = D.get_block(ablock_or_segment)
 
@@ -3265,14 +3262,14 @@ D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, st
 
   if(this.processes.length && this.only_one_process) {
     // Queue the work: execute when current process completes
-    this.queue.push({block: block, scope: scope, prior_starter: prior_starter, station_id: station_id, sender: sender, number: number})
+    this.queue.push({block: block, scope: scope, prior_starter: prior_starter, station_id: station_id, sender: sender, number: number, docking: docking})
     return NaN
   }
 
-  return self.real_execute(block, scope, prior_starter, station_id, sender, number)
+  return self.real_execute(block, scope, prior_starter, station_id, sender, number, docking)
 }
 
-D.Space.prototype.real_execute = function(block, scope, prior_starter, station_id, sender, number) {
+D.Space.prototype.real_execute = function(block, scope, prior_starter, station_id, sender, number, docking) {
   var self = this
     , process
     , block = D.try_optimize(block)
@@ -3283,6 +3280,19 @@ D.Space.prototype.real_execute = function(block, scope, prior_starter, station_i
   //     when_done(value)
   // }
 
+  if(docking) {                                                     // a station dock starting NOW: assign its number
+    number = Math.max(this.counter || 0, number) + 1                // [sched-dock-max]
+    this.counter = number
+    this.raise_frontier(number)
+    docking.number = number
+
+    // Deterministic-harness trace hook (additive; no-op unless set). Fires on
+    // every station dock with the station's qualified name [qname-structure].
+    if(D.Etc.on_dock)
+      D.Etc.on_dock({ space: this, station_id: station_id, qname: this.station_qname(station_id)
+                    , ship: docking.ship, sender: sender, number: number })
+  }
+
   if(!prior_starter) {
     prior_starter = function() {}
   }
@@ -3291,7 +3301,7 @@ D.Space.prototype.real_execute = function(block, scope, prior_starter, station_i
 
   var my_starter = function(value) {
     self.cleanup(process)
-    prior_starter(value)
+    prior_starter(value, process.number)                            // completion carries the process's CURRENT number
   }
 
   process = new D.Process(this, block, scope, my_starter, station_id, sender, number)
@@ -3339,10 +3349,13 @@ D.Space.prototype.run_queue = function() {
   if(this.processes.length || !this.queue.length) return     // busy or nothing to do
 
   var self = this
-  var item = this.queue.shift()
+  var best = 0
+  for(var i = 1; i < this.queue.length; i++)                 // [space-queue]: lowest number first; strict <
+    if((this.queue[i].number || 0) < (this.queue[best].number || 0)) best = i   // keeps FIFO among equals
+  var item = this.queue.splice(best, 1)[0]
 
   D.setImmediate(function() {
-    var result = self.real_execute(item.block, item.scope, item.prior_starter, item.station_id, item.sender, item.number)
+    var result = self.real_execute(item.block, item.scope, item.prior_starter, item.station_id, item.sender, item.number, item.docking)
     if(result === result)
       item.prior_starter(result)                             // was queued (async from caller's perspective) but completed sync
   })
