@@ -2215,6 +2215,61 @@ space_test(
   100
 )
 
+// §6 [socket-crossboundary-var] end-to-end: the handler resolves against the
+// PARENT's state store. inner's `var read-out` routes to outer's reader, which
+// uses the LOCAL `{var read}` — and because the reader sub-process runs in
+// outer, it reads OUTER's $greeting, not inner's (inner has no $greeting).
+space_test(
+  'cross-boundary var read-out reaches parent state [socket-crossboundary-var]',
+  `outer
+    $greeting "hi-from-parent"
+    @init from-js
+    @out  collect
+    +inner
+      caller {var read-out name :greeting}
+      @in -> caller -> @out
+    reader
+      {__ | peek :name | var read name __}
+    inner@cmd:var:read-out <-> reader
+    @init -> inner@in
+    inner@out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    assert_eq('[socket-crossboundary-var] read', collected.out[0], 'hi-from-parent')
+  },
+  100
+)
+
+// §6 [socket-crossboundary-var] write half: `var write-out` mutates the
+// PARENT's state store. inner writes $c=42 out, then reads it back out; the
+// read only returns 42 if the write landed in outer's store (both handlers
+// run in outer and share its state).
+space_test(
+  'cross-boundary var write-out reaches parent state [socket-crossboundary-var]',
+  `outer
+    $c "unwritten"
+    @init from-js
+    @out  collect
+    +inner
+      io {var write-out name :c value 42 || var read-out name :c}
+      @in -> io -> @out
+    reader
+      {__ | peek :name | var read name __}
+    writer
+      {__ | peek :name | >n || __in | peek :value | var write name _n}
+    inner@cmd:var:read-out  <-> reader
+    inner@cmd:var:write-out <-> writer
+    @init -> inner@in
+    inner@out -> @out`,
+  [{port: 'init', value: 'go'}],
+  1,
+  function(collected) {
+    assert_eq('[socket-crossboundary-var] write', collected.out[0], 42)
+  },
+  100
+)
+
 // §6 [wiring-target-upport]
 // Wiring rule target can be an up-port on a sibling subspace
 space_test(
