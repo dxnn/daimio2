@@ -316,23 +316,38 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
-## Test status (as of 2026-07-12, end of session)
+## Test status (as of 2026-07-12, end of evening session)
 
 - d2_spec_test: 434/434 pass (0 known)
-- daimio_test: 842/843 pass (1 known: the [peek-par] fold guide — par
-  semantics decision pending, see extra/coverage/DECISIONS.md)
+- daimio_test: 843/843 pass (0 known — first fully green corpus)
 - node_code: 87/87 pass
-- security_test: 172/172 pass (closed-space tests removed)
-- space_test: 161 pass, 10 known (sigil/blackhole/socket compile borks
-  awaiting the sigil parser; err-match-by-name; serialize; false sentinel)
-- det suites: det_time 3/3, det_world 3/3, det_sender 6/7 (sender-attach-entry
-  needs the entry-attachment rule), det_test 15/15,
-  det_blackhole / det_socket per their known sets
-- space_ascii_test: 421/421 pass (59/59 fixtures round-trip; fixture sources
-  and parse emission now use name@port endpoints)
+- security_test: 173/173 pass
+- space_test: 172 pass, 2 known (serialize — needs seed-level source
+  retention, see TODO; svar-read-unbound false sentinel — load-bearing
+  at numeric coercion boundaries, reverted after a probe)
+- det suites: det_time 7/7 (timeouts), det_world 3/3, det_sender 8/8
+  (attach-entry + registry), det_test 15/15, det_socket 4/4 (loads),
+  det_blackhole 0/3 known (world-binding crossing not built; seeds
+  migrated to *relay)
+- space_ascii_test: 421/421 pass (two fixture sources dropped their
+  flush-bug workaround lines; renders untouched)
 - example_test: 110/110 pass (delete/values examples added)
 - perf_test: 21/21 pass
 - editor_test: 84/84 pass
+
+### 2026-07-12 evening session: staging par, sigil engine, vtime, senders
+- [peek-par] patched to STAGING per dann's ruling (design aside records
+  the tradeoffs); daimio.dm fully green.
+- Sigil engine (item C): +/*/! labels, structural borks, two-layer
+  lexical scope (locals shadow, merge dead), black-hole compile borks,
+  socket port-likes + D.socket_load replace (det_socket green).
+  Last-property-never-flushes parser bug fixed (flush_action at EOF).
+- Virtual-time timeouts: D.register_timeout/advance_clock; cmd deadlines
+  ([timeout-resume-empty]/[timeout-ghost-drop]); occupied ports emit
+  empty + free (era-guarded); harness virtual clock + respond_now.
+- Sender attach-at-entry + D.register_sender registry (det_sender 8/8).
+- Soft errors route by NAME to out:err [err-match-by-name] (reentrancy
+  guard; legacy 'err' honored).
 
 ### 2026-07-12 session: signal flip landed; audit rulings recorded
 - Round-trip routing complete (TODO item B): FAF parser mid-chain-port hop
@@ -375,14 +390,12 @@ renders are identical because labels never reach the picture.
   so the det harness settle counting holds); dock hook exposes number
 
 ### Known failure root causes
-- **daimio_test (1)**: the [peek-par] fold guide — the merged spec's par
-  formula (fold: sub-paths extend with the remaining path) conflicts with
-  the corpus's designed series/parallel STAGING semantics (the "Series
-  and parallel" tutorial chapter). Staging kept in the engine; decision
-  pending (extra/coverage/DECISIONS.md).
-- **space_test (10)**: sigil / black-hole / socket compile borks awaiting
-  the sigil parser (TODO item C), err-match-by-name, serialize, 1x
-  k_variable.js `false` sentinel for unbound svar
+- **space_test (2)**: serialize (space.serialize needs seed-level source
+  retention — design pass, see TODO); 1x k_variable.js `false` sentinel
+  for unbound svar (probed '' on 2026-07-12: breaks numeric coercion,
+  false→0 — needs a coercion-boundary design, not a one-liner).
+- **det_blackhole (3)**: hole world-binding (flavour methods bound to the
+  inside face) not built — compile side done, crossing side open.
 
 ## Provisional spec decisions (revisit later)
 - **Block in a space variable → serialized as a dead string.** A block held

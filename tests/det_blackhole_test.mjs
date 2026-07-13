@@ -20,7 +20,7 @@ import { det_test, arrive, world_in, sender, known_failures, run } from './det_h
 det_test('black hole: a ship at the in-port is emitted to the world [blackhole-in-exit]', {
   seed: `outer
     @go from-js
-    ((relay))
+    *relay
       @in:feed det-world
     @go -> relay@in:feed`,
   schedule: [ arrive('go', 'EMITME') ],
@@ -32,7 +32,7 @@ det_test('black hole: a ship at the in-port is emitted to the world [blackhole-i
 det_test('black hole: a world value at the out-port enters the parent [blackhole-out-enter]', {
   seed: `outer
     @out det-out
-    ((relay))
+    *relay
       @out:news websock-in
     relay@out:news -> @out`,
   schedule: [ world_in('news', 'FROM-WORLD') ],
@@ -44,7 +44,7 @@ det_test('black hole: a world value at the out-port enters the parent [blackhole
 det_test('black hole: an emerging ship takes the out-port qname as sender [blackhole-sender-outer]', {
   seed: `outer
     @out det-out
-    ((relay))
+    *relay
       @out:news websock-in
     who {process sender}
     relay@out:news -> who -> @out`,

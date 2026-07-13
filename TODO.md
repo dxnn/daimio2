@@ -37,12 +37,18 @@ Add items freely.
 
 ## Major engine work (detailed)
 
-### C. Space label sigils + lexical scope + socket port-likes (spec §3/§8, merged 2026-07-12)
+### C. Space label sigils + lexical scope + socket port-likes — DONE 2026-07-12 (eve)
 
-The sigil spec is merged (commit 80afcd1; decision trail in
-extra/coverage/DECISIONS.md + design/audit-spec-patches-draft.md); the
-engine still parses the old forms. To build, in seedlikes_from_string
-and friends:
+Landed (commit 0202f2a): sigil labels, structural borks, two-layer
+lexical scope with local shadowing (unique '::' keys; the collision
+merge is gone), black-hole compile borks + opposing default flavours,
+socket port-likes + D.socket_load (replace works end to end — the four
+det_socket guides are green; drain==smash until busy-content tracking).
+The last-property-never-flushes parser bug died en route. Remaining in
+this area: honest [socket-drain]/[socket-smash] distinction (needs
+busy content = down-port waits mid-load), and the ASCII layout/parse
+emission still renders old forms (fixtures non-normative per dann;
+emission migration is its own pass). Original build plan follows:
 - Label sigils: `*name` black hole at top level or nested (blackhole
   flag on the seedlike → make_spaceseeds); `+name` / `!name` nested
   only; `+`/`!` at column 0 bork; a BARE nested block whose body has
@@ -169,28 +175,32 @@ Remaining:
 
 ## Backlog / dependencies
 
-- **Virtual time (timeouts as schedule events)** — depends on A + B. Drive
-  timeouts off the virtual clock, not wall-clock `setTimeout`
-  (`commands/builtin/process.js` sleep; the down-port default-10s timeout). A
-  timeout is an external event: a clock ship numbered at its frontier, entered
-  into the input schedule (`[sched-timeout-event]`). A request whose timeout
-  fires resumes EMPTY and marks the request completed; a later response ghosts
-  (`[timeout-resume-empty]`, `[timeout-ghost-drop]`). Effective timeout = min
-  along the chain, outer wire authoritative (`[timeout-min-chain]`, I12,
-  `[timeout-inherit]`). A request cycle resolves by timeout to empty
-  (`[request-cycle-timeout]`). The clock override (`D.now` + the det `now`
-  option) is the foundation; the harness already accepts `timeout()`/`respond()`.
-- **Sender attachment at entry + registry** — on `port.enter()` from outside, a
-  senderless ship takes the entry port's **qname** as sender + the space's base
-  dialect (`[sender-attach-entry]`); a `D.register_sender(qname, sender)` registry
-  consulted at entry attaches a registered (attenuated) sender instead
-  (`[sender-attach-registry]`); never override an existing sender (already green).
-  Depends on E (qnames). Turns green: `det_sender` `[sender-attach-entry]`.
-- **E. Runtime qualified names** — compute topology-derived qnames (space path /
-  station name / port endpoint); anonymous inline stations named `s1, s2, …` in
-  **source order** (§10, decided 2026-07-07 — NOT the layout engine's rank
-  scheme). Expose qname on the dock hook and in error-ship strings. Turns green:
-  `det_test` `[qname-structure]`, `[qname-anon-station]`.
+- **Virtual time — CORE DONE 2026-07-12 (eve).** D.register_timeout /
+  D.advance_clock; cmd requests get rule-or-default deadlines
+  ([timeout-resume-empty], [timeout-ghost-drop] green); occupied
+  round-trip ports emit empty + free at their deadline (era-guarded);
+  production uses unref'd wall timers, the det harness drives a
+  mutable virtual clock (timeout events; respond_now; settle treats a
+  timeout-pending wait as quiescent). Remaining: [request-cycle-timeout]
+  guide (needs queue-behind-wait numbering), [timeout-min-chain]
+  enforcement (inner deadlines are independent today, not min-capped),
+  wire-level timeout declarations ([timeout-inherit]), and
+  process.js sleep off the virtual clock.
+- **Sender attachment at entry + registry — DONE 2026-07-12 (eve).**
+  Senderless world entries take the entry port's qname (D.port_qname)
+  with the space base dialect; D.register_sender(qname, sender) wins;
+  never overrides. det_sender 8/8.
+- **E. Runtime qualified names — DONE 2026-07-12** (seeds carry
+  source-order station/subspace names; dock hook exposes qnames; anons
+  s1, s2 in source order; PRNG derives per-space from them). Error-ship
+  strings don't name qnames yet (§12 follow-up).
+- **Space serialization (§8)** — `space.serialize()` does not exist, and
+  compiled blocks/seeds retain NO source text (blocks are {segments,
+  wiring, id}), so emitting Astroglot needs seed-format source
+  retention first (station source beside block ids) — interacts with
+  content-hashing and [serialize-block-dead], and the amended rule that
+  a DECLARED dialect restriction serializes [serialize-keeps-dialect-decl].
+  Design pass required; the space_test serialize guide stays RED.
 - **`time now` purely effectful** — drop its `fun` fallback so it routes through
   `cmd:time:now` (part of B); the Outside then provides the time via a scheduled
   `cmd:time:now` response. **Also remove the `D.now` bridge** — it was added only
