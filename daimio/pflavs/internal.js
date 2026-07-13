@@ -19,6 +19,19 @@ D.import_port_flavour('up', {
   // THINK: this can only live on a space, not a station
 })
 
+// A socket's two implicit port-likes (§8): not really ports — no inside,
+// no pair. A ship arriving is Astroglot that replaces the slot's content.
+// [socket-portlike-implicit]
+D.import_port_flavour('socket-load', {
+  dir: 'in',
+  enter: function(ship, process) { D.socket_load(this, ship, 'drain') }
+})
+
+D.import_port_flavour('socket-load-smash', {
+  dir: 'in',
+  enter: function(ship, process) { D.socket_load(this, ship, 'smash') }
+})
+
 D.import_port_flavour('down', {
   dir: 'down',
   settings: [

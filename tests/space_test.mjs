@@ -552,7 +552,7 @@ space_test(
   var nested = 'outer\n' +
                '  @init from-js\n' +
                '  @out  collect\n' +
-               '  inner\n' +
+               '  +inner\n' +
                '    @in\n' +
                '    @out\n' +
                '    double {__ | times 2}\n' +
@@ -580,7 +580,7 @@ space_test(
   outer
     @init from-js 5
     @out  collect
-    inner
+    +inner
       @in
       @out
       double {__ | times 2}
@@ -603,7 +603,7 @@ space_test(
   var sibling = 'outer\n' +
                 '  @init from-js\n' +
                 '  @out  collect\n' +
-                '  inner\n' +
+                '  +inner\n' +
                 '    @in\n' +
                 '    @out\n' +
                 '    double {__ | times 2}\n' +
@@ -1635,7 +1635,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       requester
         {__ | >@need ||}
       receiver
@@ -1846,7 +1846,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       @in -> @down:need -> @out
     handler {__ | string uppercase}
     inner@down:need <-> handler
@@ -2064,10 +2064,10 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    provider
+    +provider
       responder {__ | string uppercase}
       @up <-> responder
-    consumer
+    +consumer
       @in -> @down:ask -> @out
     consumer@down:ask <-> provider@up
     @init -> consumer@in
@@ -2086,7 +2086,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       first  {var read-out name :x | add 1 | var write-out name :x}
       second {var read-out name :x | add 1 | var write-out name :x}
       @in -> first -> second -> @out
@@ -2141,8 +2141,8 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    middle
-      inner
+    +middle
+      +inner
         worker {var read-out name :x}
         @in -> worker -> @out
       inner@cmd:*:* <-> @cmd
@@ -2168,7 +2168,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       worker {var read-out name :x}
       @in -> worker -> @out
     inner@cmd:var:* <-> handler
@@ -2190,7 +2190,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       caller {var read-out name :greeting}
       @in -> caller -> @out
     handler
@@ -2213,10 +2213,10 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    requester
+    +requester
       caller {var read-out name :x}
       @in -> caller -> @out
-    provider
+    +provider
       responder {:provided}
       @up <-> responder
     requester@cmd:var:read-out <-> provider@up
@@ -2236,8 +2236,8 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    middle
-      inner
+    +middle
+      +inner
         caller {var read-out name :x}
         @in -> caller -> @out
       inner@cmd:var:* <-> @cmd
@@ -2262,7 +2262,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       caller {var read-out name :x | add 1}
       @in -> caller -> @out
     handler {:42}
@@ -2285,7 +2285,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       handler {__ | string uppercase}
       @up:service <-> handler
       @in -> @down:need -> @out
@@ -2306,7 +2306,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       caller {var read-out name :x}
       @in -> caller -> @out
     handler {:response}
@@ -2335,7 +2335,7 @@ space_test(
   `outer
     @init from-js
     @out  collect
-    inner
+    +inner
       caller {var read-out name :x || :fallback}
       @in -> caller -> @out
     @init -> inner@in
@@ -2612,13 +2612,14 @@ multi_space_test(
 ;(function() {
   // [spacedef-hard-error]
   // Gibberish with special characters should not produce a valid spaceseed
-  var bad_result = D.make_some_space('!!!@@@###')
+  var bad_result
+  try { bad_result = D.make_some_space('!!!@@@###') } catch(e) { bad_result = e }
   if(typeof bad_result !== 'number') {
     pass++
   } else {
     fail++
     failures.push({ label: '[spacedef-hard-error] gibberish borks',
-      expected: 'non-number (error)', actual: 'got seed_id: ' + bad_result })
+      expected: 'non-number (error or throw)', actual: 'got seed_id: ' + bad_result })
   }
 })()
 

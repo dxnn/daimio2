@@ -1,18 +1,12 @@
 // Socket-load behavior — run: node tests/det_socket_test.mjs
-// A socket-load port lets incoming Astroglot REPLACE a subspace's internal
-// content: stations, internal wiring, sub-subspaces, initial state, and port
-// declarations are all replaced and instantiated fresh; the payload's
-// top-level label is discarded (the subspace keeps its parent-given name); the
-// parent's wiring of the subspace persists and re-applies to the new content.
-// The COMPILE bork (socket-load on the root) is guarded in space_test.mjs.
-//
-// ALL RED — triple-blocked, written to document the target:
-//   1. make_some_space does not parse subspaces (TODO "subspace parsing"), so
-//      a socket-load port on a subspace can't even be created.
-//   2. subspace routing is unimplemented (Astroglot can't reach the port).
-//   3. the socket-load flavour + replace mechanism don't exist.
-// Each becomes live once that chain lands. Delivery: socket_load(port, src)
-// sends the Astroglot to an outer port wired to the subspace's socket-load port.
+// A socket is a !-sigiled slot (§3/§8) whose frame — name, parent wiring,
+// and two implicit port-likes (slot@socket-load, slot@socket-load-smash) —
+// persists across loads. Incoming Astroglot REPLACES everything else:
+// stations, internal wiring, sub-subspaces, initial state, and all declared
+// ports, instantiated fresh; the payload's top-level label is discarded.
+// Runtime loads never bork — bad input sploots [socket-load-sploot].
+// Delivery: socket_load(port, src) sends the Astroglot to an outer port
+// wired to the slot's port-like.
 
 import { det_test, arrive, socket_load, known_failures, run } from './det_harness.mjs'
 
@@ -24,11 +18,10 @@ det_test('socket-load: valid Astroglot replaces the subspace content [socket-loa
     @go from-js
     @load from-js
     @out det-out
-    slot
+    !slot
       body {:ORIGINAL}
       @in:x -> body -> @out:y
-      @reload socket-load
-    @load -> slot@reload
+    @load -> slot@socket-load
     @go -> slot@in:x
     slot@out:y -> @out`,
   schedule: [
@@ -46,11 +39,10 @@ det_test('socket-load: parent wiring persists and re-applies to new content [soc
     @go from-js
     @load from-js
     @out det-out
-    slot
+    !slot
       body {:A}
       @in:x -> body -> @out:y
-      @reload socket-load
-    @load -> slot@reload
+    @load -> slot@socket-load
     @go -> slot@in:x
     slot@out:y -> @out`,
   schedule: [
@@ -60,25 +52,22 @@ det_test('socket-load: parent wiring persists and re-applies to new content [soc
   assert: function(t, e) { e.outputs('out', ['B']) },
 })
 
-// [socket-load-reloadable] a subspace stays reloadable only if the loaded
-// content itself re-declares a socket-load port; content without one can't be
-// reloaded again.
-det_test('socket-load: reloadable only if the new content re-declares a socket-load port [socket-load-reloadable]', {
+// The frame is permanent, so a socket is ALWAYS reloadable — content never
+// controls its own evictability (the old [socket-load-reloadable] rule is
+// deleted; the port-likes are implicit) [socket-portlike-implicit].
+det_test('socket-load: a socket is always reloadable — the frame persists [socket-portlike-implicit]', {
   seed: `outer
     @go from-js
     @load from-js
     @out det-out
-    slot
+    !slot
       body {:ORIG}
       @in:x -> body -> @out:y
-      @reload socket-load
-    @load -> slot@reload
+    @load -> slot@socket-load
     @go -> slot@in:x
     slot@out:y -> @out`,
   schedule: [
-    // first load: new content KEEPS a socket-load port -> still reloadable
-    socket_load('load', 'whatever\n  body {:FIRST}\n  @in:x -> body -> @out:y\n  @reload socket-load'),
-    // second load succeeds because the first re-declared @reload
+    socket_load('load', 'whatever\n  body {:FIRST}\n  @in:x -> body -> @out:y'),
     socket_load('load', 'whatever\n  body {:SECOND}\n  @in:x -> body -> @out:y'),
     arrive('go', 'ping'),
   ],
@@ -93,11 +82,10 @@ det_test('socket-load: space variables do not survive a transition [socket-svars
     @go from-js
     @load from-js
     @out det-out
-    slot
+    !slot
       body {$counter}
       @in:x -> body -> @out:y
-      @reload socket-load
-    @load -> slot@reload
+    @load -> slot@socket-load
     @go -> slot@in:x
     slot@out:y -> @out`,
   schedule: [
@@ -107,12 +95,8 @@ det_test('socket-load: space variables do not survive a transition [socket-svars
   assert: function(t, e) { e.outputs('out', [99]) },   // new content's initial $counter, not the old
 })
 
-;[
-  'socket-load: valid Astroglot replaces the subspace content [socket-load-replace]',
-  'socket-load: parent wiring persists and re-applies to new content [socket-wiring-demand]',
-  'socket-load: reloadable only if the new content re-declares a socket-load port [socket-load-reloadable]',
-  'socket-load: space variables do not survive a transition [socket-svars-reset]',
-].forEach(function(l) { known_failures.add(l) })
+// (no known failures — the load/replace guides went green with the sigil
+// engine + socket port-likes, 2026-07-12)
 
 run()
 

@@ -2688,6 +2688,14 @@ D.Space = function(seed_id, parent, prng_seed, name) {
       .forEach(function(port) {port_name_to_port[port.name].pairup(port)})
   })
 
+  // socket port-likes know their slot: they act on the subspace directly
+  seed.ports.forEach(function(p, i) {
+    if(p.space && (p.flavour == 'socket-load' || p.flavour == 'socket-load-smash')) {
+      self.ports[i].socket_parent = self
+      self.ports[i].socket_index = p.space - 1
+    }
+  })
+
  // NOTE: DON'T DELETE THIS YET -- decide what you're doing with dialects first.
 //  if(this.parent) {
 //    var parent_dialect = this.parent.dialect ? this.parent.dialect : D.DIALECTS.top
@@ -2717,6 +2725,48 @@ D.Space = function(seed_id, parent, prng_seed, name) {
   this.only_one_process = true
   this.processes = []
   this.queue = []
+}
+
+// Replace a socket slot's content with freshly-loaded Astroglot (§8).
+// A runtime load never borks — bad input sploots and the current content
+// is untouched [socket-load-sploot]. The frame (name, parent wiring, the
+// two port-likes) persists; everything else is replaced, so svars never
+// survive a transition [socket-svars-reset] [socket-load-replace].
+// NOTE: mode is accepted but drain (finish in-flight work, buffer
+// arrivals) is not yet distinguished from smash — both replace at once.
+// Honest drain needs busy-content tracking (virtual-time milestone).
+D.socket_load = function(port, src, mode) {
+  var parent = port.socket_parent
+    , idx = port.socket_index
+    , old = parent.subspaces[idx]
+
+  var seed_id
+  try { seed_id = D.make_some_space(String(src)) }
+  catch(e) { return D.set_error('Socket load splooted: ' + e.message) }
+
+  var newseed = D.SPACESEEDS[seed_id]
+  if(!newseed)
+    return D.set_error('Socket load splooted: no space compiled')
+  if(newseed.blackhole)                             // [blackhole-no-socket-load] (load side)
+    return D.set_error('Socket load splooted: a black hole cannot be loaded')
+
+  var fresh = new D.Space(seed_id, parent, undefined, old && old.name)
+  parent.subspaces[idx] = fresh
+
+  // the parent's wiring of the slot re-applies to the new content's ports
+  // by name; a wire naming a port the new content lacks goes inert until
+  // demand-created [socket-wiring-demand]
+  parent.seed.ports.forEach(function(p, i) {
+    if(p.space != idx + 1) return
+    if(p.flavour == 'socket-load' || p.flavour == 'socket-load-smash') return  // the frame
+    var mine = parent.ports[i]
+      , match = null
+    fresh.ports.forEach(function(fp) {
+      if(!fp.station && !fp.pair && fp.name == mine.name) match = fp
+    })
+    if(match) mine.pairup(match)
+    else mine.pair = false
+  })
 }
 
 // Qualified names [qname-structure]: a space's qname is its path of
@@ -3268,7 +3318,8 @@ D.Process.prototype.next = function(segment, current, wires, dialect) {
 
 D.spaceseed_add = function(seed) {
   var good_props = { dialect: 1, stations: 1, subspaces: 1, ports: 1, routes: 1, state: 1, rules: 1
-                   , station_names: 1, subspace_names: 1 }   // source-order names [qname-structure]
+                   , station_names: 1, subspace_names: 1     // source-order names [qname-structure]
+                   , blackhole: 1, socket: 1 }               // space-kind flags (§3 sigils)
     , item
 
   for(var key in seed)
@@ -3475,7 +3526,12 @@ D.make_some_space = function(stringlike, templates) {
   return D.make_spaceseeds(D.seedlikes_from_string(stringlike, templates))
 }
 
-D.seedlikes_from_string = function(stringlike, templates) {
+D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
+  // outer_scope: the top-level seedlike map, passed into nested-definition
+  // parses so a child can reference earlier TOP-LEVEL spaces (two-layer
+  // lexical scope [spacesyn-scope-two-layer]; local defs live under
+  // globally-unique 'name::N' keys, which bare-name references never
+  // match — so a child can never see an enclosing space's other locals).
   var seedlikes = {}
     , seed_offset = -1
     , prop_offset = -1
@@ -3484,12 +3540,86 @@ D.seedlikes_from_string = function(stringlike, templates) {
     , continuation = ''
     , action = ''
     , action_name = ''
+    , sigil = ''
     , maybe_subspace = false
     , subspace_buffer = []
     , templates = templates || {}
 
+  var resolve_space = function(name) {              // locals shadow top level [spacesyn-shadow-local]
+    return this_seed.subspaces[name]
+        || (seedlikes[name] && name)
+        || (outer_scope && outer_scope[name] && name)
+        || false
+  }
+
   // THINK: if we use parser combinators, can we uncombinate in reverse to get back our string?
   // first break it apart by lines and organize into seedlikes
+
+  // flush the pending property action (also called at end-of-input, so the
+  // last property no longer needs a trailing line to land)
+  var flush_action = function() {
+    if(!action) return
+    var value
+
+      continuation = continuation.replace(/^\s+|\s+$/g, '')
+
+      if(action == 'dialect') {
+        try {this_seed.dialect = JSON.parse(continuation)} catch(e) {}
+      }
+
+      if(action == 'port') {
+        if(action_name.indexOf('cmd:') == 0)        // [demandport-create]
+          throw new Error('cmd: ports are demand-created and cannot be declared: @' + action_name)
+        value = continuation ? continuation.split(/\s+/) : [action_name]
+        if(value[0] == 'socket-load' || value[0] == 'socket-load-smash')
+          throw new Error('the socket-load flavour is retired — declare the socket with !name; '
+                        + 'its port-likes are implicit: @' + action_name)  // [socket-portlike-implicit]
+        this_seed.ports[action_name] = value //.map(function(item) {return item.replace(/^\s+|\s+$/g, '')})
+      }
+
+      if(action == 'state') {
+        try {this_seed.state[action_name] = JSON.parse(continuation)} catch(e) {}
+      }
+
+      if(action == 'station') {
+        if(sigil) {                                 // sigil-marked nested space definition [spacesyn-subspace-nested]
+          var child = D.seedlikes_from_string(action_name + "\n" + subspace_buffer.join("\n"),
+                                              templates, outer_scope || seedlikes)
+          var local_key = action_name + '::' + (D.Etc.local_def_counter = (D.Etc.local_def_counter || 0) + 1)
+          for(var child_name in child) {
+            if(child_name == action_name) {
+              if(sigil == '!') child[child_name].socket = true       // [spacesyn-socket]
+              if(sigil == '*') child[child_name].blackhole = true    // [spacesyn-blackhole]
+              seedlikes[local_key] = child[child_name]
+            } else {
+              seedlikes[child_name] = child[child_name]  // grandchild '::' keys are globally unique
+            }
+          }
+          this_seed.subspaces[action_name] = local_key   // shadows any top-level name [spacesyn-shadow-local]
+        }
+        else {
+          var structural = maybe_subspace && subspace_buffer.filter(function(bline) {
+            var head = bline.replace(/^\s+/, '')
+            return head[0] == '@' || head[0] == '$' || head.indexOf('->') >= 0
+          }).length
+
+          if(structural)                            // a bare block is always a station — never a silent subspace
+            throw new Error('A nested space definition requires its sigil '
+                          + '(+name subspace, *name black hole, !name socket): '
+                          + action_name)            // [spacesyn-sigil-required]
+
+          if(!continuation && templates[action_name])
+            continuation = templates[action_name]
+          this_seed.stations[action_name] = {value: continuation}
+        }
+      }
+
+      sigil = ''
+      maybe_subspace = false
+      subspace_buffer = []
+      continuation = ''
+      action = ''
+      }
 
   stringlike+="\n" // catches unfinished continuations
 
@@ -3530,49 +3660,7 @@ D.seedlikes_from_string = function(stringlike, templates) {
       }
     }
 
-    if(action) {
-      continuation = continuation.replace(/^\s+|\s+$/g, '')
-
-      if(action == 'dialect') {
-        try {this_seed.dialect = JSON.parse(continuation)} catch(e) {}
-      }
-
-      if(action == 'port') {
-        value = continuation ? continuation.split(/\s+/) : [action_name]
-        this_seed.ports[action_name] = value //.map(function(item) {return item.replace(/^\s+|\s+$/g, '')})
-      }
-
-      if(action == 'state') {
-        try {this_seed.state[action_name] = JSON.parse(continuation)} catch(e) {}
-      }
-
-      if(action == 'station') {
-        var structural = maybe_subspace && subspace_buffer.filter(function(bline) {
-          var head = bline.replace(/^\s+/, '')
-          return head[0] == '@' || head[0] == '$' || head.indexOf('->') >= 0
-        }).length
-
-        if(structural) {                            // an indented named block of space structure is a child subspace
-          var child = D.seedlikes_from_string(action_name + "\n" + subspace_buffer.join("\n"), templates)
-          for(var child_name in child) {
-            if(seedlikes[child_name])
-              D.recursive_extend(seedlikes[child_name], child[child_name])
-            else
-              seedlikes[child_name] = child[child_name] // child must land before the parent registers
-          }
-          this_seed.subspaces[action_name] = action_name
-        } else {
-          if(!continuation && templates[action_name])
-            continuation = templates[action_name]
-          this_seed.stations[action_name] = {value: continuation}
-        }
-      }
-
-      maybe_subspace = false
-      subspace_buffer = []
-      continuation = ''
-      action = ''
-    }
+    flush_action()
 
     if(this_offset == seed_offset) {
       if(seed_name) {
@@ -3583,8 +3671,14 @@ D.seedlikes_from_string = function(stringlike, templates) {
         }
       }
 
-      seed_name = line
+      if(line[0] == '+' || line[0] == '!')          // [spacesyn-sigil-required] [socket-load-not-root]
+        throw new Error('The ' + line[0] + ' sigil marks a nested space definition; '
+                      + 'top-level spaces are bare (or *name for a black hole): ' + line)
+
+      var top_blackhole = line[0] == '*'            // [spacesyn-blackhole]
+      seed_name = top_blackhole ? line.slice(1) : line
       this_seed = {ports:{}, state:{}, routes:[], dialect:{}, stations:{}, subspaces:{}, rules:[]}
+      if(top_blackhole) this_seed.blackhole = true
 
       return
     }
@@ -3608,6 +3702,17 @@ D.seedlikes_from_string = function(stringlike, templates) {
     if(name[0] == '$') {
       action_name = name.slice(1)
       action = 'state'
+      return
+    }
+
+    if(/^[+!*][a-z]/.test(name) && line.indexOf('->') == -1) {
+      if(continuation)                              // a sigil label takes an indented body, nothing inline
+        throw new Error('A nested space definition takes an indented body: ' + line)
+      sigil = name[0]                               // [spacesyn-subspace-nested]
+      action_name = name.slice(1)
+      action = 'station'
+      maybe_subspace = true
+      subspace_buffer = []
       return
     }
 
@@ -3644,13 +3749,15 @@ D.seedlikes_from_string = function(stringlike, templates) {
           , holder = lhs.slice(0, cmd_at)
           , target = rule_bits[0]
 
-        if(seedlikes[holder])                            // a rule pulls referenced siblings in,
-          this_seed.subspaces[holder] = holder           // just like a wire does
+        var holder_key = resolve_space(holder)           // a rule pulls referenced spaces in,
+        if(holder_key)                                   // just like a wire does (locals first)
+          this_seed.subspaces[holder] = holder_key
 
         if(target[0] != '@') {                           // sibling-port (name@up) or station target
           var tname = target.split(/[@.]/)[0]
-          if(seedlikes[tname])
-            this_seed.subspaces[tname] = tname
+            , tkey = resolve_space(tname)
+          if(tkey)
+            this_seed.subspaces[tname] = tkey
         }
 
         this_seed.rules.push({ holder:  holder
@@ -3665,9 +3772,10 @@ D.seedlikes_from_string = function(stringlike, templates) {
 
       if(lhs.indexOf('.') > 0) {                         // subspace port: only sub@down[:x] enters a contract as LHS
         var lsplit = lhs.split('.', 2)
-        if(!seedlikes[lsplit[0]] || !/^down(:|$)/.test(lsplit[1]))
+          , lspace = resolve_space(lsplit[0])
+        if(!lspace || !/^down(:|$)/.test(lsplit[1]))
           throw new Error('Contract LHS must be an up/down port or a subspace down port: ' + line)
-        this_seed.subspaces[lsplit[0]] = lsplit[0]
+        this_seed.subspaces[lsplit[0]] = lspace
         lkey = lhs
       }
       else {
@@ -3705,11 +3813,12 @@ D.seedlikes_from_string = function(stringlike, templates) {
       else if(rhs.indexOf('@') > 0 || rhs.indexOf('.') > 0) {
         var rnorm  = rhs.indexOf('@') > 0 ? rhs.replace('@', '.') : rhs
           , rsplit = rnorm.split('.', 2)
+          , rspace = resolve_space(rsplit[0])
         if(this_seed.stations[rsplit[0]])
           throw new Error('A station named port cannot fulfill a contract (use the bare station name): ' + line)
-        if(!seedlikes[rsplit[0]] || !/^up(:|$)/.test(rsplit[1]))
+        if(!rspace || !/^up(:|$)/.test(rsplit[1]))
           throw new Error('Contract RHS must be a station, a down port, or a subspace up port: ' + line)
-        this_seed.subspaces[rsplit[0]] = rsplit[0]
+        this_seed.subspaces[rsplit[0]] = rspace
         rkey = rnorm
       }
 
@@ -3735,6 +3844,10 @@ D.seedlikes_from_string = function(stringlike, templates) {
           part = fakename
         }
 
+        if(/^[+!*]/.test(part))                     // references always use the bare name
+          throw new Error('Sigils appear only at definition sites; endpoints use the bare name: '
+                        + part)                     // [blackhole-ref-bare]
+
         if(part.indexOf('@') > 0)                  // name@port endpoint (§3) — '.' is the internal key form
           part = part.replace('@', '.')
 
@@ -3755,8 +3868,8 @@ D.seedlikes_from_string = function(stringlike, templates) {
             this_seed.stations[name].extraports = this_seed.stations[name].extraports
                                                 ? this_seed.stations[name].extraports.concat([port])
                                                 : [port]
-          } else if(seedlikes[name]) {
-            this_seed.subspaces[name] = name       // TODO: foo.in, foo-1.in, foo-2.in, etc
+          } else if(resolve_space(name)) {         // locals first, then top level [spacesyn-scope-two-layer]
+            this_seed.subspaces[name] = resolve_space(name)  // TODO: foo.in, foo-1.in, foo-2.in, etc
           } else {
             D.set_error('Subspace "' + name + '" referenced before definition') // [spacesyn-subspace-before-ref]
           }
@@ -3808,6 +3921,8 @@ D.seedlikes_from_string = function(stringlike, templates) {
     }
   })
 
+  flush_action()
+
   if(JSON.stringify(this_seed) != JSON.stringify({ports:{}, state:{}, routes:[], dialect:{}, stations:{}, subspaces:{}, rules:[]})) {
     if(seedlikes[seed_name]) {
       D.recursive_extend(seedlikes[seed_name], this_seed)
@@ -3836,6 +3951,27 @@ D.make_spaceseeds = function(seedlikes) {
 
     newseed.state = state // TODO: check state
     newseed.dialect = dialect // TODO: check dialect
+    if(seed.blackhole) newseed.blackhole = true
+    if(seed.socket)    newseed.socket = true
+
+    if(seed.blackhole) {                            // §4 black holes: ports only, in/out only,
+      if(Object.keys(stations).length || Object.keys(state).length || routes.length)
+        throw new Error('A black hole has no interior — ports only: '
+                      + seedkey)                    // [blackhole-only-ports] [blackhole-no-interior]
+      for(var key in ports) {
+        var bdir = key.split(':')[0]
+        if(bdir == 'up' || bdir == 'down')
+          throw new Error('A black hole has in/out ports only: @' + key)  // [blackhole-inout-only]
+        var bflav = ports[key][0] == key            // bare decl: generic OPPOSING flavour
+                  ? (bdir == 'in' ? 'out' : 'in')   // [blackhole-default-flavour]
+                  : ports[key][0]
+        var bfdir = D.PortFlavours[bflav] && D.PortFlavours[bflav].dir
+        if(bfdir && bfdir == bdir)
+          throw new Error('A black hole port flavour must oppose its direction: @' + key
+                        + ' ' + bflav)              // [blackhole-flavour-oppose]
+        ports[key] = [bflav].concat(ports[key].slice(1))
+      }
+    }
 
     var port_key_to_index = {}
     newseed.ports = []
@@ -3884,6 +4020,15 @@ D.make_spaceseeds = function(seedlikes) {
         var subport = newseeds[spacekey].ports.filter(function(port) {return port.name == portkey})[0]
         newseed.ports.push({space: index, flavour: subport.flavour, name: subport.name, settings: subport.settings}) // oy vey
         port_key_to_index[key + '.' + portkey] = newseed.ports.length // note 1-indexed
+      }
+
+      // a socket's two implicit port-likes live on the parent side of the
+      // slot [socket-portlike-implicit] [socket-portlike-endpoint]
+      if(newseeds[spacekey] && newseeds[spacekey].socket) {
+        ;['socket-load', 'socket-load-smash'].forEach(function(pl) {
+          newseed.ports.push({space: index, flavour: pl, name: pl})
+          port_key_to_index[key + '.' + pl] = newseed.ports.length
+        })
       }
     }
 
@@ -3956,9 +4101,11 @@ D.make_spaceseeds = function(seedlikes) {
     seedmap[seedkey] = D.spaceseed_add(newseed)
   }
 
-  // console.log(seedmap)
+  var rootkey = seedmap['outer'] ? 'outer' : seedkey
+  if(seedlikes[rootkey] && seedlikes[rootkey].blackhole)
+    throw new Error('The root space cannot be a black hole: ' + rootkey)  // [blackhole-not-root]
 
-  return seedmap['outer'] || seedmap[seedkey]
+  return seedmap[rootkey]
 }
 
 
