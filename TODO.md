@@ -183,26 +183,21 @@ Remaining: (nothing — the two below both landed)
 
 ## Backlog / dependencies
 
-- **Effectful commands: full spec + coverage sweep (dann, 2026-07-12 eve).**
-  The stdlib has exactly three effectful commands today — `time now`
-  (cmd:time:now), `var read-out` (cmd:var:read-out), `var write-out`
-  (cmd:var:write-out) — and the fuzzer surfaces their unwired-sploot
-  errors constantly, so their semantics must be FULLY SPEC'D, each:
-  request value shape ([effcmd-request-val] covers the general keyed
-  form; per-command field lists are not written), response semantics
-  and coercion (what does cmd:var:read-out return for an unbound
-  parent var?), timeout interaction, sender/dialect gating, and the
-  §10-style canonical examples (they cannot have `examples:` today —
-  example_test runs in an unwired space and they'd sploot; the
-  example harness needs a wired fixture space, or the spec needs
-  prose examples). Cross-boundary `var read-out`/`write-out`
-  reaching the PARENT's state (not the caller's) is spec'd (§6
-  worked example) but untested end-to-end
-  ([socket-crossboundary-var] below). Any future effectful command
-  (network, storage, process sleep) follows the same template.
-  Fuzzer note: the unwired sploots are expected [effectful-unwired-
-  sploot] and the fuzzer allowlist now recognizes them (plus ghost/
-  timeout/socket-sploot messages) — 0 crashes at 3300 exprs.
+- **Effectful commands: full spec + coverage sweep — DONE 2026-07-12..13.**
+  The stdlib now has FOUR effectful commands — `time now` (cmd:time:now),
+  `var read-out` (cmd:var:read-out), `var write-out` (cmd:var:write-out),
+  `process sleep` (cmd:process:sleep). All four are fully spec'd in §6
+  (D2-spec.md:2281-2308): per-command request field lists
+  ([effcmd-time-now/-var-read-out/-var-write-out/-process-sleep]), the
+  general keyed shape [effcmd-request-val], canonical response conventions
+  (stampwrap-shaped time; unbound read answers Empty splooting in the
+  handler's space [svar-read-unbound-sploot]; write-through; sleep answers
+  `then` at the deadline), and timeout/[P-handlersub] boundaries. Tested
+  examples: example_test runs 3-element wired fixtures under a cmd rule
+  (fa4bb13). Cross-boundary reach: the read/write handlers resolving against
+  the PARENT's state store are now pinned end-to-end
+  ([socket-crossboundary-var] in space_test, 2026-07-13). Fuzzer allowlist
+  recognizes the expected unwired sploots — 0 crashes at 3000+ exprs.
 
 - **Virtual time — CORE DONE 2026-07-12 (eve).** D.register_timeout /
   D.advance_clock; cmd requests get rule-or-default deadlines
@@ -272,9 +267,12 @@ Remaining: (nothing — the two below both landed)
   (or a per-instance options object) so a test can set a low bound (e.g. 3) and
   assert the sploot fires at exactly that depth. Turns green: the deferred depth
   guides (`[depth-bound-instance]`, `[depth-nesting-only]`).
-- **Cross-boundary `var read-out`/`var write-out`** — once B routes, these reach
-  the **parent's** state, not the caller's (today's `fun` reads the caller's own
-  space). `[socket-crossboundary-var]`.
+- **Cross-boundary `var read-out`/`var write-out` — LANDED 2026-07-13.** Now that
+  B routes, a parent-wired handler using the LOCAL `{var read/write}` resolves
+  against the PARENT's state store (the handler sub-process runs in the parent).
+  Pinned end-to-end by two space_test guides [socket-crossboundary-var]: inner's
+  read-out returns outer's `$greeting`; inner's write-out mutates outer's `$c`
+  (verified by reading it back past a sentinel).
 - **Seedlike `<->` parser hardening — LANDED 2026-07-13.** The reviewer-reported
   fail-silent bugs were already fixed during the signal-flip rework: station-first
   LHS (`A <-> @down:svc`) borks, port-on-RHS (`S@down <-> T@up`) and
