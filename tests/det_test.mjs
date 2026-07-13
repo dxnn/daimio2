@@ -21,14 +21,12 @@ import {
 det_daml('isolation: write and read $x within one space', '{5 | >$x || $x}', '5')
 det_daml('isolation: a fresh space sees no $x from a prior test', '{$x}', '')
 
-// ── Moved from d2_spec_test: svar-coercion poke (RED, now isolated) ───────
-// list poke coerces the scalar base to [scalar] before D.poke sees it, so
-// the affine scalar-replace rule doesn't apply. [WRONG:...] flags the
-// disputed expectation. These flaked d2_spec_test via shared svar state;
-// here they fail deterministically.
-det_daml('poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
+// ── Moved from d2_spec_test: affine key-poke on a scalar base ─────────────
+// GREEN since the 2026-07-12 pathfinder scalar/Empty refactor: no list
+// coercion; the affine scalar-replace rule applies [poke-key-scalar-affine].
+det_daml('poke: scalar base promotes to keyed (affine) [poke-key-scalar-affine]',
          '{:hello | list poke path :a value 99}', '{"a":99}')
-det_daml('poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
+det_daml('poke: string base via >$x.path promotes to keyed (affine) [poke-key-scalar-affine]',
          '{:hello | >$sp1 || 99 | >$sp1.a || $sp1}', '{"a":99}')
 
 // ── Replay (green): same space + same schedule → identical trace ──────────
@@ -201,10 +199,7 @@ det_test('occupancy: unrequested ship at a free down-port ghosts [upport-ghost-a
 })
 
 // ── Known failures (RED guides) ──────────────────────────────────────────
-;[
-  'poke: scalar base via list poke (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
-  'poke: string base via >$x.path (list coercion wraps scalar) [WRONG:poke-key-scalar-affine]',
-].forEach(function(l) { known_failures.add(l) })
+// (empty — the poke scalar guides went green with the pathfinder refactor)
 
 run()
 

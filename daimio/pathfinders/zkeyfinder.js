@@ -8,9 +8,9 @@ D.import_pathfinder('key', {
       return 'one'
   },
   gather: function(value, key) {
-    return (value && D._hop.call(value, key))
-           ? [value[key]]
-           : []
+    return (value && typeof value == 'object' && !D.is_block(value) && D._hop.call(value, key))
+           ? [value[key]]                       // no scalar wrapping [peek-scalar]: strings
+           : []                                 // and blocks don't leak their insides
   },
   create: function(value, key) {
     if(D.is_banned_key(key))

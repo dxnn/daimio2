@@ -6,13 +6,15 @@ D.import_pathfinder('position', {
       return 'one'
   },
   gather: function(value, key) {
-    var safe_value = (typeof value == 'object') ? value : [value]
-      , vkeys = Object.keys(safe_value)
+    if(!value || typeof value != 'object' || D.is_block(value))
+      return []                                 // no scalar wrapping [peek-scalar]
+
+    var vkeys = Object.keys(value)
       , position = +key.slice(1)
       , index = (position < 0) ? (vkeys.length + position) : position - 1
-      , output = safe_value[ vkeys[ index ] ]
+      , output = value[ vkeys[ index ] ]
 
-    return output ? [output] : []
+    return output !== undefined ? [output] : [] // falsy elements still hit [peek-pos-hit]
   },
   create: function(value, key) {
     var vkeys = Object.keys(value)

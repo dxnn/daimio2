@@ -30,8 +30,8 @@ D.import_models({
           {
             key: 'data',
             desc: 'An array of data',
-            type: 'list',
-            required: true
+            type: 'anything',         // map(Empty) = Empty, map(scalar) unchanged
+            required: true            // [map-empty-unchanged] [map-scalar-unchanged]
           },
           {
             key: 'block',
@@ -478,8 +478,8 @@ D.import_models({
         params: [
           {
             key: 'data',
-            desc: 'The list to search',
-            type: 'list'
+            desc: 'The value to search',
+            type: 'anything'          // no scalar wrapping [peek-scalar]
           },
           {
             key: 'path',
@@ -507,9 +507,9 @@ D.import_models({
         params: [
           {
             key: 'data',
-            desc: 'The list to search',
-            type: 'list'
-          },
+            desc: 'The value to poke into',
+            type: 'anything'          // scalar bases follow the §10 scalar rules,
+          },                          // not list coercion [poke-pos-scalar]
           {
             key: 'value',
             desc: 'The new value',
@@ -528,6 +528,50 @@ D.import_models({
           // return data
 
           // return D.poke(path, data, function(x) {return value})
+        },
+      },
+
+      delete: {
+        desc: "Remove the entry at a path focus",
+        help: ['Positional deletes splice (remaining elements shift). Par paths collect targets from the original structure and remove each once, in reverse index order.'],
+        examples: [
+          ['{* (:a 1 :b 2 :c 3) | list delete path :b}', '{"a":1,"c":3}'],
+          ['{(10 20 30) | list delete path "#2"}', '[10,30]'],
+          ['{(10 20 30 40) | list delete path (("#1" "#3"))}', '[20,40]'],
+        ],
+        params: [
+          {
+            key: 'data',
+            desc: 'The value to delete from',
+            type: 'anything'          // scalars have no focus: returned unchanged
+          },
+          {
+            key: 'path',
+            desc: 'A list of branch names',
+            type: 'list'
+          },
+        ],
+        fun: function(data, path) {
+          return D.delete_path(D.clone(data), path)
+        },
+      },
+
+      values: {
+        desc: "Return the values of a list, dropping keys",
+        examples: [
+          ['{* (:a 1 :b 2) | list values}', '[1,2]'],
+        ],
+        params: [
+          {
+            key: 'data',
+            desc: 'A list',
+            type: 'anything'
+          },
+        ],
+        fun: function(data) {                     // keyed → unkeyed [collection-values]
+          if(!data) return []
+          if(typeof data != 'object') return [data]
+          return Object.keys(data).map(function(k) { return data[k] })
         },
       },
 

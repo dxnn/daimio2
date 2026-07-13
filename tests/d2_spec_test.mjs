@@ -17,18 +17,7 @@ var reported = false
 // A failure whose label is in this set is expected; anything else is a
 // regression (and fails the suite).
 var known_failures = new Set([
-  // (the two [WRONG:poke-key-scalar-affine] svar-coercion cases moved to det_test.mjs)
-  // §10 list delete / list values — spec'd, unimplemented. RED guides
-  // asserting spec-correct results (audit decision 2026-07-10; land with
-  // the pathfinder scalar/Empty refactor).
-  'delete key from keyed list [delete-key-keyed]',
-  'delete key coerced on unkeyed list [delete-key-unkeyed]',
-  'delete by position splices [delete-pos]',
-  'delete star removes all children [delete-star]',
-  'par-delete collects then removes in reverse [delete-par-collect]',
-  'overlapping par-delete removes entry once [delete-par-overlap]',
-  'DeleteDel: double delete equals single delete [law-deletedel]',
-  'list values drops keys [collection-values]',
+  // (empty — list delete/values and the scalar/Empty family landed 2026-07-12)
 ])
 
 function test(label, input, expected) {
@@ -880,11 +869,11 @@ test(
   '[]'
 )
 
-// Note: 42 is coerced to [42] by list type before peek sees it
+// A scalar has no children — no list coercion, no scalar wrapping
 test(
-  'peek Star: on scalar (list-coerced) returns its children [peek-star] [coerce-list]',
+  'peek Star: on a scalar yields no children [peek-star] [peek-scalar]',
   '{42 | list peek path "*"}',
-  '[42]'
+  '[]'
 )
 
 test(
@@ -899,12 +888,12 @@ test(
   '[20,40,60]'
 )
 
-// Star expands children, then Name on scalars returns empty for each
-// Empty values stringify to nothing, so the result is an empty-looking list
+// Star expands children, then an affine selector yields exactly one
+// result per item — Empty for each scalar child [peek-scalar]
 test(
-  'peek Star: star of scalars then Name returns empties [peek-star] [peek-scalar]',
+  'peek Star: star of scalars then Name yields one Empty each [peek-star] [peek-scalar]',
   '{(1 2 3) | list peek path ("*" :a)}',
-  '[]'
+  '["","",""]'
 )
 
 
@@ -1317,18 +1306,18 @@ test(
 )
 
 // >$xxx.#3 desugars to: save pipe, list poke data $xxx path ("#3") value pipe, >$xxx, restore pipe
-// "{:foo}x" is a block → list coerces to [] → poke at #3 on empty → out of bounds → no-op → $xxx = []
+// A block is a scalar to the pathfinders: pos-poke leaves it unchanged
 test(
-  'poke Combo: >$var.path block base with position out of bounds is no-op [WRONG:poke-pos-oob]',
+  'poke Combo: >$var.path pos-poke on a block base leaves it unchanged [poke-pos-scalar]',
   '{"{:foo}x" | >$xxx || 123 | >$xxx.#3 | $xxx}',
-  '[]'
+  'foox'
 )
 
-// Same but with a plain string: list coerces "hello" to ["hello"] → #3 out of bounds → no-op
+// Same with a plain string: no list coercion, scalar unchanged
 test(
-  'poke Combo: >$var.path string base with position out of bounds is no-op [WRONG:poke-pos-oob]',
+  'poke Combo: >$var.path pos-poke on a string base leaves it unchanged [poke-pos-scalar]',
   '{:hello | >$yyy || 123 | >$yyy.#3 | $yyy}',
-  '["hello"]'
+  'hello'
 )
 
 
@@ -2291,25 +2280,26 @@ test('opt math: string plus number [P-total] [total-cmd-value] [coerce-number]',
 // list poke: star path on scalar/null children (totality)
 // =====================================================
 
-// original crash: star expands scalar children, poke tries to set property on null
-test('poke: star path on scalar does not crash [P-total] [poke-key-scalar-traversal]',
+// original crash: star expands scalar children, poke tries to set property
+// on null. Star on a scalar base now leaves it unchanged [poke-star-scalar].
+test('poke: star path on scalar does not crash [P-total] [poke-star-scalar]',
   '{-Infinity | list poke path ("*" :b) value 1}',
-  '[""]'
+  ''
 )
 
-test('poke: star path on number does not crash [P-total] [poke-key-scalar-traversal]',
+test('poke: star path on number does not crash [P-total] [poke-star-scalar]',
   '{42 | list poke path ("*" :c) value 1}',
-  '[42]'
+  '42'
 )
 
-test('poke: star path on string does not crash [P-total] [poke-key-scalar-traversal]',
+test('poke: star path on string does not crash [P-total] [poke-star-scalar]',
   '{:hello | list poke path ("*" :b) value 1}',
-  '["hello"]'
+  'hello'
 )
 
-test('poke: deep star path on scalar does not crash [P-total] [poke-key-scalar-traversal]',
+test('poke: deep star path on scalar does not crash [P-total] [poke-star-scalar]',
   '{-Infinity | list poke path ("*" -1 :c) value :y}',
-  '[""]'
+  ''
 )
 
 // =====================================================
@@ -3161,15 +3151,11 @@ test(
 
 
 // =====================================================
-// §10 Delete — list delete is UNIMPLEMENTED. RED guides asserting the
-// spec-correct results (audit decision 2026-07-10: implement with the
-// pathfinder scalar/Empty refactor). The two tests whose correct
-// result IS Empty ('' — empty path, DeleteGet) pass vacuously via
-// unknown-command sploot until then.
+// §10 Delete
 // =====================================================
 
 test(
-  'delete empty path returns Empty [delete-empty-path] (vacuous until list delete lands)',
+  'delete empty path returns Empty [delete-empty-path]',
   '{(1 2 3) | list delete}',
   ''
 )
@@ -3297,9 +3283,9 @@ test(
 )
 
 test(
-  'poke pos on scalar coerces to list [WRONG:poke-pos-scalar]',
+  'poke pos on scalar leaves it unchanged [poke-pos-scalar]',
   '{42 | >$poke_pos_scalar_t || 99 | >$poke_pos_scalar_t.#1 || $poke_pos_scalar_t}',
-  '[99]'
+  '42'
 )
 
 
@@ -3326,7 +3312,7 @@ test(
 )
 
 test(
-  'DeleteGet: peek after delete returns Empty [law-deleteget] (vacuous until list delete lands)',
+  'DeleteGet: peek after delete returns Empty [law-deleteget]',
   '{* (:a 1 :b 2) | list delete path :a | __.a}',
   ''
 )
@@ -3343,9 +3329,9 @@ test(
 // =====================================================
 
 test(
-  'map on Empty coerced to empty list [WRONG:map-empty-unchanged]',
+  'map on Empty returns Empty [map-empty-unchanged]',
   '{$noexist_map_empty | list map block "{__ | math add value 1}"}',
-  '[]'
+  ''
 )
 
 test(

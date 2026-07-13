@@ -1009,11 +1009,12 @@
       {$companies.{(("*" "employees" "*"))}.#2.name}
         ["Awesome Bobs"]
 
-    Without star boxing it looks in all the wrong places
+    Without star boxing the affine selectors land on scalar foci,
+    which yield one Empty per item [peek-scalar]
       {$companies.*.employees.*.#2.name}
-        []
+        ["","","","","","","","","","","",""]
       {$companies.*.employees.*.name.#2}
-        []
+        ["","","","","","","","","","","",""]
 
 <h3>Dot sugar</h3>
   Pairs of commands: the dot-form and the list peek form, side by side.

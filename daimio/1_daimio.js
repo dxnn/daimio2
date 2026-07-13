@@ -1293,6 +1293,17 @@ D.import_pathfinder = function(name, pf) {
 }
 
 D.peek = function(base, path) {
+  // Scalar/Empty semantics per §10 (audit ruling A, 2026-07-12):
+  //   peek(v, Star :: rest) = [peek(child, rest) for child in v]  [peek-star]
+  //   affine selectors (Key/Pos) yield exactly one result per item —
+  //   the hit, or Empty for a miss or a scalar base [peek-scalar]
+  //   [peek-key-miss] [peek-pos-miss]. Star over a scalar contributes
+  //   nothing (a scalar has no children).
+  // Par keeps the ORIGINAL staging semantics (listfinder: each sub-path's
+  // result becomes an item, the remaining path applies to those items).
+  // The spec's [peek-par] fold formula CONFLICTS with the corpus's
+  // designed series/parallel alternation — an open design decision; the
+  // fold-asserting guides stay RED meanwhile. See extra/coverage/DECISIONS.md.
   path = D.to_array(path)
 
   if(!path.length)
@@ -1304,12 +1315,12 @@ D.peek = function(base, path) {
   for(var i=0, l=path.length; i < l; i++) {
     var key = path[i]
       , new_todo = []
-      , pf
+      , pf, test
 
     // choose our pathfinder
     for(var j=0, k=D.Pathfinders.length; j < k; j++) {
       pf = D.Pathfinders[j]
-      var test = pf.keymatch(key)
+      test = pf.keymatch(key)
 
       if(test == 'many')
         many_flag = true
@@ -1321,13 +1332,15 @@ D.peek = function(base, path) {
     if(!pf)
       return D.set_error('No matching pathfinder was found')
 
-    // apply chosen pf to each item in todo
     for(var j=0, k=todo.length; j < k; j++) {
-      new_todo = new_todo.concat(pf.gather(todo[j], key))
+      if(test == 'many')                                    // traversal: children only, arity varies
+        new_todo = new_todo.concat(pf.gather(todo[j], key))
+      else {                                                // affine: exactly one result per item
+        var got = pf.gather(todo[j], key)
+        new_todo.push(got.length ? got[0] : '')             // miss/scalar → Empty
+      }
     }
 
-    // tidy up
-    // NOTE: we don't short circuit here on empty todo because we want many_flag to be accurate -- itemless peek should return an empty list if any many_flag PFs are invoked, and false otherwise
     todo = new_todo
   }
 
@@ -1346,12 +1359,20 @@ D.poke = function(base, path, value) {
   if(!path.length)
     return value
 
-  if(typeof base != 'object') {
+  if(typeof base != 'object' || base === null || D.is_block(base)) {
     // [poke-key-scalar-affine] Key on scalar (affine): replace with {key: ...}
     // [poke-pos-scalar] Pos on scalar: return scalar unchanged
     // [poke-star-scalar] Star on scalar: return scalar unchanged
+    // (blocks are scalars here: paths never traverse into a block's insides)
     var first = path[0]
-    if(Array.isArray(first)) return D.poke(base, first.concat(path.slice(1)), value) // Par: recurse
+    if(Array.isArray(first)) {                  // Par: delegate each sub-path
+      var rest0 = path.slice(1)                 // sequentially [poke-par-sequential]
+      for(var pi=0, pl=first.length; pi < pl; pi++) {
+        var sub0 = first[pi]
+        base = D.poke(base, (Array.isArray(sub0) ? sub0 : [sub0]).concat(rest0), value)
+      }
+      return base
+    }
     if(first === '*') return base
     if(typeof first === 'string' && /^#-?\d/.test(first)) return base
     base = {}  // Key on scalar (affine): replace with object
@@ -1432,10 +1453,15 @@ D.poke = function(base, path, value) {
         for(var m=0; m < children.length; m++) {
           var cv = children[m]
             , ck = child_keys[m]
-          // scalar mid-path: affine → replace with {}; traversal (star_seen) → skip
+          // scalar mid-path: traversal (star_seen) → skip; affine → recurse so
+          // the base-level scalar dispatch decides (Key promotes, Pos/Star
+          // leave the scalar unchanged) [poke-key-scalar-affine]
+          // [poke-pos-scalar] [poke-star-scalar]
           if(typeof cv !== 'object' || cv == null) {
             if(star_seen) continue
-            else { cv = {}; todo[j][ck] = cv }
+            var sub = D.poke(cv, path.slice(i + 1), value)
+            if(sub !== cv) todo[j][ck] = sub
+            continue
           }
           new_todo.push(cv)
           new_parents.push(todo[j])
@@ -1465,6 +1491,80 @@ D.poke = function(base, path, value) {
       }
     }
   }
+
+  return base
+}
+
+D.delete_path = function(base, path) {
+  // Remove the entry at a path focus (§10 Delete). Mutates in place and
+  // returns the base; positional deletes splice [delete-pos]; Par uses
+  // collect-then-remove from the original structure, reverse index order
+  // per level, overlapping targets removed once [delete-par-collect]
+  // [delete-par-overlap].
+  path = D.to_array(path)
+
+  if(!path.length)
+    return ''                                             // [delete-empty-path]
+
+  if(!base || typeof base != 'object' || D.is_block(base))
+    return base                                           // scalar: no focus, unchanged
+
+  var foci = []                                           // {parent, key} pairs, collected first
+
+  var walk = function(v, p) {
+    var key = p[0]
+      , rest = p.slice(1)
+
+    if(Array.isArray(key)) {                              // Par: each sub-path extends with rest
+      for(var i=0, l=key.length; i < l; i++) {
+        var sub = key[i]
+        walk(v, (Array.isArray(sub) ? sub : [sub]).concat(rest))
+      }
+      return
+    }
+
+    if(!v || typeof v != 'object' || D.is_block(v)) return  // scalar mid-path: nothing to focus
+
+    var ks = []
+    if(key === '*')                                       // [delete-star]
+      ks = Object.keys(v)
+    else if(typeof key == 'string' && /^#-?\d/.test(key)) {
+      var vkeys = Object.keys(v)
+        , position = +key.slice(1)
+        , idx = (position < 0) ? (vkeys.length + position) : position - 1
+      if(idx >= 0 && idx < vkeys.length) ks = [vkeys[idx]]  // [delete-pos] else unchanged
+    }
+    else if(Array.isArray(v)) {                           // [delete-key-unkeyed]: key coercion
+      if(/^\d+$/.test(key)) ks = (+key < v.length) ? [key] : []
+      else D.set_error('Cannot delete key "' + key + '" from an unkeyed list')
+    }
+    else                                                  // [delete-key-keyed]: no-op if missing
+      ks = D._hop.call(v, key) ? [key] : []
+
+    for(var i=0, l=ks.length; i < l; i++) {
+      if(!rest.length) foci.push({parent: v, key: ks[i]})
+      else walk(v[ks[i]], rest)
+    }
+  }
+  walk(base, path)
+
+  var groups = []                                         // dedup + group by parent
+  foci.forEach(function(f) {
+    for(var i=0, l=groups.length; i < l; i++)
+      if(groups[i].parent === f.parent) {
+        if(groups[i].keys.indexOf(f.key) < 0) groups[i].keys.push(f.key)
+        return
+      }
+    groups.push({parent: f.parent, keys: [f.key]})
+  })
+
+  groups.forEach(function(g) {
+    if(Array.isArray(g.parent))
+      g.keys.map(Number).sort(function(a, b) {return b - a})  // reverse order: no shifting
+            .forEach(function(idx) { g.parent.splice(idx, 1) })
+    else
+      g.keys.forEach(function(k) { delete g.parent[k] })
+  })
 
   return base
 }
