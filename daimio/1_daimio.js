@@ -2901,9 +2901,9 @@ D.Space.prototype.space_path = function() {
   return parent_path ? parent_path + '/' + this.name : this.name
 }
 
-// A station appends its name to its space's path; anonymous stations are
-// named s1, s2, ... in source order [qname-anon-station].
-D.Space.prototype.station_qname = function(station_id) {
+// A station's bare name; anonymous stations are named s1, s2, ... in
+// source order [qname-anon-station].
+D.Space.prototype.station_name = function(station_id) {
   if(!this._qnames) {
     var names = this.seed.station_names || []
       , anon = 0
@@ -2911,9 +2911,101 @@ D.Space.prototype.station_qname = function(station_id) {
       return names[i] != null ? names[i] : 's' + (++anon)
     })
   }
-  var name = this._qnames[station_id - 1] || String(station_id)
+  return this._qnames[station_id - 1] || String(station_id)
+}
+
+// A station appends its name to its space's path [qname-structure].
+D.Space.prototype.station_qname = function(station_id) {
+  var name = this.station_name(station_id)
     , path = this.space_path()
   return path ? path + '/' + name : name
+}
+
+// The source text a block was compiled from (kept as a decorator, outside
+// the content-hashed block itself).
+D.block_source = function(block_id) {
+  var decs = D.get_decorators(block_id, 'OriginalString')
+  return (decs && decs.length) ? decs[0].value : '{}'
+}
+
+// §8: a serialized space is Astroglot — the definition plus CURRENT svar
+// values. The DECLARED dialect restriction is part of the definition and
+// serializes [serialize-keeps-dialect-decl]; the instance dialect and the
+// parent's wiring of this space do not. Subspaces serialize recursively as
+// sigil-marked nested definitions holding their current content; a block
+// in an svar serializes as its source text, dead on reload
+// [serialize-block-dead].
+D.Space.prototype.serialize = function(indent, label) {
+  var pad = indent || ''
+    , inner = pad + '  '
+    , seed = this.seed
+    , self = this
+    , lines = []
+
+  lines.push(pad + (label || this.name || 'outer'))
+
+  if(seed.dialect && Object.keys(seed.dialect).length)
+    lines.push(inner + JSON.stringify(seed.dialect))
+
+  seed.ports.forEach(function(p) {                  // own ports only: stations get
+    if(p.station || p.space) return                 // theirs implicitly; subspace ports
+    var parts = (p.settings && p.settings.all)      // live in the child's definition
+              ? p.settings.all.slice(0, -1)
+              : [p.flavour]
+    var decl = inner + '@' + p.name
+    if(!(parts.length == 1 && parts[0] == p.name))  // bare port: flavour defaults
+      decl += '  ' + parts.join(' ')
+    lines.push(decl)
+  })
+
+  var state_keys = {}
+  Object.keys(seed.state || {}).forEach(function(k) { state_keys[k] = 1 })
+  Object.keys(this.state).forEach(function(k) { state_keys[k] = 1 })
+  Object.keys(state_keys).forEach(function(k) {
+    var v = self.get_state(k)
+    if(D.is_block(v)) v = D.block_source(v.value.id)
+    lines.push(inner + '$' + k + ' ' + (JSON.stringify(v) || '""'))
+  })
+
+  seed.stations.forEach(function(block_id, i) {
+    lines.push(inner + self.station_name(i + 1) + ' ' + D.block_source(block_id))
+  })
+
+  this.subspaces.forEach(function(sub, i) {
+    var sig = sub.seed.blackhole ? '*' : sub.seed.socket ? '!' : '+'
+      , name = (seed.subspace_names && seed.subspace_names[i]) || sub.name || ('sub' + i)
+    lines.push(sub.serialize(inner, sig + name))
+  })
+
+  var endpoint = function(idx) {
+    var p = seed.ports[idx - 1]
+    if(!p) return '@unknown'
+    if(p.station)
+      return (p.name == '_in' || p.name == '_out')
+             ? self.station_name(p.station)
+             : self.station_name(p.station) + '@' + p.name
+    if(p.space)
+      return ((seed.subspace_names && seed.subspace_names[p.space - 1]) || 'sub' + (p.space - 1))
+             + '@' + p.name
+    return '@' + p.name
+  }
+
+  seed.routes.forEach(function(r) {
+    lines.push(inner + endpoint(r[0]) + ' -> ' + endpoint(r[1]) + (r[2] ? '  ' + r[2] : ''))
+  })
+
+  ;(seed.rules || []).forEach(function(rule) {
+    var holder = rule.holder_station
+                 ? self.station_name(rule.holder_station)
+                 : ((seed.subspace_names && seed.subspace_names[rule.holder_space - 1]) || 'sub' + (rule.holder_space - 1))
+      , target = rule.forward ? '@cmd'
+               : rule.target_port ? endpoint(rule.target_port)
+               : self.station_name(seed.ports[rule.target_in - 1].station)
+    lines.push(inner + holder + '@cmd:' + rule.pattern + ' <-> ' + target
+             + (rule.timeout ? '  ' + rule.timeout : ''))
+  })
+
+  return lines.join('\n')
 }
 
 D.Space.prototype.root_frontier = function() {

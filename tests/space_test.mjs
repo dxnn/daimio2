@@ -20,8 +20,6 @@ var known_timeout_ms = 200  // known failures: fail fast
 // Known failures — tests for spec behaviors not yet implemented.
 // If a failure's label is in this set, it's expected; otherwise it's a regression.
 var known_failures = new Set([
-  // §8 Serialized space excludes dialect and wiring
-  'serialized space excludes dialect and wiring',
   // §3 Black-hole / socket-load / cmd-port compile borks — RED until the
   // (( )) form and these rules are implemented
   'a + label at column 0 borks [spacesyn-sigil-required]',
@@ -1546,35 +1544,53 @@ space_test(
 )
 
 
-// ── Known-failing: §8 Serialized space format ───────────────────────
-
-// Spec §8 says "A serialized space does NOT include dialect or port wiring."
-// There's no serialize method yet, so this is a placeholder test.
+// ── §8 Serialized space format ───────────────────────────────────────
+// A serialized space is Astroglot: the definition plus CURRENT svar
+// values [socket-svars... §8]. The DECLARED dialect restriction is part
+// of the definition and serializes [serialize-keeps-dialect-decl]; the
+// instance dialect and the parent's wiring of the space do not. A
+// reloaded serialization behaves identically from the captured state.
 ;(function() {
-  var seed_id = D.make_some_space(
-    'stest\n  $count 0\n  @init from-js\n  @out to-js\n  @init -> @out\n'
-  )
-  var space = new D.Space(seed_id)
-  if (typeof space.serialize === 'function') {
-    var serialized = space.serialize()
-    var has_dialect = /dialect/.test(serialized)
-    var has_wiring = /wiringRules/.test(serialized)
-    if (!has_dialect && !has_wiring) { pass++ }
-    else {
-      fail++
-      failures.push({
-        label: 'serialized space excludes dialect and wiring',
-        expected: 'no dialect or wiring in serialized output',
-        actual: 'dialect=' + has_dialect + ' wiring=' + has_wiring
-      })
-    }
-  } else {
-    fail++
-    failures.push({
-      label: 'serialized space excludes dialect and wiring',
-      expected: 'space.serialize() exists',
-      actual: 'method not found'
-    })
+  function check(label, cond, expected, actual) {
+    if(cond) { pass++ }
+    else { fail++; failures.push({ label: label, expected: expected, actual: String(actual) }) }
+  }
+  var src = 'stest\n'
+          + '  {"blocked_methods":{"process":["unquote"]}}\n'
+          + '  $count 0\n'
+          + '  @init from-js\n'
+          + '  bump {$count | math add value 1 | >$count || $count}\n'
+          + '  +inner\n'
+          + '    double {__ | math multiply value 2}\n'
+          + '    @in -> double -> @out\n'
+          + '  @init -> bump\n'
+  var space, serialized
+  try {
+    space = new D.Space(D.make_some_space(src))
+    // mutate live state synchronously (pure DAML runs sync)
+    space.execute(D.Parser.string_to_block_segment('{5 | >$count}'))
+    serialized = typeof space.serialize === 'function' ? space.serialize() : null
+  } catch(e) { serialized = null }
+
+  check('serialize: method exists and emits', typeof serialized === 'string' && serialized.length > 0,
+        'Astroglot string', serialized)
+  if(typeof serialized === 'string') {
+    check('serialize: current svar value captured [serialize-current-state]',
+          /\$count 5/.test(serialized), '$count 5 in output', serialized)
+    check('serialize: declared dialect kept [serialize-keeps-dialect-decl]',
+          /blocked_methods/.test(serialized), 'declared restriction present', serialized)
+    check('serialize: nested subspace with sigil', /\+inner/.test(serialized),
+          '+inner block present', serialized)
+    // round-trip: the serialization reparses, and the reloaded space
+    // starts from the captured state
+    var ok = false, count = null
+    try {
+      var re = new D.Space(D.make_some_space(serialized))
+      count = re.get_state('count')
+      ok = true
+    } catch(e) { count = e.message }
+    check('serialize: round-trip reparses', ok, 'reparses cleanly', count)
+    check('serialize: round-trip state carried', ok && count == 5, 'count == 5', count)
   }
 })()
 
