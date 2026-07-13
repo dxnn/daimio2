@@ -691,12 +691,11 @@
     Pipeline variables, including magic pipes, are reduced prior to templatization.
     --> don't use lists as templates!
 
-//      {each block (1 __) data (7 8)}
-//        ["x","hey","hey","hey","hey"]["x","hey","hey","hey","hey"]["x","hey","hey","hey","hey"]
-//      {each block (:x {string join value {__}}) data (1 2 3)}
-//        ["x","hey"]["x","hey"]["x","hey"]
-//      {each block {(:x __ "-")} data (1 2 3)}
-//        ["x","hey","-"]["x","hey","-"]["x","hey","-"]
+    The footgun, locked in: the list-template's __ reduces to the (empty)
+    pipe value before each ever sees the data, so 7 and 8 never appear.
+    Total and deterministic — just not what you wanted. Use a block.
+      {each block (1 __) data (7 8)}
+        [1,""][1,""]
 
       {({:8} {8})}
         ["8",8]
@@ -2030,9 +2029,12 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
       {merge data {* (:one {* (:name :paul)} :two {* (:name :john)} :three {* (:name :george)})} block "hey {_name}! "}
         hey paul! hey john! hey george!
 
-// merge issue: injected vars override imported vars. (removed: `with` no longer supported)
-//      {merge data $names block "hey {_name}! " with {* (:name :bob)}}
-//        hey paul! hey john! hey george!
+    imports win: a var imported from the data shadows the same name bound
+    in the calling pipeline's scope. (The old `with` param let an injected
+    var override imports — the param is gone, and the layering is now the
+    other way: command-imported vars are the innermost scope layer.)
+      {:bob | >name || merge data $names block "hey {_name}! "}
+        hey paul! hey john! hey george!
 
     merge issue: injected vars can collide with pipeline vars.
     each pipeline var rewires any future references to itself, so {_name} means two different things here.

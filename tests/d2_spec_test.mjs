@@ -1648,6 +1648,23 @@ test(
   'xy'
 )
 
+// A named block's own name is NOT bound inside its begin-pipe — the
+// reference is an unknown alias, which sploots softly; the body still
+// renders. Total: self-reference in the construction never crashes or
+// hangs. (Lifted from a commented node_code block when it was retired.)
+
+test(
+  'namedblock self-reference in begin-pipe sploots softly, body renders [P-total]',
+  '{begin fun | fun}x{end fun}',
+  'x'
+)
+
+test(
+  'namedblock self-reference with body pipeline still renders [P-total]',
+  '{begin foo | foo}One{"1 2 3" | string split on " "}Two{end foo}',
+  'One["1","2","3"]Two'
+)
+
 test(
   'parse: end tag without begin is a command [parse-command]',
   '{end foo}',

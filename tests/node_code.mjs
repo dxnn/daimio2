@@ -91,172 +91,13 @@ var funtest = function(string, result) {
 
 
 // TESTS GO HERE!!!!
-// THINK: these magic block numbers are less than satisfying...
 
-// s2ABt('asdf', 
-//   [ {segments: [{type: 'String', value: 'asdf'}], wiring: {} } ])
+// (The old s2ABt/head2pipe parser-shape tests lived here — a dead format
+// asserting internal AST against magic block-number hashes. Their intents
+// survive behaviorally: list-literal wiring below [parse-list-lit], named
+// blocks + self-reference in d2_spec_test [parse-begin-end-match] [P-total],
+// param filling throughout the fun tests.)
 
-// s2ABt('{asdf}', 
-//   {segments: [{type: 'Alias', value: 'asdf'}], wiring: {} } )
-  // [ {body: [ {block: 423294921} ]}
-  // , {head: [ {type: "Alias", value: "asdf"} ]} ])
-
-// s2ABt('{(1 2 3) | math add to 4}', 
-//   {segments: [{type: 'Alias', value: 'asdf'}], wiring: {} } )
-  
-// s2ABt('x{asdf}y', 
-//   [ {body: [ "x", {block: 423294921}, "y" ]}
-//   , {head: [ {type: "Alias", value: "asdf"} ]} ])
-// 
-// s2ABt('x{asdf}y{foo}z', 
-//   [ {body: [ "x", {block: 423294921}, "y", {block: 870984491}, "z" ]}
-//   , {head: [ {type: "Alias", value: "asdf"} ]} 
-//   , {head: [ {type: "Alias", value: "foo"} ]} ])
-//   
-// s2ABt('{asdf 2}', 
-//   [ {body: [ {block: 3631929967} ]}
-//   , {head: [ {type: "Alias", value: "asdf", params: {"__alias__": {type:"Number", value:2}} } ]} ])
-//   
-// s2ABt('{asdf lala 2}', 
-//   [ {body: [ {block: 3966142309} ]}
-//   , {head: [ {type: "Alias", value: "asdf", params: {"lala": {type:"Number", value:2}} } ]} ])
-//   
-// s2ABt('{math add}', 
-//   [ {body: [ {block: 4138245633} ]}
-//   , {head: [ {type: "Command", value: {Handler:"math", Method:"add"} } ]} ])
-// 
-// s2ABt('{math add value 2}', 
-//   [ {body: [ {block: 2720656261} ]}
-//   , {head: [ {type: "Command", value: {Handler:"math", Method:"add"}, params: {value: {type:"Number", value:2}} } ]} ])
-// 
-// s2ABt('{math add value 2 to 5}', 
-//   [ {body: [ {block: 2753018361} ]}
-//   , {head: [ {type: "Command", value: {Handler:"math", Method:"add"}, params: {value: {type:"Number", value:2}, to: {type:"Number", value:5}} } ]} ])
-// 
-// s2ABt('{5 | math add}', 
-//   [ {body: [ {block: 3471145687} ]}
-//   , {head: [ {type: "Number", value: 5, outs: [1]}, 
-//              {type: "Command", value: {Handler:"math", Method:"add"}, ins: {"__pipe__": 1}, params: {"__pipe__": null}} ]} ])
-// 
-// s2ABt('{5 | math add to 2}', 
-//   [ {body: [ {block: 1134101991} ]}
-//   , {head: [ {type: "Number", value: 5, outs: [1]}, 
-//              {type: "Command", value: {Handler:"math", Method:"add"}, 
-//               params: {to: {type:"Number", value:2}, "__pipe__": null}, ins: {"__pipe__": 1}} ]} ])
-// 
-// s2ABt('{(1 2 3)}', 
-//   [ {body: [ {block: 684287387} ]}
-//   , {head: [ {type:"List", value: [ {type:"Number", value:1}
-//                                   , {type:"Number", value:2}
-//                                   , {type:"Number", value:3} ]} ]} ])
-// 
-// s2ABt('{(1 (2 4) 3)}', 
-//   [ {body: [ {block: 2143384289} ]}
-//   , {head: [ {type:"List",value:[ {type:"Number",value:2}, {type:"Number",value:4} ], "outs":["0-1"]}
-//            , {type:"List",value:[ {type:"Number",value:1}
-//                                 , {type:"Null",value:""}
-//                                 , {type:"Number",value:3} ], "ins":{"1":"0-1"} } ]} ])
-//   
-// 
-// // TODO: all of these are wrong, because they repeat 0-1 as an out. the outs HAVE to be exclusive, because they can be picked up again at any point in the pipeline. [especially if we add dedicated pipeline vars.]  
-//   
-//   
-// s2ABt('{(1 (2 (3 4) (5 6) 7) 8)}', 
-//   [ {body: [ {block: 2853555593} ]}
-//   , {head: [ {type:"List",value:[ {type:"Number",value:3}, {type:"Number",value:4} ], "outs":["0-1"]} 
-//            , {type:"List",value:[ {type:"Number",value:5}, {type:"Number",value:6} ], "outs":["1-2"]}
-//            , {type:"List",value:[ {type:"Number",value:2}, {type:"Null",value:""}
-//                                 , {type:"Null",value:""},  {type:"Number",value:7} ]
-//                                 , "outs":["0-1"], "ins":{"1":"0-1","2":"1-2"}}
-//            , {type:"List",value:[ {type:"Number",value:1}, {type:"Null",value:""}
-//                                 , {type:"Number",value:8} ], "ins":{"1":"0-1"}} ]} ])
-//   
-//   
-// s2ABt('{(1 {asdf} 3)}', 
-//   [ {body: [ {block: 4145493638} ]}
-//   , {head: [ {"type":"Alias","value":"asdf","outs":["0-1"]}
-//            , {"type":"List","value":[{"type":"Number","value":1}
-//                                     ,{"type":"Null","value":""}
-//                                     ,{"type":"Number","value":3}],"ins":{"1":"0-1"}} ]} ])
-// 
-// s2ABt('{(1 (2 {asdf}) 3)}', 
-//   [ {body: [ {block: 397202077} ]}
-//   , {head: [ {"type":"Alias","value":"asdf","outs":["0-1"]}
-//            , {"type":"List","value":[{"type":"Number","value":2}
-//                                     ,{"type":"Null","value":""}],"outs":["0-1"],"ins":{"1":"0-1"}}
-//            , {"type":"List","value":[{"type":"Number","value":1}
-//                                     ,{"type":"Null","value":""}
-//                                     ,{"type":"Number","value":3}],"ins":{"1":"0-1"}}]} ])
-// 
-// s2ABt('{"{x}"}', 
-//   [ {body: [ {block: 3914678910} ]}
-//   , {head: [ {"type":"Block","value":1209581963} ]} 
-//   , {body: [{"block":822001503}],"adjunct":true} 
-//   , {head: [{"type":"Alias","value":"x"}], "adjunct":true} ])
-// 
-// // THINK: should probably strip out the adjuncts at some point... but where?
-// 
-// s2ABt('{"{x}" | asdf}', 
-//   [ {body: [ {block: 448126997} ]}
-//   , {head: [ {"type":"Block","value":1209581963,"outs":[1]}
-//            , {"type":"Alias","value":"asdf","ins":{"__pipe__":1},"params":{"__pipe__":null}} ]} 
-//   , {body: [{"block":822001503}], "adjunct":true} 
-//   , {head: [{"type":"Alias","value":"x"}], "adjunct":true} ])
-// 
-// s2ABt('{asdf {x}}', 
-//   [ {body: [ {block: 3525083354} ]}
-//   , {head: [ {"type":"Alias","value":"x","outs":[0]}
-//            , {"type":"Alias","value":"asdf","params":{"__alias__":null},"ins":{"__alias__":0}} ]} ])
-// 
-// s2ABt('{begin foo}asdf{end foo}', 
-//   [ {body: [ {block: 536339701} ]}
-//   , {head: [ {"type":"Block","value":3171660288} ]}
-//   , {"body":["asdf"],"adjunct":true} ])
-// 
-// s2ABt('{begin foo}as{begin baz}qqq{end baz}df{end foo}', 
-//   [ {"body":[{"block":1369631471}]}
-//   , {"head":[{"type":"Block","value":3811656590}]}
-//   , {"body":["as",{"block":1237117008},"df"],"adjunct":true}
-//   , {"head":[{"type":"Block","value":3775770175}],"adjunct":true}
-//   , {"body":["qqq"],"adjunct":true} ])
-// 
-// 
-// // PBlock tests!
-// 
-// head2pipe([ { type: "Command"
-//             , value: {Handler:"math", Method:"add"} } ],
-// 
-//           [ { type: "Command"
-//             , value: {Handler:"math", Method:"add"} 
-//             , method: D.Commands.math.methods.add
-//             , paramlist: [null,null] } ])
-// 
-// 
-// head2pipe([ { type: "Command"
-//             , value: {Handler:"math", Method:"add"}
-//             , params: { value: {type:"Number", value:2}
-//                       , to: {type:"Number", value:4} } } ],
-//                       
-//           [ { type: "Command"
-//             , value: {Handler:"math", Method:"add"} 
-//             , params: { value: {"type":"Number","value":2}
-//                       , to: {"type":"Number","value":4} }
-//             , method: D.Commands.math.methods.add
-//             , paramlist: [{"type":"Number","value":2},{"type":"Number","value":4}] } ])
-//     
-//     
-// head2pipe([ { type:"Number", value:2, "outs":[0]}
-//           , { type: "Alias", value: 'add', "params":{"__pipe__":null}, "ins":{"__pipe__":0} } ],
-//           
-//           [ {type:"Number", value:2, "outs":[0]}
-//           , { type: "Command"
-//             , value: {Handler:"math", Method:"add"} 
-//             , params: {"value":null,"__pipe__":null}
-//             , ins: {"__pipe__":0}
-//             , method: D.Commands.math.methods.add
-//             , paramlist: [{"type":"Input","value":0},null] } ])
-// 
-// 
 // fun tests!
 
 funtest('{math add value 7 to 13}', "20")
@@ -333,6 +174,12 @@ funtest('2 {2 | add 2} {2 | times 4}', '2 4 8')
 
 // [parse-block-quoted] [parse-list-lit]
 funtest('{(1 {"{2}"} 3)}', "[1,\"{2}\",3]")
+
+// [parse-list-lit] deep nesting + a command inside a nested literal — the
+// list-wiring intents of the retired s2ABt parser-shape tests, behaviorally
+funtest('{(1 (2 (3 4) (5 6) 7) 8)}', '[1,[2,[3,4],[5,6],7],8]')
+
+funtest('{(1 (2 {3 | math add value 4}) 5)}', '[1,[2,7],5]')
 
 // [pipe-flow] [scope-inject-value] [pipe-dunder]
 funtest('{(1 2 3) | map block "{__ | add 4}"}', '[5,6,7]')
@@ -416,10 +263,9 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/g" to "{__ | string upper
 funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string uppercase}"}', 'pXXffxfasdf')
 
 
-// funtest('{begin block | merge with @bundle} {one} {end block}')
-// 
-// funtest('{begin foo | foo}One{"1 2 3" | string split on " "}Two{end foo}')
-// 
+// (The self-referential named block test moved to d2_spec_test [P-total];
+// a sibling here used the removed merge `with` param — its scope-layering
+// intent lives in daimio.dm's MERGE section as "imports win".)
 
 // THINK: what should these do?
 // funtest('2 {"{2}" | add 2} ', 'asdf bax')
@@ -431,27 +277,7 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
 // funtest('2 {{2} | add "{2}"} ', 'asdf bax')
 
 
-// seqfun = function(x) {
-//   return D.mungeLR(x, function(L, num, R) {
-//     if(num % 2) return [L.concat(num), R]
-//     if(R.length) R[0] += num/2
-//     if(L.length) {
-//       var last_L = L.pop() + num/2
-//       R.unshift(last_L)
-//     }
-//     return [L, R]
-//   })
-// }
-// seqfun([1,1,1,2,1,1,1])
-// 
-// for(var i = 2; i<160; i+=2) {console.log(i, seqfun([1,1,i,1,1,1,1,1]))}
-
-// for(var i = 2; i<46; i+=1) {console.log(i, seqfun(D.Commands.list.methods.range.fun(i, 1, 1)[2]))}
-// for(var i = 2; i<246; i+=1) {x = seqfun(D.Commands.list.methods.range.fun(i, 1, 1)); if(x && x[1]) {console.log(x[1])} }
-// all 2s: 5,-,-
-// 2s w/ 1 1: 7,- or 5,-,- or -
-
-// funtest('{math add value "{7}" to 13}', 20) 
+// funtest('{math add value "{7}" to 13}', 20)
 // THINK: what should this do? maybe make add accept only numbers, and use fold/zipwith/etc to add over lists?
 
 
