@@ -839,6 +839,7 @@ D.send_value_to_js_port = function(space, port_name, value, port_flavour, sender
 // false and drives D.advance_clock itself), or by wall timers in
 // production. Due deadlines fire in (deadline, registration) order.
 D.Etc.default_timeout = 10000
+D.Etc.default_depth_bound = 100        // block-eval recursion bound per outer space (§5/§11)
 D.Etc.pending_timeouts = []
 D.Etc.timeout_seq = 0
 D.Etc.wall_timeouts = true
@@ -2720,7 +2721,7 @@ D.Data = function(init) {
   8""88888P'  o888o        o88o     o8888o  `Y8bood8P'  o888oooooo*/
 
 
-D.Space = function(seed_id, parent, prng_seed, name) {
+D.Space = function(seed_id, parent, prng_seed, name, opts) {
   // D.SPACESEEDS[seed_id] contains id, dialect, state, ports, stations, subspaces, routes
   // TODO: validate parent
   // THINK: validate seed_id?
@@ -2735,6 +2736,13 @@ D.Space = function(seed_id, parent, prng_seed, name) {
   this.state = {}
   this.parent = parent || false // false is outer
   this.name = name || ''        // '' for the outer root [qname-structure]
+
+  // Block-eval recursion bound, set once on the outer space and inherited by
+  // every subspace [depth-bound-instance] [depth-nesting-only]. The current
+  // nesting depth (eval_depth) is tracked per space in the block apply demand.
+  this.depth_bound = parent
+    ? parent.depth_bound
+    : ((opts && opts.depth_bound) || D.Etc.default_depth_bound)
 
   // Per-space PRNG [random-seeded] [random-per-space]: each subspace derives
   // its own seed from the parent's seed and its name — order-independent,

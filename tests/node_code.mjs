@@ -494,6 +494,55 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
 })()
 
 
+// §5/§11 recursion depth bound: a per-outer-space limit on block-eval NESTING,
+// set at creation (opts.depth_bound), inherited by subspaces, enforced at the
+// block apply demand — past it the innermost eval sploots to Empty (total).
+;(function() {
+  var seed = D.make_some_space('outer\n  +inner\n    @in -> @out')
+
+  // [depth-bound-instance] creation-time knob; subspaces inherit it; unset
+  // falls back to the module default.
+  var bounded = new D.Space(seed, null, undefined, '', { depth_bound: 3 })
+  if(bounded.depth_bound === 3) pass++
+  else ERRORS.push({in: '[depth-bound-instance] outer space takes opts.depth_bound',
+    out: bounded.depth_bound, was: 3})
+  if(bounded.subspaces[0] && bounded.subspaces[0].depth_bound === 3) pass++
+  else ERRORS.push({in: '[depth-bound-instance] subspace inherits the bound',
+    out: bounded.subspaces[0] && bounded.subspaces[0].depth_bound, was: 3})
+  if(D.make_execution_space().depth_bound === D.Etc.default_depth_bound) pass++
+  else ERRORS.push({in: '[depth-bound-instance] unset uses the module default',
+    out: D.make_execution_space().depth_bound, was: D.Etc.default_depth_bound})
+
+  // [depth-nesting-only] a self-recursive block nests exactly depth_bound levels
+  // ($n counts them), then the innermost eval sploots to Empty — no stack blow.
+  var body = '{$n | math add value 1 | >$n || $self | run}'
+  var driver = '{>$n value 0 || "' + body + '" | unquote | >$self || $self | run}'
+  function recurse(bound) {
+    var sp = new D.Space(seed, null, undefined, '', { depth_bound: bound })
+      , res = '<none>', n = '<none>'
+    D.run(driver, sp, {}, function(r) { res = r })
+    D.run('{$n}', sp, {}, function(r) { n = r })
+    return { res: res, n: String(n) }
+  }
+  var r3 = recurse(3), r7 = recurse(7)
+  if(r3.res === '' && r3.n === '3') pass++
+  else ERRORS.push({in: '[depth-nesting-only] recursion sploots to Empty at the bound',
+    out: JSON.stringify(r3), was: 'res="" n=3'})
+  if(r7.n === '7') pass++
+  else ERRORS.push({in: '[depth-nesting-only] the bound sets the reachable nesting depth',
+    out: JSON.stringify(r7), was: 'n=7'})
+
+  // [depth-nesting-only] SEQUENTIAL (non-nested) evals never accumulate: eight
+  // map iterations under a bound of 2 all succeed (each is depth 1).
+  var sp2 = new D.Space(seed, null, undefined, '', { depth_bound: 2 })
+    , mapres = '<none>'
+  D.run('{(1 2 3 4 5 6 7 8) | list map block "{__ | math add value 1}"}', sp2, {}, function(r) { mapres = r })
+  if(mapres === '[2,3,4,5,6,7,8,9]') pass++
+  else ERRORS.push({in: '[depth-nesting-only] sequential evals do not hit the nesting bound',
+    out: JSON.stringify(mapres), was: '[2,3,4,5,6,7,8,9]'})
+})()
+
+
 // WRAP IT ALL UP WITH A BOW
 
 var show_errors = function(error) {

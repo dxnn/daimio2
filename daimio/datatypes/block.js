@@ -8,6 +8,14 @@ D.import_type('block', function(value) {
       var space = process ? process.space : D.ExecutionSpace
         , station_id = process ? process.station_id : false
 
+      // Block-eval recursion bound: past the outer space's depth_bound, the
+      // innermost eval sploots to Empty (total, value-producing) instead of
+      // nesting further [depth-bound-instance] [depth-nesting-only]. eval_depth
+      // tracks synchronous block-eval nesting per space (async re-entries reset
+      // it — they cannot stack-overflow).
+      if((space.eval_depth || 0) >= space.depth_bound)
+        return D.set_error('Recursion depth bound (' + space.depth_bound + ') exceeded')
+
       var inherited = {}
       if(process && process.state) {
         for(var key in process.state)
@@ -21,7 +29,12 @@ D.import_type('block', function(value) {
       for(var key in scope)                                  // caller scope overrides
         inherited[key] = scope[key]
 
-      return space.real_execute(D.BLOCKS[value.value.id], inherited, prior_starter, station_id, process && process.sender, process && process.number)
+      space.eval_depth = (space.eval_depth || 0) + 1
+      try {
+        return space.real_execute(D.BLOCKS[value.value.id], inherited, prior_starter, station_id, process && process.sender, process && process.number)
+      } finally {
+        space.eval_depth--
+      }
     }
   }
   else {
