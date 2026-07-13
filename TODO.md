@@ -209,14 +209,13 @@ Remaining:
   timeouts landed 2026-07-12 late [wire-timeout-explicit]: trailing
   integer on any wire; occupancy prefers it over the default; the
   min-propagation-through-chains half remains).
-- **`process sleep` is a partition violation (found 2026-07-12 late):**
-  a `fun` that suspends on wall-clock setTimeout — non-deterministic,
-  invisible to the det clock. Fork for dann: (a) reclassify effectful
-  (cmd:process:sleep — pure, but unwired spaces lose sleep; demos use
-  it), (b) keep as fun but suspend on D.register_timeout (deterministic
-  under the virtual clock; needs a blessed category for clock-suspended
-  funs), or (c) deprecate. Blocks the effectful-commands spec sweep's
-  sleep entry only; time/var entries can proceed.
+- **`process sleep` — RESOLVED 2026-07-13 (dann: reclassify effectful).**
+  Sleep declares effect cmd:process:sleep; the new `clock` port flavour
+  is the canonical world handler (answers `then` at now+`for` via
+  D.register_timeout — wall timers in production, det harness drives the
+  virtual clock). Spec §6 [effcmd-process-sleep] + §4 flavour list;
+  demos/spaceeditor wire pacer@cmd:process:sleep <-> @clock; fuzzer
+  un-excludes sleep/wait. Commits eab2bf9, de671a5, 694e577.
 - **Sender attachment at entry + registry — DONE 2026-07-12 (eve).**
   Senderless world entries take the entry port's qname (D.port_qname)
   with the space base dialect; D.register_sender(qname, sender) wins;

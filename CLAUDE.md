@@ -316,6 +316,21 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
+## Test status (as of 2026-07-13 — sleep flip)
+
+{process sleep} reclassified effectful (dann ruled the fork): effect
+cmd:process:sleep + `clock` port flavour as the canonical world handler
+(answers `then` at now+`for` on the virtual clock — wall timers in
+production, det harness drives it). det_time 13/13 (5 new sleep guides
+incl. the migrated async-boundary var tests), fuzzer 0/3000 with
+sleep/wait now fuzzable, 15/15 suites green. Spec §6
+[effcmd-process-sleep] + §4 flavour list; demos + spaceeditor examples
+wire `pacer@cmd:process:sleep <-> @clock`. Commits eab2bf9/de671a5/694e577.
+Parked for dann: audit disposals (node_templates.mjs, commented-out
+blocks), §7 walkthrough's `clock` STATION name now collides with the
+clock flavour (checker flag — rename?), [timeout-inherit] chain
+propagation, sched frontier guides + [request-cycle-timeout].
+
 ## Test status (as of 2026-07-12, late — post known-red sweep)
 
 Late-session additions on top of the evening block below: fuzzer clean
