@@ -61,13 +61,9 @@ var known_failures = new Set([
   // '{123 | >foo || __foo}',  // FIXED: __ fancy handler returns empty string instead of dropping
   // '{5 | >foo | (1 2 3) | map block "{__ | subtract _o}"}',  // FIXED: undefined vars return false (zero)
 
-  // 2026-07-12: the peek-scalar / poke-scalar family went GREEN with the
-  // pathfinder scalar/Empty refactor (audit ruling A). One guide remains:
-  // it asserts the spec's [peek-par] FOLD semantics, which conflict with
-  // the corpus's designed series/parallel staging (the "Series and
-  // parallel" chapter) — an open design decision, see
-  // extra/coverage/DECISIONS.md. RED until dann rules on par.
-  '{$data.{(("*" "*" "*" "*"))}.#1}',
+  // (empty — 2026-07-12: the scalar/Empty family went green with the
+  // pathfinder refactor, and the par question resolved in favor of the
+  // corpus's staging semantics — [peek-par] patched to match.)
 
   // '{5 | >foo | (1 2 3) | map block "{__ | range _o}"}',  // FIXED: undefined vars return false (zero)
   // '{(1 2 3) | subtract _zxcv}  {// subtraction and division are weird for this internally //}',  // FIXED: undefined vars return false (zero)

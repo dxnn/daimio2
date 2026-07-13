@@ -667,7 +667,7 @@
         x{__}-x{__}-x{__}-
 
     The inner block retains its blockiness though:
-      { "{ "x{__}y" }" | map data 1 | __.#1 | map data 42}
+      { "{ "x{__}y" }" | map data (1) | __.#1 | map data (42)}
         ["x42y"]
 
     These works like you would expect -- each iteration returns a list, which is JSONified internally.
@@ -908,8 +908,9 @@
         hashly
 
     With star boxing you don't have to split the segments, but remember that the output is always wrapped in a list.
+    The par stages the traversal's result, so #1 takes its first element [peek-par].
       {$data.{(("*" "*" "*" "*"))}.#1}
-        [["","","","","","","","",""]]
+        ["hashly"]
 
       {$data.*.*.*.#1}
         ["","","","","hashly","","","","","hashly","","","","","hashly"]
@@ -1685,8 +1686,8 @@ This section is no longer applicable: alias creation doesn't work yet, and varia
       1.75
     {:7 | divide by :4}
       1.75
-    {divide value (:1 2 :3) | map block "{__ | round to 2}"}
-      [0.17]
+    {divide value (:1 2 :3) | round to 2}
+      0.17
     {(1 2 3) | divide by 3 | map block "{__ | round to 2}"}
       [0.33,0.67,1]
     {math divide value (1 2 3) by (6 5 4) | map block "{__ | round to 2}"}
@@ -2390,8 +2391,9 @@ coercion is easy: no polymorphism => no confusion
   {( 0 1 "" "1" "x" "[]" () (1) (() ()) ) | map block "{__ | string lowercase}"}
     ["0","1","","1","x","[]","[]","[1]","[[],[]]"]
 
+  map is identity on scalars [map-scalar-unchanged] and on structure [law-mapid]
   {( 0 1 "" "1" "x" "[]" () (1) (() ()) ) | map block "{__ | map block "{__}" }"}
-    [[0],[1],[""],["1"],["x"],["[]"],[],[1],[[],[]]]
+    [0,1,"","1","x","[]",[],[1],[[],[]]]
 
 falsy falsers:
   {0}

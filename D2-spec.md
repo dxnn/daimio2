@@ -3268,19 +3268,39 @@ never adds or removes entries from the parent collection.
 
 #### Peek (read)
 
-```
-peek(v, []) = v                                                     [peek-empty-path]
+Peek walks a flat working list of **foci**, one step per selector,
+and wraps at the end iff any step was Star or Par:
 
-peek(v, Key(s) :: rest)  =  peek(v[s], rest)                        [peek-key-hit]
-                             -- or Empty if s not in v               [peek-key-miss]
-peek(v, Pos(n)  :: rest) =  peek(v at n, rest)                      [peek-pos-hit]
-                             -- or Empty if n out of bounds          [peek-pos-miss]
-peek(v, Star :: rest)    = [peek(child, rest) for child in v]       [peek-star]
-peek(v, Par(ps) :: rest) = [peek(v, p ++ rest) for p in ps]        [peek-par]
-
-peek(scalar, _ :: _) = Empty                                        [peek-scalar]
-peek(Empty, _ :: _)  = Empty
 ```
+peek(v, path) = wrap(F)  where F = foci([v], path)
+
+foci(F, [])                = F
+foci(F, Key(s) :: rest)    = foci([f[s] or Empty for f in F], rest)
+                             -- exactly one result per focus         [peek-key-hit]
+                             -- Empty if s not in f                  [peek-key-miss]
+foci(F, Pos(n) :: rest)    = foci([f at n or Empty for f in F], rest)
+                                                                     [peek-pos-hit]
+                             -- Empty if n out of bounds             [peek-pos-miss]
+foci(F, Star :: rest)      = foci(concat [children(f) for f in F], rest)
+                             -- a scalar focus has no children       [peek-star]
+foci(F, Par(ps) :: rest)   = foci(concat [[peek(f, p) for p in ps] for f in F], rest)
+                             -- STAGING: each sub-path's full peek   [peek-par]
+                             -- result becomes a new focus, and the
+                             -- rest of the path applies to those
+                             -- results, not to f
+
+affine selectors on a scalar focus yield Empty                       [peek-scalar]
+```
+
+**Par stages results** [peek-par]. A Par selector is not pure
+navigation: it evaluates each sub-path against the current focus
+(a complete peek, with that sub-path's own wrapping), splices the
+results in as the new foci, and hands the REST of the path those
+results. This is what makes "star boxing" expressible —
+`v.{(("*" "employees" "*"))}.#2` collects a traversal and then
+indexes into the collected result — at the price that selectors
+after a Par address the staged results rather than locations in
+`v` (decided 2026-07-12; see the design-decisions aside below).
 
 **No scalar wrapping.** Applying any non-empty path to a scalar
 always yields Empty.
@@ -3293,6 +3313,23 @@ the result is a single unwrapped value or Empty
 path alone, regardless of data. Note: the unwrapped value itself
 may be a list -- the wrapping is about whether peek adds an
 *additional* list layer around the result.
+
+> **Design decision: why peek's Par stages (2026-07-12).** The
+> alternative was a fold — `peek(v, Par(ps)::rest) = [peek(v,
+> p ++ rest) for p in ps]` — under which a path is pure navigation
+> and every selector addresses a location in `v`. Staging was chosen
+> because it is strictly more expressive (indexing into a collected
+> traversal needs it; under the fold it takes a pipe:
+> `… | __.{par} | __.#2`) and because the fold is recoverable inside
+> a single sub-path (put the rest of the path INSIDE the par). The
+> costs, accepted knowingly: (1) selectors after a Par address staged
+> results, not locations in the original value, so par paths don't
+> factor as navigation; (2) peek's Par differs from poke/map/delete's
+> Par, which delegate sub-paths sequentially against the original
+> structure — writes have no meaningful "staged result" to address;
+> (3) par nesting depth is semantically load-bearing (each Par layer
+> stages and wraps), so `((…))` vs `(…)` changes meaning. The lens
+> laws are unaffected — they already exclude Star and Par paths.
 
 #### Poke (write)
 
