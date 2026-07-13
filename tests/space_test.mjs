@@ -19,19 +19,11 @@ var known_timeout_ms = 200  // known failures: fail fast
 
 // Known failures — tests for spec behaviors not yet implemented.
 // If a failure's label is in this set, it's expected; otherwise it's a regression.
-var known_failures = new Set([
-  // §3 Black-hole / socket-load / cmd-port compile borks — RED until the
-  // (( )) form and these rules are implemented
-  'a + label at column 0 borks [spacesyn-sigil-required]',
-  'a bare nested block with space structure borks [spacesyn-sigil-required]',
-  'black hole with a station borks [blackhole-only-ports]',
-  'black hole in-port with a non-opposing (in) flavour borks [blackhole-flavour-oppose]',
-  'black hole with an up/down port borks [blackhole-inout-only]',
-  'a black hole as the root space borks [blackhole-not-root]',
-  'declaring the retired socket-load flavour borks [socket-portlike-implicit]',
-  'a *name endpoint reference borks (bare name required) [blackhole-ref-bare]',
-  'a ! label at column 0 borks [socket-load-not-root]',
-])
+// Empty: every prior compile-bork guide (sigils, black holes, sockets,
+// cmd-port) landed 2026-07-12..13. Add a label here ONLY to tolerate a test
+// that is RED by design while its feature is under construction — a passing
+// test left in this set silently disables its own regression guard.
+var known_failures = new Set([])
 
 // ── Assert port flavour ──────────────────────────────────────────────
 // Spaces wire `@out assert expected_value` to test output.
