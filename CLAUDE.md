@@ -316,6 +316,26 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
+## Test status (as of 2026-07-13, later — scheduler frontier sweep)
+
+The parked queue is EMPTY. Landed after the sleep flip, in order:
+node_templates.mjs → expired/; dead test blocks retired with intents
+lifted (corpus 843→845; THINK/aspirational/doc blocks kept); §7
+walkthrough station clock→timekeeper; run_all's daimio_test
+known-count 14→0 (nonzero silently tolerated corpus regressions);
+[timeout-inherit]+[timeout-min-chain] (cmd deadline = min of explicit
+timeouts along the walked rule chain; contract chains had it naturally);
+then the scheduler-frontier work in 4 phases (16f7da5, 866f30c,
+b1d892d): re-entry renumbering [sched-reentry-uniform] + dock numbering
+moved from arrival to process start (queued-behind-wait ships renumber
+past the wait; space queue pops lowest [space-queue]) + delivery key
+(number, wire ordinal, seq) [sched-tie-wire] — which exposed+fixed block
+sub-processes dropping their root's number — + guides for
+advance/wire-fifo/entry-frontier/tie-wire/[request-cycle-timeout] + two
+replay guards + stale deferred notes retired. 15/15 suites, fuzzer
+clean. Remaining known-open: [id-deterministic] (§12 error-ship qnames)
+and the button_timer ASCII art drawing (dann's).
+
 ## Test status (as of 2026-07-13 — sleep flip)
 
 {process sleep} reclassified effectful (dann ruled the fork): effect

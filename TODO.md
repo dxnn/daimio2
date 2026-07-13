@@ -90,7 +90,7 @@ declared are NOT minted yet — several guides' inner blocks declare no ports),
 are still broken (parser-hardening item below).
 
 ### A. Priority-loop scheduler with ship numbers (spec §5)
-### CORE DONE 2026-07-08 — refinements remain
+### CORE DONE 2026-07-08 — refinements DONE 2026-07-13
 
 Landed: ships carry a scheduler `number` as carrier metadata (with `sender`,
 never payload — `[sched-ship-vtime]` stayed green) through
@@ -105,22 +105,26 @@ hook exposes `number`; `send_value_to_js_port` accepts one and the harness
 passes `arrive()`'s through. Perf within limits (ship_routing ratio 0.88 vs
 limit 18).
 
-Remaining refinements:
-- **Numbering-at-actual-dock under waits.** A ship arriving at a WAITING
-  space gets its number at `dock()` entry today, though its process starts
-  later from `space.queue` — revisit with `[sched-reentry-uniform]`.
-- **Entry stamping at the boundary.** Frontier numbering happens in `dock()`
-  (entry-time ≈ dock-time for now); exact entry-point stamping lands with
-  `[sched-entry-frontier]`'s true interleaving guide.
-- **Wire declaration order as the mid key component** (`[sched-tie-wire]`) —
-  seq gives FIFO but not declaration-order ties; add when its guide lands.
-- **`port_standard_sync` deliveries** (cmd requests to world ports) are
-  number-neutral plain deferrals; key them when `[sched-reentry-uniform]`
-  lands.
-- The deferred guides `[sched-advance]` `[sched-wire-fifo]`
-  `[sched-entry-frontier]` `[sched-reentry-uniform]` need harness machinery
-  (true frontier interleaving) per det_test's deferred-notes section.
-- Qname half of the dock hook: item E.
+Refinements — LANDED 2026-07-13 (16f7da5, 866f30c, b1d892d):
+- **Numbering-at-actual-dock under waits** — dock numbering (and the dock
+  hook) moved from arrival to process start; queued-behind-wait ships
+  re-number past the wait; the space queue pops lowest-number first
+  [space-queue]. Ship entry numbers still stamp at arrival (entry-time
+  frontier [sched-entry-frontier]).
+- **Re-entry renumbering** [sched-reentry-uniform] — a port-crossing
+  response (or timeout empty) renumbers its held process
+  max(counter, resp#)+1; world/App/timeout responses enter at the
+  frontier. Station-target rule responses stay flat.
+- **Wire declaration order** [sched-tie-wire] — heap key is now
+  (number, wire ordinal, seq); no-wire deliveries sort last. This exposed
+  and fixed block sub-processes dropping their root's number
+  (datatypes/block.js — the [sched-ship-vtime] hole).
+- Guides landed: [sched-advance] [sched-wire-fifo] [sched-entry-frontier]
+  [sched-reentry-uniform] [sched-tie-wire] [request-cycle-timeout] + two
+  replay guards. Note: `port_standard_sync` world deferrals stay outside
+  the heap — the request LEAVES the runtime; its response re-enters at the
+  frontier, which is the part that orders. Open: [id-deterministic]
+  (error ships don't name qnames yet, §12 follow-up).
 
 ### B. Round-trip routing — effectful `cmd:` ports (spec §6/§7)
 ### DONE 2026-07-12 (signal flip via port occupancy) — timeouts remain
