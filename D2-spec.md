@@ -2187,8 +2187,8 @@ subspaces `worker` and `client`. `client` invokes `{time now}`:
 
 ```
 client                             worker
-  @up <-> processor                  @up <-> clock
-                                       clock: {time now}
+  @up <-> processor                  @up <-> timekeeper
+                                       timekeeper: {time now}
 
 outer
   client@cmd:time:* <-> worker@up
@@ -2199,8 +2199,8 @@ outer
   2. `outer`'s wiring rule matches: `client@cmd:time:* <-> worker@up`.
   3. The request enters `worker` through `worker@up` (Exit-N-Reenter
      from `outer`'s perspective). Inside `worker`, `@up` is
-     Enter-N-Exit — `clock` handles it.
-  4. `clock` evaluates `{time now}` — but this is inside `worker`,
+     Enter-N-Exit — `timekeeper` handles it.
+  4. `timekeeper` evaluates `{time now}` — but this is inside `worker`,
      so it creates ANOTHER `cmd:time:now` port on `worker`. If
      `outer` wires `worker@cmd:time:*` to a handler, it resolves.
   5. The response flows back: handler → `worker`'s process →
