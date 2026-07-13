@@ -8,7 +8,7 @@
 // Delivery: socket_load(port, src) sends the Astroglot to an outer port
 // wired to the slot's port-like.
 
-import { det_test, arrive, socket_load, respond_now, known_failures, run } from './det_harness.mjs'
+import { det_test, det_replay, arrive, socket_load, respond_now, known_failures, run } from './det_harness.mjs'
 
 // [socket-load-replace] valid Astroglot replaces the subspace's content; a
 // later ship through the slot exercises the NEW content. The sent label is
@@ -172,12 +172,52 @@ det_test('socket-drain: old content finishes, buffered arrivals release into new
   assert: function(t, e) { e.outputs('out', ['OLD-GOT', 'NEW']) },
 })
 
+// [blackhole-no-socket-load] (load side) a black hole cannot be loaded into
+// a socket: the load sploots and the current content is untouched.
+det_test('socket-load: loading a black hole sploots [blackhole-no-socket-load]', {
+  seed: `outer
+    @go from-js
+    @load from-js
+    @out det-out
+    !slot
+      body {:ORIGINAL}
+      @in:x -> body -> @out:y
+    @load -> slot@socket-load
+    @go -> slot@in:x
+    slot@out:y -> @out`,
+  schedule: [
+    socket_load('load', '*hole\n  @in:feed websock-out'),
+    arrive('go', 'ping'),
+  ],
+  assert: function(t, e) { e.outputs('out', ['ORIGINAL']) },
+})
+
+// [sched-transition-keys] a transition under load is deterministic:
+// byte-identical replay for a fixed schedule + response script.
+det_replay('socket-drain: transition replay is byte-identical [sched-transition-keys]', {
+  seed: `outer
+    @go from-js
+    @load from-js
+    @out det-out
+    @world det-world
+    !slot
+      body {var read-out name :x | logic if then :OLD-GOT else :OLD-EMPTY}
+      @in:x -> body -> @out:y
+    slot@cmd:var:* <-> @world
+    @load -> slot@socket-load
+    @go -> slot@in:x
+    slot@out:y -> @out`,
+  now: 1600000000000,
+  schedule: [
+    arrive('go', 'first'),
+    socket_load('load', 'x\n  body {:NEW}\n  @in:x -> body -> @out:y'),
+    arrive('go', 'second'),
+    respond_now('world', '42'),
+  ],
+})
+
 run()
 
 // ── Deferred transition guides ──────────────────────────────────────────────
-// [sched-transition-keys] a transition is deterministic (byte-identical replay
-//   for a fixed schedule + response script) — needs det_replay over a
-//   transition schedule with respond_now support.
-// [blackhole-no-socket-load] (runtime) loading a *name black hole sploots the
-//   load. (The DEFINITION-form bork is already in space_test; the sploot path
-//   is covered by D.socket_load's check, untested pending a hole-source guide.)
+// (both former deferrals — [sched-transition-keys] replay and the
+// [blackhole-no-socket-load] load-side sploot — are live guides above)
