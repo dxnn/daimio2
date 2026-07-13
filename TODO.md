@@ -259,14 +259,13 @@ Remaining: (nothing — the two below both landed)
   waiting down-port response → ghost); a socket-load port on the root borks;
   loading a black hole borks; svars never survive a transition. Turns green:
   `det_socket_test` guides + `space_test` `[socket-load-not-root]`.
-- **Recursion depth-bound knob** — a creation-time bound (default 100, per outer
-  space; §5/§11); enforce at the block-eval demand (`apply`) — a nesting beyond
-  the bound sploots the innermost eval to empty (value-producing). No creation
-  param exists today (`D.Space(seed_id, parent, prng_seed)` has no depth slot);
-  **proposed API:** extend to `D.Space(seed_id, parent, prng_seed, depth_bound)`
-  (or a per-instance options object) so a test can set a low bound (e.g. 3) and
-  assert the sploot fires at exactly that depth. Turns green: the deferred depth
-  guides (`[depth-bound-instance]`, `[depth-nesting-only]`).
+- **Recursion depth-bound knob — LANDED 2026-07-13.** `D.Space` takes a
+  trailing `opts` object; `opts.depth_bound` sets a per-outer-space bound
+  (default `D.Etc.default_depth_bound = 100`), inherited by subspaces. The block
+  apply demand (`datatypes/block.js`) tracks `eval_depth` per space; past the
+  bound the innermost eval sploots to Empty (total, no stack overflow). Counts
+  NESTING depth only — sequential evals (list map, etc.) never accumulate.
+  Guides `[depth-bound-instance]` `[depth-nesting-only]` in node_code.
 - **Cross-boundary `var read-out`/`var write-out` — LANDED 2026-07-13.** Now that
   B routes, a parent-wired handler using the LOCAL `{var read/write}` resolves
   against the PARENT's state store (the handler sub-process runs in the parent).
