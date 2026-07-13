@@ -67,9 +67,10 @@ emission migration is its own pass). Original build plan follows:
 - Migration in the same commits: nested-form tests gain `+`; blackhole
   guides already use `*` (red); ASCII layout/parse + fixtures follow
   LATER (non-normative per dann; emission format decision pending).
-- RED guides waiting: the two [spacesyn-sigil-required] parse guides,
+- LANDED (2026-07-12 eve): the two [spacesyn-sigil-required] parse guides,
   [blackhole-*] set, [socket-portlike-implicit], [socket-load-not-root],
-  [blackhole-ref-bare] (all in space_test).
+  [blackhole-ref-bare] all pass. (2026-07-13: space_test reports 0 known
+  failures — its `known_failures` set is entirely stale and can be emptied.)
 
 These are the two big unlocks; almost every RED guide in the determinism suite
 is waiting on one of them. Each lists what to build, where, and which tests go
@@ -123,11 +124,14 @@ Refinements — LANDED 2026-07-13 (16f7da5, 866f30c, b1d892d):
   [sched-reentry-uniform] [sched-tie-wire] [request-cycle-timeout] + two
   replay guards. Note: `port_standard_sync` world deferrals stay outside
   the heap — the request LEAVES the runtime; its response re-enters at the
-  frontier, which is the part that orders. Open: [id-deterministic]
-  (error ships don't name qnames yet, §12 follow-up).
+  frontier, which is the part that orders. [id-deterministic] LANDED
+  2026-07-13: the engine's error strings already name only source-derived
+  identifiers (cmd:handler:method, port/station names — never runtime
+  handles [id-internal-handles]); det_test now pins an unwired-sploot error
+  ship's exact string and its byte-identical replay.
 
 ### B. Round-trip routing — effectful `cmd:` ports (spec §6/§7)
-### DONE 2026-07-12 (signal flip via port occupancy) — timeouts remain
+### DONE 2026-07-12 (signal flip) + timeouts DONE 2026-07-12..13
 
 Landed: `run_fun` → `run_effect` in `m_command.js`. Wiring rules compile to
 index-resolved entries in the seed (`make_spaceseeds`; duplicate patterns bork
@@ -168,14 +172,14 @@ ports hold state, wires carry ships, no ship-carried contracts):
   upport-inside-station, async-preserve-sender, chained/FAF up-port set
   (four of those had been red only from mis-indented test strings).
 
-Remaining:
-- **Timeouts.** No default 10s / rule-timeout enforcement yet — a target
-  that never responds leaves the port occupied and any waiter waiting
-  (liveness hole). Virtual-time backlog; decided semantics: the timeout
-  acts on the PORT (emits the empty response onward, frees); stale-ship
-  residual window accepted as anonymous flow (no number-floor hardening).
-- **`[demandport-create]` bork** (declaring a `cmd:` port) — still RED, small
-  parser check, batched with the black-hole compile borks.
+Remaining: (nothing — the two below both landed)
+- **Timeouts — LANDED.** Default 10s + rule-timeout enforcement live via
+  virtual time (m_command.js registers a min-chain-or-default deadline; an
+  unanswered request resumes empty and frees the port). See "Virtual time"
+  in the backlog for the min-chain detail.
+- **`[demandport-create]` bork — LANDED** (1_daimio.js:3834, batched with the
+  black-hole compile borks). Declaring a `cmd:` port throws. The space_test
+  guide passes; its stale `known_failures` entry was removed 2026-07-13.
 
 ## Backlog / dependencies
 
@@ -211,8 +215,9 @@ Remaining:
   deadline is the min of the explicit timeouts along its walked rule
   chain; contract chains had min-chain naturally (per-hop occupancy
   deadlines + empty propagation — guarded by a det_time test).
-  Remaining: [request-cycle-timeout] guide (needs queue-behind-wait
-  numbering).
+  [request-cycle-timeout] LANDED 2026-07-13 (b1d892d): a cyclic request
+  chain resolves by first-deadline sploot; the freed space serves the
+  queued back-request and late responses ghost. Nothing remaining here.
 - **`process sleep` — RESOLVED 2026-07-13 (dann: reclassify effectful).**
   Sleep declares effect cmd:process:sleep; the new `clock` port flavour
   is the canonical world handler (answers `then` at now+`for` via
