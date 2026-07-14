@@ -495,19 +495,6 @@ effectful-commands full-spec sweep (dann).
   unquote`. Marked `[serialize-block-dead]` in D2-spec.md §8. Revisit if/when
   live-block persistence is wanted (interacts with the unquote privilege gate).
 
-## Pending spec drafts (design/)
-
-Four draft patches await review/merge — decision trail in design/gen1.md +
-gen2.md, working file gen3.md:
-- blockeval-spec-draft.md — ternary effect partition + covering rule
-- depth-spec-draft.md — recursion depth bound (composes with blockeval)
-- sender-spec-draft.md — sender-at-entry + QNames/deterministic ids
-- scheduler-spec-draft.md — vtime deterministic scheduler (REQUIRES sender
-  patch first; proof sketch in sched-determinism-sketch.md)
-
-After merges: test-suite phase (~52 new assertion IDs) + black hole
-renderer/parser/fixture work (site/js, tests/).
-
 ## Git policy (overrides global)
 You manage git directly in this project. The global "manual git" rule does
 NOT apply here. `git push` remains denied at the permission layer; the user
