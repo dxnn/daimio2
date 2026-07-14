@@ -316,6 +316,45 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
+## Test status (as of 2026-07-13, latest — open-item sweep)
+
+15/15 suites green, fuzzer clean (0/3000). Counts moved: space_test
+179→185, node_code 87→95, det_test 24→26. Landed this session (commits
+003dcca→daa7d95):
+- **[id-deterministic]** pinned — the engine's soft errors already name
+  only source identifiers (cmd:handler:method, port/station names), never
+  runtime handles [id-internal-handles]; det_test pins an exact error
+  string + byte-identical replay.
+- **Contract signal-type enforcement** (fix, cb1ce0d) — `<->` LHS must be
+  Enter-N-Exit (@up / child @down|@cmd), RHS Exit-N-Reenter (@down / child
+  @up) or a station [roundtrip-enex-lhs]; a declared my-own @down slipping
+  in as LHS / @up as RHS now bork. Three fixtures used the invalid
+  own-@down-as-LHS shape → rewritten to valid down/up contracts
+  (down-port-contract now a subspace-down contract); subspace-down-* made
+  coherent (@up:svc→@down:svc to match the parent's reference).
+- **Cross-boundary var read-out/write-out** pinned end-to-end
+  [socket-crossboundary-var]: a parent-wired handler using LOCAL {var
+  read/write} resolves against the PARENT's store.
+- **Recursion depth bound** (feat, 1cc5e24) — D.Space takes opts
+  {depth_bound} (default D.Etc.default_depth_bound=100, inherited by
+  subspaces); block.js apply tracks eval_depth per space; past the bound
+  the innermost eval sploots to Empty (NESTING depth only; sequential
+  evals never accumulate) [depth-bound-instance] [depth-nesting-only].
+- **known_failures** in space_test emptied (all prior compile-bork guides
+  had landed — a passing test in that set disables its own guard).
+- Recurring theme: the TODO badly lagged the code — [demandport-create],
+  both `<->` parser bugs, timeouts, [request-cycle-timeout], and the
+  effectful per-command field lists were all ALREADY done, just untracked.
+  TODO reconciled for everything touched.
+
+Remaining open: vertical-to-vertical port-contract layout (DEFERRED by
+dann — ASCII renderer not mission-critical; root cause + approach recorded
+in TODO), the button_timer ASCII art (dann's), [id-deterministic] §12
+error-ship-qname follow-up (error strings are deterministic; naming a
+station qname in an error is unbuilt because no error references one), and
+design-side spec-draft merges (blockeval ternary partition, depth spec
+patch — engine done, prose unmerged).
+
 ## Test status (as of 2026-07-13, later — scheduler frontier sweep)
 
 The parked queue is EMPTY. Landed after the sleep flip, in order:
