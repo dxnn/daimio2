@@ -3,6 +3,7 @@
 
 ## Space layout: vertical-to-vertical port contracts
 
+**DEFERRED (dann, 2026-07-13): the ASCII renderer is not mission-critical.**
 Diagnosis complete (below); implementation parked. Nothing downstream depends
 on it — the parser rejects nothing valid here, so this is purely a layout gap.
 
