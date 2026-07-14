@@ -16,10 +16,6 @@ var reported = false
 // Known failures — RED guides for spec behaviors not yet implemented.
 // A failure whose label is in this set is expected; anything else is a
 // regression (and fails the suite).
-var known_failures = new Set([
-  // (empty — list delete/values and the scalar/Empty family landed 2026-07-12)
-])
-
 function test(label, input, expected) {
   pending++
   D.run(input, function(output) {
@@ -42,30 +38,21 @@ function report() {
   if (reported) return
   reported = true
 
-  var known = failures.filter(function(f) { return known_failures.has(f.label) })
-  var novel = failures.filter(function(f) { return !known_failures.has(f.label) })
-
   console.log('\n=== D2 Spec Tests ===')
-  console.log(`${pass + fail} tests: ${pass} passed, ${fail} failed (${known.length} known, ${novel.length} new)`)
+  console.log(`${pass + fail} tests: ${pass} passed, ${fail} failed`)
 
-  if (novel.length) {
-    console.log('\nNew failures (REGRESSION):')
-    for (var f of novel) {
+  if (fail) {
+    console.log('\nFAILURES:')
+    for (var f of failures) {
       console.log(`  [${f.label}]`)
       console.log(`    input:    ${f.input}`)
       console.log(`    expected: ${f.expected}`)
       console.log(`    actual:   ${f.actual}`)
       console.log('')
     }
+    process.exit(1)
   }
-
-  if (known.length) {
-    console.log('\nKnown failures (RED guides):')
-    for (var g of known) console.log(`  [${g.label}]`)
-  }
-
-  if (!novel.length) console.log('\nAll passing (no regressions)!')
-  if (novel.length) process.exit(1)
+  console.log('\nAll passing!')
 }
 
 

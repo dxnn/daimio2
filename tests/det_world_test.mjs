@@ -8,7 +8,7 @@
 //     one response. Round-trip routing landed 2026-07-08..12 (cmd rules,
 //     port occupancy) — these guides are GREEN.
 
-import { det_test, arrive, respond, world_in, known_failures, run } from './det_harness.mjs'
+import { det_test, arrive, respond, world_in, run } from './det_harness.mjs'
 
 // ── Emission (green): a fire-and-forget ship to a world port is observed ──
 // det-world records emissions under the 'world:<port>' trace key. This is the

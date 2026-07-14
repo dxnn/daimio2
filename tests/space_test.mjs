@@ -15,15 +15,6 @@ var failures = []
 var pending = 0
 var all_registered = false
 var timeout_ms = 5000
-var known_timeout_ms = 200  // known failures: fail fast
-
-// Known failures — tests for spec behaviors not yet implemented.
-// If a failure's label is in this set, it's expected; otherwise it's a regression.
-// Empty: every prior compile-bork guide (sigils, black holes, sockets,
-// cmd-port) landed 2026-07-12..13. Add a label here ONLY to tolerate a test
-// that is RED by design while its feature is under construction — a passing
-// test left in this set silently disables its own regression guard.
-var known_failures = new Set([])
 
 // ── Assert port flavour ──────────────────────────────────────────────
 // Spaces wire `@out assert expected_value` to test output.
@@ -121,7 +112,7 @@ function run_dm_tests(filename) {
     })
 
     var dm_label = chunk.label || ('dm test #' + test_id)
-    var dm_timeout = known_failures.has(dm_label) ? known_timeout_ms : timeout_ms
+    var dm_timeout = timeout_ms
     pending_spaces[test_id] = {
       label: dm_label,
       remaining: assert_count,
@@ -226,7 +217,7 @@ function space_test(label, seedlike, sends, expect_count, check, per_test_timeou
     collected: {},
     check: check,
     done: false,
-    timer: setTimeout(function() { timeout_space(test_id) }, per_test_timeout || (known_failures.has(label) ? known_timeout_ms : timeout_ms))
+    timer: setTimeout(function() { timeout_space(test_id) }, per_test_timeout || timeout_ms)
   }
 
   try {
@@ -286,32 +277,19 @@ function maybe_report() {
 }
 
 function report() {
-  var known = failures.filter(function(f) { return known_failures.has(f.label) })
-  var novel = failures.filter(function(f) { return !known_failures.has(f.label) })
-
   console.log('\n=== Space Test Suite ===')
-  console.log(pass + ' passed, ' + fail + ' failed (' + known.length + ' known, ' + novel.length + ' new)')
+  console.log(pass + ' passed, ' + fail + ' failed')
 
-  if(novel.length) {
-    console.log('\nNew failures (REGRESSION):')
-    novel.forEach(function(f) {
+  if(fail) {
+    console.log('\nFailures:')
+    failures.forEach(function(f) {
       console.log('  ' + f.label)
       console.log('    expected: ' + f.expected)
       console.log('    actual:   ' + f.actual)
     })
+    process.exit(1)
   }
-
-  if(known.length) {
-    console.log('\nKnown failures:')
-    known.forEach(function(f) {
-      console.log('  ' + f.label)
-      console.log('    expected: ' + f.expected)
-      console.log('    actual:   ' + f.actual)
-    })
-  }
-
-  if(!novel.length) console.log('\nYou win!')
-  if(novel.length) process.exit(1)
+  console.log('\nYou win!')
 }
 
 // ── Run .dm tests ────────────────────────────────────────────────────
@@ -718,7 +696,7 @@ function multi_space_test(label, spaces_def, orchestrate, per_test_timeout) {
     failures.push({ label: label, expected: 'completion', actual: 'TIMEOUT' })
     pending--
     maybe_report()
-  }, per_test_timeout || (known_failures.has(label) ? known_timeout_ms : timeout_ms))
+  }, per_test_timeout || timeout_ms)
 
   try {
     spaces_def.forEach(function(def) {
@@ -1328,11 +1306,11 @@ space_test(
   }
 )
 
-// ── Known-failing spec tests ────────────────────────────────────────
-// Tests for spec behaviors not yet implemented. All labels must be
-// in the known_failures set above so the suite still passes.
+// ── Additional spec tests ───────────────────────────────────────────
+// Tests for spec behaviors that were once unimplemented (RED guides);
+// all now pass.
 
-console.log('--- known-failing spec tests ---')
+console.log('--- additional spec tests ---')
 
 // §9 Scheduling: deferred port routing
 // Spec says: "queued ships have priority over ships produced by the

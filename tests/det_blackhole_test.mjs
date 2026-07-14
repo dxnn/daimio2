@@ -10,7 +10,7 @@
 // App entry surfaces (send_value_to_js_port reaches them; entering ships
 // take the out-port's qname as sender). det-world observes world emissions.
 
-import { det_test, arrive, world_in, sender, known_failures, run } from './det_harness.mjs'
+import { det_test, arrive, world_in, sender, run } from './det_harness.mjs'
 
 // [blackhole-in-exit] a ship at the in-port is emitted to the world, gone,
 // fire-and-forget (no response, nothing re-enters the parent).

@@ -2,12 +2,8 @@
 // with a fresh, isolated space per run.  See tests/DET_HARNESS.md for the design.
 //
 // v1 rides on existing engine mechanism plus three additive hooks
-// (D.Space#is_idle, D.make_execution_space, D.settle).  Tests that need
-// machinery not yet built — the scheduler's ordering guarantees, virtual
-// time, qname ids, black holes, socket-load, sender-at-entry — are RED
-// guides: they fail for the right reason and their labels live in the
-// caller's `known_failures` set (self-managed known/novel, like the other
-// suites).  run_all counts this suite as 0 known.
+// (D.Space#is_idle, D.make_execution_space, D.settle).  Every test must
+// pass; any failure is a regression and the suite exits non-zero.
 
 var D = (await import('../daimio/daimio.js')).default
 
@@ -42,7 +38,6 @@ var queue = []            // pending test thunks: fn(done)
 var pass = 0, fail = 0
 var failures = []
 var current = null        // running test context: { label, trace, responses }
-export var known_failures = new Set()   // caller fills before run()
 
 // ── helpers ─────────────────────────────────────────────────────────────
 function str(v) { return typeof v === 'string' ? v : (JSON.stringify(v) || '') }
@@ -287,24 +282,17 @@ function run_next() {
 export function run() { run_next() }
 
 function report() {
-  var known = failures.filter(function(f) { return known_failures.has(f.label) })
-  var novel = failures.filter(function(f) { return !known_failures.has(f.label) })
-
   console.log('\n=== Determinism Harness ===')
-  console.log((pass + fail) + ' checks: ' + pass + ' passed, ' + fail + ' failed (' + known.length + ' known, ' + novel.length + ' new)')
+  console.log((pass + fail) + ' checks: ' + pass + ' passed, ' + fail + ' failed')
 
-  if(novel.length) {
-    console.log('\nNew failures (REGRESSION):')
-    novel.forEach(function(f) {
+  if(failures.length) {
+    console.log('\nFailures:')
+    failures.forEach(function(f) {
       console.log('  ' + f.label)
       console.log('    expected: ' + f.expected)
       console.log('    actual:   ' + f.actual)
     })
+    process.exit(1)
   }
-  if(known.length) {
-    console.log('\nKnown failures (RED guides):')
-    known.forEach(function(f) { console.log('  ' + f.label) })
-  }
-  if(!novel.length) console.log('\nYou win!')
-  if(novel.length) process.exit(1)
+  console.log('\nYou win!')
 }

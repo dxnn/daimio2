@@ -8,7 +8,7 @@
 // ({time stampwrap} is pure — it wraps a given stamp and never reads the clock;
 // its tests live in d2_spec_test.mjs.)
 
-import { det_test, det_replay, arrive, timeout, respond_now, known_failures, run } from './det_harness.mjs'
+import { det_test, det_replay, arrive, timeout, respond_now, run } from './det_harness.mjs'
 
 var CLOCK = `outer
   @go from-js

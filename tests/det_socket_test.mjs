@@ -8,7 +8,7 @@
 // Delivery: socket_load(port, src) sends the Astroglot to an outer port
 // wired to the slot's port-like.
 
-import { det_test, det_replay, arrive, socket_load, respond_now, known_failures, run } from './det_harness.mjs'
+import { det_test, det_replay, arrive, socket_load, respond_now, run } from './det_harness.mjs'
 
 // [socket-load-replace] valid Astroglot replaces the subspace's content; a
 // later ship through the slot exercises the NEW content. The sent label is

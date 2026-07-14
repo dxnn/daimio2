@@ -12,7 +12,7 @@
 import {
   det_daml, det_test, det_replay,
   arrive, batch, respond, respond_now, timeout, world_in, socket_load,
-  known_failures, run,
+  run,
 } from './det_harness.mjs'
 
 // ── Isolation (green) ────────────────────────────────────────────────────

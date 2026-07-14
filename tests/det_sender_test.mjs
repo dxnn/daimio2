@@ -10,7 +10,7 @@
 // cleanest observation channel, but the conformance of the command itself is
 // an open question for the spec owner.
 
-import { det_test, arrive, sender, known_failures, run } from './det_harness.mjs'
+import { det_test, arrive, sender, run } from './det_harness.mjs'
 
 var D = (await import('../daimio/daimio.js')).default
 
@@ -82,13 +82,11 @@ det_test('sender: a payload claiming a user confers no identity [sender-carrier-
   },
 })
 
-// ── Sender attachment at entry (RED — no automatic attachment / registry) ──
-// A senderless ship entering @go should take the entry port's qualified name
-// as its sender. Today {process sender} is "" (no attachment).
-// FLAG: the exact qname form is an open spec question — §10 L941 shows the
-// outer space's own port as `@in:init` (no space prefix), while the sender
-// extraction cites `main@in:init`. The expected value below encodes the target;
-// reconcile it when the qname form is settled.
+// ── Sender attachment at entry [sender-attach-entry] [sender-attach-registry] ──
+// A senderless ship entering a world-paired port takes the entry port's
+// qualified name as its sender (D.entry_sender); a sender registered under
+// that qname via D.register_sender wins. The qname form is settled — a port
+// on the outer space carries no space prefix (e.g. @in:go), per [qname-structure].
 det_test('sender: a senderless ship takes the entry port qname as sender [sender-attach-entry]', {
   seed: ECHO,
   schedule: [ arrive('go', 'x') ],
@@ -98,8 +96,7 @@ det_test('sender: a senderless ship takes the entry port qname as sender [sender
 // [sender-attach-registry] — a sender registered under the entry port's
 // qname is attached instead of the default, carrying its attenuated
 // dialect: {math add} is blocked for bob, so calc sploots to ''.
-if(D.register_sender)
-  D.register_sender('@in:reg', sender('bob', { math: ['add'] }))
+D.register_sender('@in:reg', sender('bob', { math: ['add'] }))
 det_test('sender: a registered sender attaches at its entry port [sender-attach-registry]', {
   seed: `outer
     @reg from-js
@@ -112,17 +109,9 @@ det_test('sender: a registered sender attaches at its entry port [sender-attach-
   assert: function(t, e) { e.outputs('out', ['bob', '']) },
 })
 
-;[
-  'sender: a senderless ship takes the entry port qname as sender [sender-attach-entry]',
-  'sender: a registered sender attaches at its entry port [sender-attach-registry]',
-].forEach(function(l) { known_failures.add(l) })
-
 run()
 
 // ── Deferred (need machinery not yet present) ──────────────────────────────
-// [sender-attach-registry] — needs a qname->sender registry consulted in
-//   port.enter() (no D.register_sender API exists). Then a senderless ship at
-//   a registered, attenuated port sploots forbidden commands.
 // [sender-propagate-downport]/[sender-propagate-error] — need down-port
 //   round-trips / error ships carrying the sender (ports/async).
 // [id-deterministic]/[qname-*] — need the internal-dock trace (qname + number
