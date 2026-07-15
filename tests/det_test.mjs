@@ -398,8 +398,100 @@ det_replay('error ships replay byte-identical [id-deterministic]', {
   schedule: [ arrive('go', 'x') ],
 })
 
-// ── Known failures (RED guides) ──────────────────────────────────────────
-// (empty — the poke scalar guides went green with the pathfinder refactor)
+// Option A (resolved 2026-07-14): a path miss on a BOUND space variable yields
+// the empty value SILENTLY -- no @out:err ship. Only an UNBOUND variable
+// sploots [svar-read-unbound-sploot]; a path descent that misses is a silent
+// Empty, exactly like a pipeline-var miss and `list peek` [peek-key-miss].
+det_test('read: a bound-svar path miss is silent Empty, no error ship [peek-key-miss]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @out:err det-err
+    reader {* (:a 1) | >$d || $d.z}
+    @go -> reader -> @out`,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) {
+    e.outputs('out', [''])           // the missing key yields the empty value
+    e.outputs('err:out:err', [])     // and NO soft error is emitted
+  },
+})
+
+// ── #0 is a MALFORMED selector: it sploots on every path op ────────────────
+// §10 [pos-zero-invalid]. A position that merely misses -- out of bounds, e.g.
+// #99 -- is a silent Empty on a read [peek-pos-miss] and a silent no-op on a
+// write [poke-pos-oob]. #0 is different: it is not a miss but a malformed
+// selector, so it emits a soft error to @out:err while the value continues
+// (Empty on a read, unchanged on a write). RED until the positionfinder
+// special-cases position 0 -- today it maps #0 -> index -1 and silently
+// misses. The error string is the guide's contract for the implementation.
+det_test('read at #0 sploots with a soft error [pos-zero-invalid]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @out:err det-err
+    reader {(1 2 3) | __.#0}
+    @go -> reader -> @out`,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) {
+    e.outputs('out', [''])                              // #0 read yields Empty
+    e.outputs('err:out:err', ['Malformed selector "#0"'])
+  },
+})
+
+det_test('poke at #0 sploots with a soft error [pos-zero-invalid]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @out:err det-err
+    poker {(1 2 3) | list poke path "#0" value 99}
+    @go -> poker -> @out`,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) {
+    e.outputs('err:out:err', ['Malformed selector "#0"'])
+  },
+})
+
+det_test('delete at #0 sploots with a soft error [pos-zero-invalid]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @out:err det-err
+    deleter {(1 2 3) | list delete path "#0"}
+    @go -> deleter -> @out`,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) {
+    e.outputs('err:out:err', ['Malformed selector "#0"'])
+  },
+})
+
+det_test('map at #0 sploots with a soft error [pos-zero-invalid]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @out:err det-err
+    mapper {(1 2 3) | list map path "#0" block "{99}"}
+    @go -> mapper -> @out`,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) {
+    e.outputs('err:out:err', ['Malformed selector "#0"'])
+  },
+})
+
+// Contrast (GREEN, must stay green): a genuinely out-of-bounds write is a
+// SILENT no-op -- no soft error. Pins the malformed-vs-miss distinction so a
+// future #0 fix doesn't over-reach into legitimate out-of-bounds writes.
+det_test('out-of-bounds write is a silent no-op, no error [poke-pos-oob]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @out:err det-err
+    oob {(1 2 3) | list poke path "#99" value 9}
+    @go -> oob -> @out`,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) {
+    e.outputs('err:out:err', [])     // out of bounds is silent -- no soft error
+  },
+})
 
 run()
 

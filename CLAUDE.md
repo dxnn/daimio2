@@ -494,6 +494,24 @@ effectful-commands full-spec sweep (dann).
   if it was live when the space was serialized. Reviving requires `process
   unquote`. Marked `[serialize-block-dead]` in D2-spec.md §8. Revisit if/when
   live-block persistence is wanted (interacts with the unquote privilege gate).
+- **Scalar equality is coercing (JS `==`), blessed provisionally (2026-07-14).**
+  `eq`/`logic is`/`is in` compare scalars with JavaScript `==` (numeric-string
+  coercion): `"2" == 2`, `1 == "1"`, and `0 == ""` are all true; lists compare
+  structurally; a scalar is never equal to a list, so the empty value — which is
+  `""` in scalar contexts — does NOT equal `[]`. D2-spec.md §10 "Collection
+  equality" now describes this as-is.
+  **Why not the cleaner model:** we explored making the empty value a distinct
+  polymorphic zero — equal to `0`/`""`/`[]` while the typed zeros stay mutually
+  distinct — which would give a genuinely typed `eq ""` test. It is NOT
+  implementable without changing the empty representation: at comparison time the
+  empty value arrives as raw `""`, byte-identical to a genuine empty string
+  (probe: `{* (:a 1) | peek :z | eq 0}` and `{() | string join | eq 0}` both hand
+  the comparator `value=""`). So "Empty == 0 but '' ≠ 0" is a contradiction —
+  Empty *is* `""`. And keeping `"2" == 2` (deeply embedded) rules out dropping
+  numeric coercion wholesale. **Revisit** when the empty representation is unified
+  into one distinct value (the "bigger conversation"); then the polymorphic-Empty
+  equality becomes possible. (Resolves the reviewer's §10 equality finding by
+  documenting reality; full trail in spec-keeper session memory.)
 
 ## Git policy (overrides global)
 You manage git directly in this project. The global "manual git" rule does

@@ -3166,8 +3166,10 @@ value, which becomes whatever zero the consuming command expects.
 
 ### Truthiness
 
-A value is **falsy** if it is the empty value in any of its forms:
-`0`, `""`, or `[]` (empty list) [truthy-falsy]. Everything else is
+A value is **falsy** if it is the empty value (`0` or `""` in scalar
+context) or the empty list `[]` -- which is falsy in its own right,
+not a form of the empty value (§10, "Collection equality": the two
+are not equal) [truthy-falsy]. Everything else is
 **truthy**: non-zero numbers, non-empty strings, non-empty lists,
 and blocks [truthy-truthy]. NaN does not exist as a Val — number
 coercion converts NaN to 0 (see [coerce-number]), so NaN never
@@ -3192,15 +3194,29 @@ Examples:
 
 ### Collection equality
 
-Two values are equal if they have the same type and content:
-  - Numbers: numeric equality (0.0 == -0.0; NaN never equals anything,
-    though vacuously — NaN is coerced to 0 before reaching equality)
-  - Strings: code-unit-for-code-unit equality (UTF-16)
-  - Lists: same keyed/unkeyed status, same length, same entries
-    in the same order. For keyed lists, keys must match pairwise.
-    `{a:1, b:2}` ≠ `{b:2, a:1}` (different order).
-    A keyed list is never equal to an unkeyed list.
-  - Empty equals empty.
+Equality is **coercing** for scalars, mirroring the frictionless flow
+between strings and numbers elsewhere in the language. Two scalars
+compare with JavaScript-style `==`:
+
+  - Numbers compare numerically (`0.0 == -0.0`; NaN never arises --
+    it is coerced to 0 before equality).
+  - Strings compare by code unit (UTF-16).
+  - A numeric string equals the number it denotes: `"2" == 2`,
+    `1 == "1"`, `"0" == 0` [equality-coerce-numeric]. The empty value
+    is `""` in scalar contexts and coerces to `0`, so `0 == ""` and an
+    empty/unset value compares equal to both `0` and `""`.
+
+Lists compare by **deep structural equality**: same keyed/unkeyed
+status, same length, same entries in the same order (keyed lists
+compare pairwise by key; `{a:1, b:2}` ≠ `{b:2, a:1}`)
+[equality-list-structural]. A scalar is never equal to a list
+[equality-scalar-list-never]; and because the empty value is a scalar
+(`""`) in comparison contexts, it does **not** equal the empty list
+`[]` -- a rough edge of the current representation.
+
+(This coercing model is blessed as the current behavior, not a
+designed ideal; see CLAUDE.md "Provisional spec decisions" for the
+cleaner model that was explored and deferred.)
 
 ### Splooting
 
@@ -3267,9 +3283,17 @@ Each sub-path carries its own semantics.
 **Pos is 1-indexed.** `#1` is first element [pos-one-indexed],
 `#-1` is last [pos-negative]. Negative positions count from the
 end. Pos works on both keyed and unkeyed collections (keyed
-collections are accessed by insertion order). `#0` is invalid
-[pos-zero-invalid]. Any position that doesn't resolve to an
-existing element sploots.
+collections are accessed by insertion order). A position past the
+ends of the collection is a miss: it yields the empty value,
+silently [peek-pos-miss] (a miss is never a sploot -- see peek,
+below). `#0`, by contrast, is not a valid position but a malformed
+selector; evaluating a malformed selector sploots (empty value +
+soft error) [pos-zero-invalid]. So, on a read: a valid selector
+that finds nothing yields Empty silently, while a malformed
+selector sploots. (A write -- poke, delete, map -- sploots on `#0`
+too [pos-zero-invalid]: the value passes through unchanged but a soft
+error fires. A position that is merely out of bounds, e.g. `#99`,
+stays a silent no-op on a write; see those rules.)
 
 **Key access is 0-indexed.** Key with a numeric string on an
 unkeyed list uses 0-based indexing [key-zero-indexed] (see Key
@@ -3331,9 +3355,11 @@ foci(F, [])                = F
 foci(F, Key(s) :: rest)    = foci([f[s] or Empty for f in F], rest)
                              -- exactly one result per focus         [peek-key-hit]
                              -- Empty if s not in f                  [peek-key-miss]
-foci(F, Pos(n) :: rest)    = foci([f at n or Empty for f in F], rest)
+foci(F, Pos(n) :: rest)    = foci([f at n or Empty for f in F], rest)   (n != 0)
                                                                      [peek-pos-hit]
                              -- Empty if n out of bounds             [peek-pos-miss]
+                             -- Pos(0) is malformed, not a miss: the
+                             --   read sploots (empty + soft error)  [pos-zero-invalid]
 foci(F, Star :: rest)      = foci(concat [children(f) for f in F], rest)
                              -- a scalar focus has no children       [peek-star]
 foci(F, Par(ps) :: rest)   = foci(concat [[peek(f, p) for p in ps] for f in F], rest)
@@ -3420,6 +3446,7 @@ poke(scalar, Key(s) :: rest, new) =
 
 ```
 poke(v, Pos(n) :: rest, new) =
+  if n = 0:             v unchanged + soft error -- malformed     [pos-zero-invalid]
   if position n exists: v with v[n] = poke(v[n], rest, new)     [poke-pos-update]
   else:                 v unchanged -- out of bounds             [poke-pos-oob]
 
@@ -3480,6 +3507,7 @@ map(Collection, Key(s) :: rest, block) =
   else:            unchanged
 
 map(Collection, Pos(n) :: rest, block) =
+  if n = 0:             unchanged + soft error -- malformed          [pos-zero-invalid]
   if position n exists: update val with map(val, rest, block)
   else:                 unchanged
 
@@ -3528,6 +3556,7 @@ delete(UnkeyedCollection, Key(s) :: []) =                           [delete-key-
   otherwise: soft error, return unchanged
 
 delete(Collection, Pos(n) :: []) =                                  [delete-pos]
+  if n = 0:             unchanged + soft error -- malformed          [pos-zero-invalid]
   if position n exists: splice (shift remaining elements)
   else:                 unchanged
 
@@ -3573,7 +3602,7 @@ list delete -- params: data, path
 PutGet:    peek(poke(v, p, x), p) = x                               [law-putget]
 PutPut:    poke(poke(v, p, x), p, y) = poke(v, p, y)               [law-putput]
 GetPut:    poke(v, p, peek(v, p)) = v                               [law-getput]
-DeleteGet: peek(delete(v, p), p) = Empty                            [law-deleteget]
+DeleteGet: peek(delete(v, p), p) = Empty (Key) / [] (Star)         [law-deleteget]
 DeleteDel: delete(delete(v, p), p) = delete(v, p)                   [law-deletedel]
 MapId:     map(v, p, "{__}") = v                                    [law-mapid]
 PokeAsMap: poke(v, p, x) = map(v, p, const(x))   -- const(x) = a block that returns x  [law-pokeasmap]
@@ -3600,7 +3629,10 @@ means the same Pos selector addresses a different element after
 deletion. Two laws break as a consequence:
 
 DeleteGet holds for Key and Star selectors, where identity is stable
-across deletion. Fails for Pos: `delete([1,2,3], [Pos(2)])` = `[1,3]`,
+across deletion -- reading back yields `Empty` for a Key (the entry
+is gone) and the empty list `[]` for Star (delete empties the
+collection and Star wraps the now-empty traversal, which are not
+equal under §10). Fails for Pos: `delete([1,2,3], [Pos(2)])` = `[1,3]`,
 then `peek([1,3], [Pos(2)])` = `3`, not Empty. The deleted element is
 gone, but its successor slid into its position. Also fails for Par
 sub-paths containing Pos, since Par delegates to its sub-paths.
@@ -4230,10 +4262,15 @@ the pipeline gets the empty value.
   (process, state) --[ReadSVar(s, path)]--> (process{v := v'}, state)
 ```
 
-If s is unbound in state, or path doesn't match, the result sploots
-(empty value + soft error to the space's `@out:err` port). [svar-read-unbound-sploot] This aids debugging --
-a typo in a variable name produces an observable error -- while
-the pipeline continues normally with the empty value.
+If s is unbound in state, the result sploots (empty value + soft
+error to the space's `@out:err` port). [svar-read-unbound-sploot] This aids
+debugging -- a typo in a variable name produces an observable error --
+while the pipeline continues normally with the empty value. If s is
+bound but the path doesn't match, peek yields the empty value
+silently, exactly as for a path miss on any read [peek-key-miss]
+[peek-pos-miss]. A read sploots in just two cases: an unbound
+variable, and a malformed selector in the path (e.g. `#0`)
+[pos-zero-invalid].
 
 **Write space variable:**
 ```
@@ -4259,7 +4296,9 @@ Key on unkeyed lists coerces or soft errors.
   (process, state) --[ReadPVar(x, path)]--> (process{v := v'}, state)
 ```
 
-If x is unbound or path doesn't match, the result is empty (totality). [pvar-unbound-empty]
+If x is unbound or the path doesn't match, the result is empty
+(totality) [pvar-unbound-empty]; a malformed selector in the path
+sploots, like any read [pos-zero-invalid].
 
 **Write pipeline variable:**
 ```
@@ -4525,6 +4564,7 @@ Value-producing sploots (continue with empty):
   - effectful command with unwired port (no async)          [effectful-unwired-sploot]
   - timeout on down-port response                           [timeout-resume-empty]
   - unbound space variable read                             [svar-read-unbound-sploot]
+  - malformed path selector in a read (e.g. `#0`)           [pos-zero-invalid]
   - required param missing                                  [param-required-sploot]
   - block-evaluation depth bound exceeded                   [depth-exceeded-sploot]
 
@@ -4532,6 +4572,7 @@ Pass-through sploots (continue with unchanged value):
   - port send to nonexistent port                           [portsend-missing-sploot]
   - key coercion failure in poke/delete                     [poke-key-unkeyed-fail]
   - Key poke on unkeyed list (no promotion)                 [sploot-passthru-poke]
+  - malformed path selector in a write (e.g. `#0`)          [pos-zero-invalid]
 ```
 
 When splooting:

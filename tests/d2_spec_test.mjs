@@ -3316,6 +3316,16 @@ test(
   ''
 )
 
+// The law's RHS is path-dependent: Empty for a Key (above), but the empty
+// list [] for Star -- delete empties the collection and Star wraps the
+// now-empty traversal. Empty ("") and [] are not equal under §10, so this
+// is a distinct assertion, not a restatement of the Key case. [law-deleteget]
+test(
+  'DeleteGet Star: peek-all after delete-all is [], not Empty [law-deleteget]',
+  '{(1 2 3) | list delete path "*" | list peek path "*"}',
+  '[]'
+)
+
 test(
   'DeleteDel: double delete equals single delete [law-deletedel]',
   '{* (:a 1 :b 2) | list delete path :a | list delete path :a}',
