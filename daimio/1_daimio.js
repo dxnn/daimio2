@@ -1670,7 +1670,9 @@ D.delete_path = function(base, path) {
       var vkeys = Object.keys(v)
         , position = +key.slice(1)
         , idx = (position < 0) ? (vkeys.length + position) : position - 1
-      if(idx >= 0 && idx < vkeys.length) ks = [vkeys[idx]]  // [delete-pos] else unchanged
+      if(position === 0)                                    // #0 is malformed [pos-zero-invalid]
+        D.on_error('Malformed selector "' + key + '"')      // ks stays [] → unchanged
+      else if(idx >= 0 && idx < vkeys.length) ks = [vkeys[idx]]  // [delete-pos] else unchanged
     }
     else if(Array.isArray(v)) {                           // [delete-key-unkeyed]: key coercion
       if(/^\d+$/.test(key)) ks = (+key < v.length) ? [key] : []

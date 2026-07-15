@@ -446,6 +446,7 @@ var daimio_error_patterns = [
   /^The data parameter must contain/,
   /^Invalid timestamp/,
   /^Illegal key name/,
+  /^Malformed selector/,
   /^No matching pathfinder/,
   /^Invalid block name/,
   /^That string is not a pipeline/,

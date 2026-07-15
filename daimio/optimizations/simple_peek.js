@@ -63,6 +63,10 @@ D.SegmentTypes.OPT_simple_peek = {
 
     if(key[0] == '#') {
       var position = +key.slice(1)
+      if(position === 0) {                        // #0 is malformed, not a miss [pos-zero-invalid]
+        D.on_error('Malformed selector "' + key + '"')
+        return ''                                 // read sploots: soft error + empty
+      }
       if(Array.isArray(data))
         if(position < 0)
           return data[data.length + position]
