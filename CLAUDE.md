@@ -316,6 +316,36 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
+## Test status (as of 2026-07-16 — reviewer-findings sweep)
+
+15/15 suites green, fuzzer clean. Two threads landed. First, the §10
+reconciliation + #0 implementation (14e1d77/efac5a2): coercing-equality
+bless (Empty is scalar `""` ≠ `[]`); two-case `[law-deleteget]` (Empty
+for Key / `[]` for Star); `#0` sploots as a malformed selector
+everywhere — read value-producing (empty), write pass-through
+(unchanged) — implemented in positionfinder + delete_path +
+OPT_simple_peek (all three; path-selector handling is duplicated across
+5 sites — see memory [[path-selector-multisite]]).
+
+Second, a fresh academic-reviewer pass on D2-spec.md → 15 findings
+(verified 14 CONFIRMED / 1 PARTIAL / 0 FALSE; full list + dispositions
+in `extra/spec-review-2026-07-15.md`), all resolved across 4 commits
+(ad843d4/1833f67/7c10b57/c3c67c1):
+- `[poke-key-unkeyed-fail]` FIXED to actually soft-error (engine skipped
+  it silently; delete already emitted).
+- §12 sploot catalog completeness: retired dangling
+  `[sploot-passthru-poke]`; split poke/delete unkeyed-fail; added
+  `[compile-unknown-alias]` (unknown alias — compile-time, pass-through)
+  and `[cmd-no-method]` (handler/method not found — runtime, empty).
+- Doc fixes: truthiness (`[]` falsy in its own right); P-total ghost
+  caveat; §7.1 numbering; §14 title xrefs; PokeAsMap agreement; process
+  record field `state`→`scope`; §6 timeout example (A/Z/T→inner/parent/
+  helper); §6 round-trip walkthrough now exits at the outermost boundary
+  (`@down:time`) per I10 — a subspace up-port was I10-invalid (checker
+  caught it); §3 examples drop the test-only `assert` flavour for `to-js`.
+- Open (optional, dann): `[pos-zero-invalid]` double-listed in §12
+  (intentional read/write split); I1 could gain P-total's ghost caveat.
+
 ## Test status (as of 2026-07-13, latest — open-item sweep)
 
 15/15 suites green, fuzzer clean (0/3000). Counts moved: space_test
