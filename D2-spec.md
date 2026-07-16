@@ -2187,16 +2187,16 @@ can appear as transparent processors. Enter-N-Exit ports
 ```
 
 **Walkthrough: a complete round-trip.** Space `outer` contains
-subspaces `client`, `worker`, and `host`. `client` invokes `{time now}`:
+subspaces `client` and `worker`. `client` invokes `{time now}`:
 
 ```
-client                             worker                     host
-  @up <-> processor                  @up <-> timekeeper         @up:time
-                                       timekeeper: {time now}
+client                             worker
+  @up <-> processor                  @up <-> timekeeper
+    processor: {time now}              timekeeper: {time now}
 
 outer
   client@cmd:time:* <-> worker@up
-  worker@cmd:time:* <-> host@up:time
+  worker@cmd:time:* <-> @down:time
 ```
 
   1. `client`'s process hits `{time now}`. A transient `cmd:time:now`
@@ -2207,9 +2207,9 @@ outer
      Enter-N-Exit — `timekeeper` handles it.
   4. `timekeeper` evaluates `{time now}` — but this is inside `worker`,
      so it creates ANOTHER `cmd:time:now` port on `worker`. `outer`
-     wires `worker@cmd:time:*` to `host@up:time`, where the request
-     meets the Outside (the App answers), so this inner request
-     resolves too.
+     routes `worker@cmd:time:*` to its own `@down:time`, which exits
+     the outermost space -- so the App answers, and this inner
+     request resolves too.
   5. The response flows back: handler → `worker`'s process →
      `worker@up` out-side → `outer`'s wiring → `client`'s
      `cmd:time:now` port → `client`'s waiting process resumes.
