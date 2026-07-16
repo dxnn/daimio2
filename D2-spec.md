@@ -37,7 +37,7 @@ for this world: a safe, sandboxed environment where multiple
 people and programs can interact with shared capabilities, each
 constrained to exactly what they're allowed to do.
 
-Six core ideas animate the design:
+Four core ideas animate the design:
 
 **1. Control your process.** You shouldn't need to use an
 application's UI to use an application. You should be able to
@@ -837,7 +837,7 @@ inner
 
 outer
   @in:init from-js 20
-  @out:result  assert  40
+  @out:result  to-js           -- yields 40
   @in:init -> inner@in
   inner@out -> @out:result
 ```
@@ -849,9 +849,10 @@ splitter
 
 main
   @in:init from-js
-  @out:result  assert
+  @out:result  to-js
   @in:init -> splitter
-  splitter@left -> {__ | add 1} -> @out:result
+  splitter@left  -> {__ | add 1}  -> @out:result
+  splitter@right -> {__ | add 10} -> @out:result
 ```
 
 Named ports on stations are created by **routes**, not by DAML. [spacesyn-named-port-route]
@@ -2186,15 +2187,16 @@ can appear as transparent processors. Enter-N-Exit ports
 ```
 
 **Walkthrough: a complete round-trip.** Space `outer` contains
-subspaces `worker` and `client`. `client` invokes `{time now}`:
+subspaces `client`, `worker`, and `host`. `client` invokes `{time now}`:
 
 ```
-client                             worker
-  @up <-> processor                  @up <-> timekeeper
+client                             worker                     host
+  @up <-> processor                  @up <-> timekeeper         @up:time
                                        timekeeper: {time now}
 
 outer
   client@cmd:time:* <-> worker@up
+  worker@cmd:time:* <-> host@up:time
 ```
 
   1. `client`'s process hits `{time now}`. A transient `cmd:time:now`
@@ -2204,8 +2206,10 @@ outer
      from `outer`'s perspective). Inside `worker`, `@up` is
      Enter-N-Exit — `timekeeper` handles it.
   4. `timekeeper` evaluates `{time now}` — but this is inside `worker`,
-     so it creates ANOTHER `cmd:time:now` port on `worker`. If
-     `outer` wires `worker@cmd:time:*` to a handler, it resolves.
+     so it creates ANOTHER `cmd:time:now` port on `worker`. `outer`
+     wires `worker@cmd:time:*` to `host@up:time`, where the request
+     meets the Outside (the App answers), so this inner request
+     resolves too.
   5. The response flows back: handler → `worker`'s process →
      `worker@up` out-side → `outer`'s wiring → `client`'s
      `cmd:time:now` port → `client`'s waiting process resumes.
@@ -2540,11 +2544,12 @@ exits via `@down:fetch`. The parent routes the request to
 `helper`. `helper` processes it and responds. The response
 re-enters `inner` and continues to `@out`.
 
-If A is itself inside a space Z, and Z's wire to A has a timeout
-of 10s, then the effective timeout for any round trip through A is
-min(A's wire timeout, Z's wire timeout). Even though A gives T
-15s, Z will only wait 10s for the overall round trip. If Z times
-out first, A's in-flight request becomes a ghost.
+If `inner` is itself nested inside a parent space, and the parent's
+wire to `inner` has a timeout of 10s, then the effective timeout for
+any round trip through `inner` is min(inner's own wire timeout, the
+parent's wire timeout). Even though `inner` gives `helper` 15s, the
+parent will only wait 10s for the overall round trip. If the parent
+times out first, `inner`'s in-flight request becomes a ghost.
 
 ### Example: cross-boundary state access
 
@@ -2595,7 +2600,7 @@ An effectful command creates an **async boundary** [async-boundary]
 -- the process waits for a response. See section 6 "Down-port
 mechanics" for the full round-trip lifecycle.
 
-### Formal transition rules
+### 7.1 Formal transition rules
 
 **Effectful command execution:**
 ```
@@ -3534,10 +3539,14 @@ map(v, Par(ps) :: rest, block) =                                    [map-par-seq
 `list map` behavior (map over all children).
 
 **Block receives:** [map-block-scope]
-- `__` -- the value at the focus
+- `__` -- the value at the focus (also readable as `_value`)
 - `_key` -- the key of the focus in its parent
 - `_index` -- the index of the focus in its parent
 - `_path` -- the full path from root to focus, as a list
+
+These are map's focus vars. §11 "Block invocation" gives the general
+injected set (`_value`/`_key`/`_index`); `__` is that `_value`, `_path`
+is a map addition, and `_total` is bound only for reduce/fold.
 
 `_path` uses **keys, not positions**, so it is **0-indexed** for
 array elements. Even when the selector was Pos (e.g. `"#2"`),
@@ -3725,13 +3734,13 @@ DAML.
 
 ### Processes
 ```
-process = (space, block, v, state, pipeline_vars, current,
+process = (space, block, v, scope, pipeline_vars, current,
            sender?, effective_dialect, number)
   where space             : Space          -- the enclosing space
         block             : Block          -- the block being executed
         v                 : Val | absent   -- current pipe value (absent = no value
                                          --   provided; see "The pipe value" in §11)
-        state             : key -> Val     -- segment outputs and scope vars
+        scope             : key -> Val     -- segment outputs and scope vars
         pipeline_vars     : PVar -> Val    -- pipeline variable bindings (write-once)
         current           : int            -- current segment index
         sender            : Sender?        -- who sent the originating ship
@@ -4432,6 +4441,7 @@ depth-first **sub-process** (P-uniformeval).
        `_key`         -- the current item's key (for keyed collections) [scope-inject-key]
        `_index`       -- the current item's index [scope-inject-index]
        `_total`       -- accumulator value (for reduce/fold) [scope-inject-total]
+       `_path`        -- root-to-focus path, keys not positions (list map only; §10 [map-block-scope])
      Injected vars shadow parent vars of the same name.
   3. `__in` is initialized based on context [pipe-dunderin-first]:
      - **Station process** (dock): `__in` = the ship's value
