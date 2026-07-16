@@ -970,13 +970,13 @@ test(
 )
 
 test(
-  'poke Name: key on array sploots, returns unchanged [poke-key-unkeyed-fail] [sploot-passthru-poke]',
+  'poke Name: key on array sploots, returns unchanged [poke-key-unkeyed-fail]',
   '{(1 2 3) | list poke path :x value 99}',
   '[1,2,3]'
 )
 
 test(
-  'poke Name: key on array mid-path sploots, returns unchanged [poke-key-unkeyed-fail] [sploot-passthru-poke]',
+  'poke Name: key on array mid-path sploots, returns unchanged [poke-key-unkeyed-fail]',
   '{(10 20) | list poke path (:x :y) value 99}',
   '[10,20]'
 )

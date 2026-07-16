@@ -84,7 +84,9 @@ is part of changing that.
 
 ### Totality [P-total]
 Every command returns a value. Every port access either succeeds or
-sploots (emits a soft error and continues -- see section 10, "Splooting"). No
+sploots (emits a soft error and the pipeline continues -- see §10,
+"Splooting"); a ship that arrives where there is no pipeline to
+continue instead ghosts (§12, "Ghost"). No
 pipeline ever crashes or diverges (assuming commands are total, which
 is a requirement on command definitions). The empty value coerces to
 `""`, `0`, or `[]` as needed, so it always flows cleanly through subsequent
@@ -835,7 +837,7 @@ inner
 
 outer
   @in:init from-js 20
-  @out:result  assert  42
+  @out:result  assert  40
   @in:init -> inner@in
   inner@out -> @out:result
 ```
@@ -969,7 +971,8 @@ Subspaces are referenced by name. The same spaceseed can be
 shared by multiple parent spaces.
 
 Spaceseed identity, normal forms, and content-addressing are
-implementation concerns — see §14 "Stronger normal forms." None
+implementation concerns — see §14 "Normal forms, content-addressing,
+and deduplication." None
 of this is observable from inside DAML or Astroglot.
 
 Multiple spaces can share the same spaceseed -- each is
@@ -3068,7 +3071,7 @@ only rule, with no context-dependent escape processing.
 {(1 2 3) | list map block "{__ | math add value 1}"}  -- [2, 3, 4]
 {$user.name | string uppercase}                  -- path + command
 {__ | >x | user fetch id :bob | _x}               -- save, effect, restore
-{:hello | >@spaceout}                            -- send to space port
+{:hello | >@spaceout}                            -- send to named (station) port
 {begin roe}{$name}: {$score}{end roe}            -- named template block
 {$count | >@notify ||}                           -- send ship, no output
 ```
@@ -3242,9 +3245,10 @@ depends on the operation:
 A sploot can occur at **compile time** or **runtime**:
 
   - **Compile-time**: the error is detected during block
-    compilation (e.g. unknown command, duplicate `>x`). The
-    segment can be compiled away entirely — no runtime cost per
-    execution.
+    compilation (e.g. an unknown alias [compile-unknown-alias],
+    duplicate `>x`). The segment can be compiled away entirely — no
+    runtime cost per execution — and the pipe value passes through
+    unchanged.
   - **Runtime**: the error is detected during execution (e.g.
     unbound space variable, unwired port). The soft error is
     emitted each time the segment executes.
@@ -3651,9 +3655,9 @@ Key and Star address elements by identity (key or exhaustive traversal),
 so deletion doesn't invalidate the selector.
 
 PokeAsMap holds when both would write. Diverges when focus doesn't
-exist: poke creates (via Key), map skips. Also diverges on traversal
-scalar mid-path: poke skips scalars through Star, but map through
-Star would also skip (both unchanged), so they actually agree there.
+exist: poke creates (via Key), map skips. They also agree on a
+traversal scalar mid-path: poke skips scalars through Star, and map
+through Star also skips (both unchanged).
 
 ### Blocks
 ```
@@ -3713,7 +3717,8 @@ implicitly).
 
 Block identity, normal forms, deduplication, and
 content-addressing are implementation concerns — see §14
-"Stronger normal forms" for the design direction.
+"Normal forms, content-addressing, and deduplication" for the design
+direction.
 Implementations may normalize, hash, and deduplicate blocks
 however they choose; none of this is observable from inside
 DAML.
@@ -4088,8 +4093,9 @@ new store `state'`. Here `process.v` is the current pipeline value and
 
 **The pipe value `process.v` is either a Val or `absent`.** [pipe-absent]
 At the start of a pipeline, `process.v = absent`. After `|`, it holds
-the previous segment's output (a Val, or still `absent` if the
-segment was a pass-through like `>x`). After `||`, it is reset to
+the previous segment's output -- or, if that segment was a
+pass-through like `>x`, whatever `v` already held (a Val if one was
+flowing, or still `absent` if none was). After `||`, it is reset to
 `absent`. The `absent` state has two roles:
 
   1. **Implicit parameter filling:** when `process.v` is absent, no
@@ -4247,6 +4253,12 @@ command sploots instead of executing — regardless of its category
 dialect check happens before that distinction. This is a
 value-producing sploot: the blocked command produces nothing, so
 the pipeline gets the empty value.
+
+A command whose handler or method does not resolve at all sploots the
+same way -- to the empty value [cmd-no-method]. This is a runtime
+check, distinct from an unknown single-word alias, which is caught at
+compile time and passes the pipe value through unchanged
+[compile-unknown-alias] (§10, "Splooting").
 
 ```
   c not in effective_dialect.commands
@@ -4561,6 +4573,7 @@ continuation value.
 ```
 Value-producing sploots (continue with empty):
   - command not in effective dialect                         [dialect-cmd-sploot]
+  - handler/method does not resolve (runtime)                [cmd-no-method]
   - effectful command with unwired port (no async)          [effectful-unwired-sploot]
   - timeout on down-port response                           [timeout-resume-empty]
   - unbound space variable read                             [svar-read-unbound-sploot]
@@ -4569,9 +4582,10 @@ Value-producing sploots (continue with empty):
   - block-evaluation depth bound exceeded                   [depth-exceeded-sploot]
 
 Pass-through sploots (continue with unchanged value):
+  - unknown alias / unresolved command word (compile)       [compile-unknown-alias]
   - port send to nonexistent port                           [portsend-missing-sploot]
-  - key coercion failure in poke/delete                     [poke-key-unkeyed-fail]
-  - Key poke on unkeyed list (no promotion)                 [sploot-passthru-poke]
+  - Key poke on unkeyed list (no promotion)                 [poke-key-unkeyed-fail]
+  - Key delete on unkeyed list (non-coercible key)          [delete-key-unkeyed]
   - malformed path selector in a write (e.g. `#0`)          [pos-zero-invalid]
 ```
 
