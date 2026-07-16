@@ -475,6 +475,7 @@ var daimio_error_patterns = [
   /^Round-trip port timed out/,
   /^Socket load splooted/,
   /^Cannot delete key/,
+  /^Cannot poke key/,
   /^Subspace ".*" referenced before definition/,
   /^The alias/,
   /^No end tag for block/,

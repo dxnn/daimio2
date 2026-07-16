@@ -1561,8 +1561,9 @@ D.poke = function(base, path, value) {
       var new_todo = [], new_parents = [], new_pkeys = []
 
       for(var j=0, k=todo.length; j < k; j++) {
-        // [poke-key-unkeyed-fail] non-numeric string key on non-empty unkeyed array: sploot (skip)
+        // [poke-key-unkeyed-fail] non-numeric string key on non-empty unkeyed array: soft error + skip
         if(Array.isArray(todo[j]) && todo[j].length && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key) && !/^\d+$/.test(key)) {
+          D.set_error('Cannot poke key "' + key + '" into an unkeyed list')
           continue
         }
         // [poke-key-empty] empty array + string key: convert to object (empty ≡ Empty)
@@ -1614,8 +1615,9 @@ D.poke = function(base, path, value) {
     else {
       // --- last step: set value ---
       for(var j=0, k=todo.length; j < k; j++) {
-        // [poke-key-unkeyed-fail] non-numeric string key on non-empty unkeyed array: sploot (skip)
+        // [poke-key-unkeyed-fail] non-numeric string key on non-empty unkeyed array: soft error + skip
         if(Array.isArray(todo[j]) && todo[j].length && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key) && !/^\d+$/.test(key)) {
+          D.set_error('Cannot poke key "' + key + '" into an unkeyed list')
           continue
         }
         // [poke-key-empty] empty array + string key: convert to object

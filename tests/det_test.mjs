@@ -493,6 +493,23 @@ det_test('out-of-bounds write is a silent no-op, no error [poke-pos-oob]', {
   },
 })
 
+// A non-coercible Key poked onto a non-empty unkeyed list is a pass-through
+// sploot [poke-key-unkeyed-fail]: soft error to @out:err, value unchanged.
+// Symmetric with delete's [delete-key-unkeyed] (which already emits). The
+// engine skipped this silently before -- probe showed no error ship.
+det_test('poke non-coercible Key on unkeyed sploots with a soft error [poke-key-unkeyed-fail]', {
+  seed: `outer
+    @go from-js
+    @out det-out
+    @out:err det-err
+    poker {(1 2 3) | list poke path :x value 99}
+    @go -> poker -> @out`,
+  schedule: [ arrive('go', 'x') ],
+  assert: function(t, e) {
+    e.outputs('err:out:err', ['Cannot poke key "x" into an unkeyed list'])
+  },
+})
+
 run()
 
 // ── Deferred guides — the v1 backlog has landed with its machinery ─────────
