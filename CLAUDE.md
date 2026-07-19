@@ -316,6 +316,41 @@ reading whose render diverges). Custom port labels and flavours are not
 rendered, so a parsed source uses canonical @in/@in:a/@out names —
 renders are identical because labels never reach the picture.
 
+## Open design decisions (as of 2026-07-19 — boundary-contracts session)
+
+Design pass with dann, docs only (no engine code yet):
+- **Topology contract RULED + drafted**: the topology shape (extract's
+  output) is the PUBLIC input contract of the viz stack; the parser
+  seedlike is private. Draft: design/topology-contract.md — shape,
+  invariants, adapter behavior, warts W1–W5 awaiting dann (id/name dup,
+  subspace node identity, anon-detection by name pattern, geometric dir
+  vocab, dead flavour field). All W-fixes are render-stable except W2's
+  box-label rule (label by referenced space = keep; by slot = fixture
+  regen, dann only).
+- **Hole-formation notification** (dann: solve NOW): the App must learn a
+  black hole is forming with enough info to bind it (Tauri shell currently
+  re-parses Astroglot itself). Proposed: hook fired synchronously at
+  D.Space construction of any blackhole seed (covers socket swaps — nested
+  holes in loaded content are legal; only the loaded ROOT is barred),
+  manifest {qname, name, ports:[{name,dir,flavour,settings}], meta},
+  symmetric teardown notification on smash/drain. Open sub-decision:
+  manifest-only vs also claiming hole body-level JSON (currently dead
+  space) as declared metadata — this is gen1 space-types' "second use
+  case" trigger, scoped to holes only. Awaiting dann's ruling.
+- **Viz extraction**: three-way split proposed (core / viz lib / site+bin
+  tooling); space_ascii_parse + round-trip fixtures stay engine-side.
+  Awaiting repo boundaries + project name from dann.
+- **Socket source into an svar** (reloadable sockets): option B recommended
+  — `{space source :name}` pure command resolving same-file definitions
+  (needs seeds to retain a lexical name→seed map; today only referenced
+  subspaces survive into the compiled seed). Option A (parse-time capture)
+  has copy/drift semantics. Awaiting ruling.
+- **Blackhole active-flavour binding at instantiation**: spec'd
+  ([blackhole-flavour-inside] creation case 4) but engine never calls
+  outside_add on the inside face — inbound is App-driven
+  send_value_to_js_port only. REVISIT marked in TEST_TODO.md (dann,
+  2026-07-19); interacts with the notification design.
+
 ## Test status (as of 2026-07-16 — reviewer-findings sweep)
 
 15/15 suites green, fuzzer clean. Two threads landed. First, the §10
