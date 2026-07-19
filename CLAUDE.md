@@ -347,13 +347,44 @@ Design pass with dann, docs only (no engine code yet):
   changes every qname, and wrapping is a common operation; metadata gives
   a wrap-stable binding key. This is gen1 space-types' "second use case"
   trigger, scoped to holes only. Flow: spec-keeper review → spec → red
-  tests → implement.
+  tests → implement. Review DONE (no contradictions; 4 scoping clauses —
+  opacity observer-qualifier, notification trace position + source-order,
+  hook-throw soft, hook-injection frontier). RULED: seed.meta field (hole
+  body JSON = metadata, never dialect). Manifest (formation notification)
+  awaiting dann's go after clarification.
+
+## Implementation queue (after the spec modifications land)
+
+- Bork on bad JSON in dialect_decl AND hole metadata (dann: compile-time
+  issues are borks; spec already says dialect bad-JSON borks — engine
+  silently swallows, 1_daimio.js:3841-3 empty catch).
+- Fix the line-initial-`{` parser bug: the dialect branch eats a wire whose
+  first endpoint is an inline anon (`{x} -> A` vanishes from the seedlike;
+  grammar allows '{daml}' endpoints, D2-spec.md ~L718). Discriminator: a
+  wire contains `->` — but guard against `->` inside JSON strings.
+- §3 station/subspace name-collision bork (engine check + red guide).
+- §8 anon inlining in serialize (drop s-name generation; preserve anon
+  source order; fixture regen for anon labels — dann's explicit go first).
+- Hole seed.meta: make_spaceseeds pass-through + serialize push (two
+  one-liners) + manifest hook once the notification is approved and spec'd.
+- Scoping chain walk (resolve_space → completion-based lexical chain) +
+  state-decl definition-reference form, once dann rules the two forks.
 - **Viz extraction**: PARKED (dann 2026-07-19), next to the 1_daimio.js
   split thread — see memory project_viz_extraction.md. Its prerequisite
   (the reflection contract above) is now settled.
-- **Socket source into an svar** (reloadable sockets): option B recommended
-  — `{space source :name}` pure command resolving same-file definitions
-  (needs seeds to retain a lexical name→seed map; today only referenced
+- **Socket source into an svar** (reloadable sockets): {space source}
+  command REJECTED by dann 2026-07-19 ("forces Astroglot concerns into the
+  runtime"). New direction: an ASTROGLOT state-decl form initializing an
+  svar with a referenced definition's canonical source — reference retained
+  in the seed, re-resolved each compile ("if the space changes later, the
+  svar picks up the new definition"). Requires a scoping rethink: current
+  two-layer scope (own-nested + top-level, no siblings) is composition-
+  fragile ("global = top level" isn't stable under wrapping). Proposed:
+  completion-based lexical chain — see spec-keeper state. SUPERSEDED text
+  below kept for the trail:
+  (old) option B — `{space source :name}` pure command resolving same-file
+  definitions (needs seeds to retain a lexical name→seed map; today only
+  referenced
   subspaces survive into the compiled seed). Option A (parse-time capture)
   has copy/drift semantics. Awaiting ruling.
 - **Blackhole active-flavour binding at instantiation**: spec'd
