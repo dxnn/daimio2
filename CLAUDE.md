@@ -367,8 +367,14 @@ Design pass with dann, docs only (no engine code yet):
   source order; fixture regen for anon labels — dann's explicit go first).
 - Hole seed.meta: make_spaceseeds pass-through + serialize push (two
   one-liners) + manifest hook once the notification is approved and spec'd.
-- Scoping chain walk (resolve_space → completion-based lexical chain) +
-  state-decl definition-reference form, once dann rules the two forks.
+- Scoping chain walk (resolve_space → completion-based lexical chain,
+  RULED: everywhere, one rule) + SOCKET BARRIER (a `!` definition's body
+  resolves only within its own subtree — sockets take everything with
+  them; NARROWING vs today: socket bodies referencing top-level defs will
+  start borking — corpus check needed). Source-ref svars flatten on
+  serialize (v1). State-decl value slot borks on invalid JSON. OPEN: the
+  v1 reference syntax itself (strict JSON bars bare `$src worker_v2` —
+  form TBD by dann).
 - **Viz extraction**: PARKED (dann 2026-07-19), next to the 1_daimio.js
   split thread — see memory project_viz_extraction.md. Its prerequisite
   (the reflection contract above) is now settled.
