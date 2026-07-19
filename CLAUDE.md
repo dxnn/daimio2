@@ -319,27 +319,38 @@ renders are identical because labels never reach the picture.
 ## Open design decisions (as of 2026-07-19 — boundary-contracts session)
 
 Design pass with dann, docs only (no engine code yet):
-- **Topology contract RULED + drafted**: the topology shape (extract's
-  output) is the PUBLIC input contract of the viz stack; the parser
-  seedlike is private. Draft: design/topology-contract.md — shape,
-  invariants, adapter behavior, warts W1–W5 awaiting dann (id/name dup,
-  subspace node identity, anon-detection by name pattern, geometric dir
-  vocab, dead flavour field). All W-fixes are render-stable except W2's
-  box-label rule (label by referenced space = keep; by slot = fixture
-  regen, dann only).
-- **Hole-formation notification** (dann: solve NOW): the App must learn a
-  black hole is forming with enough info to bind it (Tauri shell currently
-  re-parses Astroglot itself). Proposed: hook fired synchronously at
-  D.Space construction of any blackhole seed (covers socket swaps — nested
-  holes in loaded content are legal; only the loaded ROOT is barred),
-  manifest {qname, name, ports:[{name,dir,flavour,settings}], meta},
-  symmetric teardown notification on smash/drain. Open sub-decision:
-  manifest-only vs also claiming hole body-level JSON (currently dead
-  space) as declared metadata — this is gen1 space-types' "second use
-  case" trigger, scoped to holes only. Awaiting dann's ruling.
-- **Viz extraction**: three-way split proposed (core / viz lib / site+bin
-  tooling); space_ascii_parse + round-trip fixtures stay engine-side.
-  Awaiting repo boundaries + project name from dann.
+- **Space-reflection contract SETTLED (v1 direction, 2026-07-19)**: dann
+  redirected — the render stack's input is the JSON REFLECTION of canonical
+  Astroglot (no new decisions; §3/§8 own semantics). Names are identity, NO
+  generated ids/names; anons are nameless, live inline in route chains,
+  render unlabeled; dirs use Astroglot vocabulary (in/out/up/down — wall
+  mapping is lib-internal); flavour kept; "Topology" name retired (dann to
+  name; default "space"). W1–W5 superseded. Rewritten:
+  design/topology-contract.md. TWO SPEC EDITS QUEUED (approved): §3
+  station/subspace name-collision bork (today: silent shadowing, subspace
+  wins, station orphaned — probe tmp/probe_name_collision.mjs); §8
+  serialize inlines anons into wire chains (current s1-generation is buggy:
+  no taken-name skip → name capture; anonymity destroyed on reparse) with
+  anon-source-order preservation for qname stability. Round-trip suite
+  equivalence = canonical-Astroglot compare, NOT byte parity. Impl (extract/
+  layout/parse rework + anon-label fixture regen — regen needs dann's
+  explicit go) queued behind the spec edits.
+- **Hole-formation notification** (dann: solve NOW; metadata RULED IN
+  2026-07-19): the App must learn a black hole is forming with enough info
+  to bind it (Tauri shell currently re-parses Astroglot itself). Hook fired
+  synchronously at D.Space construction of any blackhole seed (covers
+  socket swaps — nested holes in loaded content are legal; only the loaded
+  ROOT is barred), manifest {qname, name, ports:[{name,dir,flavour,
+  settings}], meta}, symmetric teardown notification on smash/drain.
+  Declared hole metadata (body-level JSON, currently dead space) is IN:
+  qname-only binding is too fragile — wrapping a space in another space
+  changes every qname, and wrapping is a common operation; metadata gives
+  a wrap-stable binding key. This is gen1 space-types' "second use case"
+  trigger, scoped to holes only. Flow: spec-keeper review → spec → red
+  tests → implement.
+- **Viz extraction**: PARKED (dann 2026-07-19), next to the 1_daimio.js
+  split thread — see memory project_viz_extraction.md. Its prerequisite
+  (the reflection contract above) is now settled.
 - **Socket source into an svar** (reloadable sockets): option B recommended
   — `{space source :name}` pure command resolving same-file definitions
   (needs seeds to retain a lexical name→seed map; today only referenced

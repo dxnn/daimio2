@@ -1,165 +1,142 @@
-# Topology: the public contract of the layout/render stack
+# The space reflection: public input contract of the render stack
 
-Status: DRAFT v0 (2026-07-19). dann ruled that the topology shape is THE
-public input contract for the viz stack; the parser seedlike is private
-to the core. This document pins the shape as it exists today, names the
-warts to resolve before freezing v1, and states the boundary rules.
+Status: v1 DIRECTION (2026-07-19, dann's rulings) — supersedes the v0 draft
+and its W1–W5 wart list. The shape is provisionally called a **space** ("the
+reflection of a space"); "Topology" is retired (it was an internal variable
+name promoted without justification). dann names the final term.
+
+## Principle: no new decisions
+
+The render stack's public input is **the JSON reflection of a canonical
+Astroglot space definition**. All semantics — naming, vocabulary,
+canonicality, what a space contains — are owned by the spec (§3 space
+syntax, §8 serialization). This document defines only (a) the JSON encoding
+of that surface, and (b) the few DERIVED fields the renderer needs that the
+lib cannot compute itself. When this document and the spec disagree, the
+spec wins.
+
+Everything downstream — `layout`, its output shape, `render`, the picture —
+is the render lib's private business and is deliberately not specified here.
 
 ## The boundary
 
-```
-seedlike ──extract()──▶ topology ──layout()──▶ laid_out ──render()──▶ picture
-(private)  (adapter)    (PUBLIC)               (internal)
-```
-
-- **Producer**: the core owns `extract(name, seedlike)` — the sanctioned
-  adapter from Daimio's parser output to a topology. It currently lives in
-  `site/js/space_layout.js`; when the viz stack is extracted into its own
-  project, `extract` stays on the CORE side of the boundary (it encodes
-  Daimio semantics — see "Adapter behavior" below). Anyone may also
-  construct topologies by hand; the unit tests already do.
-- **Consumers**: `layout(topology, options)` and, through it, the ASCII
-  and SVG renderers. The viz stack reads ONLY what this document names —
-  a topology is a plain JSON-serializable object with no engine
-  dependencies.
-- **Non-goals**: the layout OUTPUT shape (`elements` + paths) is a
-  separate interface between `layout` and the renderers ("pluggable
-  renderer" seam); it stays internal until someone external needs it.
-  The seedlike shape is explicitly NOT public and may change freely.
+- **Producer**: the core owns the adapter (parser/seed → reflection). It has
+  engine state (the flavour registry, the DAML scraper) and encodes all
+  Daimio knowledge. The lib never parses Astroglot or DAML.
+- **Consumers**: the render lib, and anyone hand-building spaces (tests do).
+- A reflected space is plain JSON: no functions, no engine handles, no
+  cycles.
 
 ## The shape
 
 ```
-Topology = {
-  name:        string        -- space name; rendered as the box title
-  id:          string        -- currently always === name (wart W1)
-  ports:       [Port]        -- the space's own boundary ports
-  stations:    [Station]
-  subspaces:   [string]      -- referenced space names (wart W2)
-  connections: [Connection]
-  state:       {svar: json}  -- initial svars; rendered as '$key: value' rows
+Space = {
+  name:      string
+  ports:     [Port]            -- the space's own boundary ports
+  stations:  [Station]         -- DECLARED stations only; anonymous stations
+                               -- live inline in routes (see Endpoint)
+  subspaces: [string]          -- slot names; a slot's name IS the referenced
+                               -- definition's name (references are bare-name,
+                               -- [blackhole-ref-bare]; aliasing inexpressible)
+  routes:    [Route]
+  state:     {svar: json}      -- initial svars; rendered as '$key: value'
 }
 
 Port = {
-  id:      string    -- 'p<i>' by declaration order; unique in this topology
-  key:     string    -- the port key: 'in', 'in:init', 'down:svc', or a
-                     -- custom name with no direction prefix
-  dir:     'left' | 'right' | 'top' | 'bottom'
-                     -- geometric wall side: in→left, out→right, up→top,
-                     -- down→bottom; custom keys inferred (see adapter)
-  flavour: string    -- carried from the declaration; never consumed by
-                     -- the viz stack (wart W5)
+  name:    string              -- the Astroglot port key: 'in', 'in:init',
+                               -- 'down:svc', or a custom name
+  dir:     'in'|'out'|'up'|'down'
+                               -- DERIVED for custom names: the adapter
+                               -- resolves via the key prefix, else the
+                               -- flavour registry. Astroglot vocabulary —
+                               -- wall geometry is the lib's internal mapping.
+  flavour: string              -- kept; part of the port declaration
 }
 
 Station = {
-  id:     string     -- 's<i>' by declaration order; unique in this topology
-  name:   string     -- declared name, or a stable anonymous name
-                     -- ('s0','s1',... by source-text rank, skipping names
-                     -- taken by declared stations)
-  source: string     -- DAML source text; the box label (truncated by
-                     -- options.max_source) and the canonical sort key for
-                     -- anonymous stations
-  ports:  [string]   -- extra port names beyond the implicit _in/_out
+  name:   string
+  source: string               -- the DAML body
+  ports:  [string]             -- DERIVED: ports beyond the implicit _in/_out
+                               -- (endpoint-declared extraports ∪ '>@x' sends
+                               -- scraped from source — needs DAML knowledge,
+                               -- so the adapter computes it)
 }
 
-Connection = {
-  id:   string       -- 'c<i>'
-  from: Endpoint
-  to:   Endpoint
-  type: 'faf' | 'contract'
-  pair: string?      -- the reverse connection's id when type == 'contract'
+Route = {
+  chain:    [Endpoint, ...]    -- 2+ entries; the Astroglot wire chain
+                               -- '@in -> {x} -> @out' is ONE route
+  kind:     'faf'|'contract'   -- contract = '<->', chain of exactly 2;
+                               -- signal-type legality is §3's business
+  timeout:  integer?           -- trailing wire timeout, when declared
 }
 
-Endpoint = {
-  id:   string       -- a Port.id, a Station.id, or a subspaces[] member
-  port: string       -- the port at that node: the port's own key when id
-                     -- is a Port.id; '_in'/'_out' or an extraport name on
-                     -- a station; the child's port key on a subspace
-}
+Endpoint =
+  { port: string }             -- boundary port ('@in:init')
+| { name: string, port?: string }
+                               -- station or subspace, optional port —
+                               -- unambiguous because component names are
+                               -- unique per space (§3 collision bork, below)
+| { daml: string }             -- inline anonymous station ('{x}')
 ```
 
-## Contract-level invariants
+A source file reflects to a name-keyed collection of Spaces; slots reference
+siblings by name. Rendering is per-space (see Closedness).
 
-1. **Unique node ids.** Port ids, station ids, and subspace names share
-   one id namespace within a topology; no two nodes may collide (today
-   this is unenforced — wart W2).
-2. **Endpoints resolve.** Every `Endpoint.id` names an existing port,
-   station, or subspace. The adapter drops unresolvable routes; `layout`
-   never sees dangling endpoints.
-3. **Contracts come in linked pairs.** `type == 'contract'` implies a
-   partner connection with mirrored node ids and reciprocal `pair`
-   fields.
-4. **Order independence (canonicality).** The picture is a pure function
-   of the SET of nodes and connections — declaration and route order
-   must not affect it. This is why anonymous stations carry rank-stable
-   names and why `layout` sorts connections by component name before
-   doing anything else. Producers may emit arrays in any order.
-5. **Closedness.** One topology renders alone. A subspace is an opaque
-   labeled box; the ports drawn on it are inferred from the parent's
-   connection endpoints that touch it, never from the child's own
-   definition. Multi-space output (`render_all`) is N independent
-   renders.
-6. **JSON-serializable.** A topology contains no functions, no engine
-   handles, no cycles. `state` values must survive `JSON.stringify`.
+## Anonymous stations
 
-## Adapter behavior (what extract() adds beyond copying)
+An anonymous station has NO name, here as in source. Each inline `{…}`
+occurrence mints a distinct station (parser fact: fan-in to an anon is
+inexpressible in Astroglot), so an anon's identity is its position in its
+route chain — nothing else is needed. Renderers draw anons without a name
+label. The runtime's `s1`, `s2` qnames ([qname-anon-station], source order)
+are runtime identity for error attribution only: they never appear in a
+reflected space, a serialized definition, or a picture.
 
-These transformations encode Daimio semantics and therefore live with
-the core, not the viz library:
+## Invariants
 
-- **dir from key prefix** (`in:`/`out:`/`up:`/`down:` → wall side); a
-  custom-named key gets its side inferred from connection usage
-  (appears as a source → left, as a dest → right).
-- **Anonymous station naming**: `station-*` placeholders become
-  's0','s1',... ranked by source text (declaration order breaks ties),
-  skipping names already taken by declared stations.
-- **Send scraping**: `>@name` occurrences in a station's DAML source
-  are added to its `ports` list (union with declared extraports).
-- **Route resolution**: `name.port` endpoint strings resolve to
-  `{id, port}`; a station's bare `in`/`out` map to `_in`/`_out`.
-- **Contract detection**: a route pair `[A → B.in]` + `[B.out → A]`
-  becomes two `type:'contract'` connections linked via `pair`.
+1. **Names resolve.** Every `{name, port?}` endpoint names an existing
+   station or subspace; every `{port}` endpoint names a boundary port.
+2. **One namespace.** Station and subspace names are unique within a space —
+   guaranteed upstream by the §3 collision bork (queued; today the engine
+   silently shadows).
+3. **Closedness.** One space renders alone. A subspace is an opaque labeled
+   box; the ports drawn on it are inferred from the routes touching it.
+4. **Order independence.** The picture is a function of the definition's
+   content; array order is immaterial. (An anon's identity is positional
+   within its own chain, which is content, not array order.)
+5. **JSON-serializable throughout.**
 
-## Warts to resolve before freezing v1 (decisions for dann)
+## Derived fields (exhaustive)
 
-- **W1 — `id`/`name` duplication** on the topology root. Drop `id`
-  (nothing distinguishes them today).
-- **W2 — subspace node identity.** Subspace nodes are identified by the
-  *referenced* space's name, used raw as an endpoint id. Consequences:
-  (a) a space named `p0`/`s3`/`c1` collides with the generated id
-  namespaces; (b) the local slot name is discarded, so two slots
-  referencing the same child collapse into one node and cannot be told
-  apart; (c) boxes are labeled by referenced-space name, not slot name.
-  Proposal: `subspaces: [{id: 'u<i>', slot: <local name>, space: <ref
-  name>}]`, endpoints reference the `id`. NOTE: keeping the box LABEL as
-  the referenced-space name keeps every existing render byte-identical;
-  labeling by slot would change renders (fixture regen — dann's call
-  only).
-- **W3 — anonymous detection by name pattern.** `layout` re-detects
-  anonymous stations with `/^s\d+$/` on `name` for canonical sorting, so
-  a user station legitimately *named* `s3` is silently sorted by source
-  text instead of name. Proposal: explicit `anon: true` on Station; the
-  pattern test goes away.
-- **W4 — geometric dir vocabulary.** `left/right/top/bottom` (not
-  `in/out/up/down`) is the right vocabulary for a Daimio-agnostic viz
-  library, and the ASCII parser already canonicalizes geometry back to
-  `@in`/`@out` names. Confirm this is intended, then it's a feature:
-  ALL Daimio meaning lives in the adapter.
-- **W5 — dead `flavour` field.** Carried on every Port, consumed
-  nowhere in the stack (labels and flavours never reach the picture).
-  Drop it from the contract, or keep it as an optional
-  producer-annotation slot for other consumers (the spaceeditor reads
-  flavours from the seedlike directly today, not from topology).
+Only two fields are not a 1:1 reflection of surface syntax: `Station.ports`
+(DAML-scraped sends ∪ endpoint-declared extraports) and `Port.dir` for
+custom-named ports (flavour-registry lookup). Both require engine knowledge,
+which is exactly why the adapter lives core-side.
 
-W1/W3/W5 change `extract` + `layout` + the hand-built test topologies in
-lockstep but keep every render byte-identical (ids and flags never reach
-the picture). W2's identity fix is also render-stable IF the label rule
-is kept; only a label-rule change would touch fixtures.
+## Spec edits this contract depends on (queued, approved 2026-07-19)
+
+- **§3**: station/subspace name collision borks at compile
+  (today: no error; subspace silently shadows, station orphaned, qname
+  ambiguity — probe in tmp/probe_name_collision.mjs).
+- **§8**: canonical serialization inlines anonymous stations into their wire
+  chains instead of minting generated-name declarations (current scheme is
+  buggy: `station_name` doesn't skip user-taken names → name capture on
+  reload; reparse converts anons to declared stations). Clause: emission
+  preserves anon source order so runtime qnames stay stable across reload.
+
+## Renderer notes (non-normative)
+
+- Round-trip testing equates via canonical Astroglot:
+  `serialize(parse(render(S))) == serialize(S)`. Byte-parity with
+  hand-written source is a non-goal; the round-trip suite does not dictate
+  core internals (dann's ruling).
+- Implementation impact when this lands: extract/layout/parse rework
+  (names-not-ids, inline anons, dir vocabulary), and regeneration of the
+  anon-labeled fixture renders — fixture regen only on dann's explicit go.
 
 ## Versioning
 
-No in-band version field — hand-built topologies in tests shouldn't
-carry ceremony. The contract is versioned with the viz library itself
-(semver: breaking shape change = major bump), and this document is the
-normative reference. Until the viz stack is extracted, this document
-alone is the version.
+No in-band version field. The contract is versioned with the render lib
+(semver; breaking shape change = major bump); this document is the normative
+reference until the lib is extracted (extraction currently PARKED — see the
+viz-extraction design thread).
