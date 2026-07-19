@@ -762,8 +762,8 @@ referencing an earlier definition by name. Names resolve against
 the **lexical chain**: a reference may name any definition that is
 already **complete** (its indented body has ended) at the point of
 reference, in the referencing space's own body or in any enclosing
-body, innermost first [spacesyn-subspace-before-ref]
-[spacesyn-scope-chain]. A nested name shadows an outer name within
+body (the file's top level is the outermost), innermost first
+[spacesyn-subspace-before-ref] [spacesyn-scope-chain]. A nested name shadows an outer name within
 the exact space that defines it [spacesyn-shadow-local]; a
 collision is shadowing, never a merge. Ancestors are never
 referenceable — an enclosing definition is not complete from inside
@@ -794,9 +794,10 @@ variable DOES NOT change when that socket is later reloaded
 [state-ref-parse-time]. Serialization flattens: the variable
 serializes as its current string value, and the reference does not
 survive (§8) [state-ref-serialize-flat]. The chief use is socket
-reloading: capture a definition, then send it to a socket-load
-port-like — `{$src | >worker@socket-load}` — the same source every
-time, however the file's definitions evolve between compiles.
+reloading: capture a definition, then route it to the socket's load
+port-like — a station holding `{$src | >@load}` wired
+`loader@load -> worker@socket-load` — the same source every time,
+however the file's definitions evolve between compiles.
 
 **Dialect declaration.** A space body may contain a single JSON
 object literal declaring dialect restrictions (`blocked_methods`,
@@ -937,7 +938,9 @@ Borks include:
   - Duplicate wiring rule patterns [wiring-no-duplicate]
 
   Reference errors:
-  - Referencing a subspace before it is defined
+  - Referencing a definition that is not visible in the lexical
+    chain -- undefined, not yet complete, or outside a socket
+    barrier [spacesyn-scope-chain]
   - Referencing a subspace or station that doesn't exist
   - A route referencing a station that doesn't exist
   - A port declaration with an unknown flavour
@@ -2896,7 +2899,8 @@ text and is **dead** on reload -- even if it was live in the running
 space; reviving it needs `process unquote`, like any dead string
 [serialize-block-dead].
 Socketed subspaces are serialized as `!name` definitions holding
-their current content.
+their current content -- self-contained by the socket scope barrier
+([socket-scope-barrier], §3).
 Anonymous stations serialize **inline**, in the wire chains where
 they occur -- `@in -> {x} -> @out` -- never as named declarations
 [serialize-anon-inline]. Emission preserves their source order, so
