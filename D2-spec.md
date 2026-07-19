@@ -936,6 +936,9 @@ and initial state. A spaceseed is inert -- it does not process ships
 or hold live state. To run, it must be instantiated into a space
 (see Spaces below).
 
+TODO: doesn't wiringRules subsume fafRoutes and contracts? 
+TODO: do we really need a flag for blackhole? 
+
 ```
 spaceseed = {
   stations       : [Block]         -- compiled DAML blocks (1-indexed)
@@ -5183,6 +5186,8 @@ ports, and dynamic code execution is handled by
 flow. Removing exec eliminates three core hacks (secret stashing
 in port_standard_enter, station_id undefined in portsend, process
 threading through port exit).
+
+TODO: move the rational to the appropriate section, remove the old ideas completely. This isn't a historical record. Do this for all other antiquated ideas as well. 
 
 ### Apps, Rooms, and higher-level architecture
 
