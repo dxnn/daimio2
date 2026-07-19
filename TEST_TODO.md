@@ -111,6 +111,17 @@ already does for the space_test spec-gaps.
 - No interior: no stations/state/queue/processes `[blackhole-no-interior]`;
   flavour world-methods bind to the inside face `[blackhole-flavour-inside]`;
   in/out streams uncorrelated `[blackhole-uncorrelated]`.
+- REVISIT (dann, 2026-07-19): whether hole ports self-bind ACTIVE flavours at
+  instantiation. Spec's creation case 4 promises `outside_add()` runs on the
+  inside face at instantiation (`[blackhole-flavour-inside]`, §4 Port
+  lifecycle) but the engine never calls it — `outside_add` fires only for the
+  outer space's world-side ports (1_daimio.js:2682); hole ports get noop
+  `add()`. Only the exit half landed (925-927). Inbound today is App-driven
+  `send_value_to_js_port` only, so a self-binding in-flavour (websock-in,
+  dom-on-click) declared on a hole sits dead. Undecided: build the
+  instantiation-time binding, or walk back the spec sentence and bless
+  App-driven entry as the only inbound path. Interacts with the hole-formation
+  notification design (App must know a hole exists before anything can bind).
 
 ### Socket-load — `space_test`
 - Valid Astroglot at a socket-load port **replaces** the subspace's
