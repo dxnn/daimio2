@@ -1633,7 +1633,8 @@ main
   relay@out:news -> @out:display
 ```
 
-A black hole declares only ports. A station, wire, or state
+A black hole declares only ports -- plus, optionally, one JSON
+object: its metadata (below). A station, wire, or state
 declaration inside a black hole definition borks
 [blackhole-only-ports] -- there is no inside to put it in.
 References use the bare name [blackhole-ref-bare], and
