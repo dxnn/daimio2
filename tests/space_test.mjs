@@ -3092,6 +3092,130 @@ sync_test('subspace dialect shape block [dialect-outer-only]', function() {
     'soft error')
 })
 
+// ══════════════════════════════════════════════════════════════════════
+// Spec batch 2026-07-19, part 2: lexical-chain scoping + socket barrier
+// [spacesyn-scope-chain] [socket-scope-barrier]
+// ══════════════════════════════════════════════════════════════════════
+
+function slotted(seed, name) {
+  var i = seed.subspace_names.indexOf(name)
+  return i < 0 ? null : D.SPACESEEDS[seed.subspaces[i]]
+}
+
+// A completed SIBLING definition is visible — the two-layer scope hid it.
+sync_test('sibling reference block [spacesyn-scope-chain]', function() {
+  var seed_id = D.make_some_space(dedent(`outer
+    @init from-js
+    +alpha
+      @in
+      @out
+      a {:a}
+      @in -> a
+      a -> @out
+    +beta
+      @in
+      @out
+      @in -> alpha@in
+      alpha@out -> @out
+    @init -> beta@in`))
+  var beta = slotted(D.SPACESEEDS[seed_id], 'beta')
+  assert_eq('a completed sibling definition is visible [spacesyn-scope-chain]',
+    beta.subspaces.length, 1)
+})
+
+// The chain runs through every enclosing level: an uncle is visible.
+sync_test('uncle reference block [spacesyn-scope-chain]', function() {
+  var seed_id = D.make_some_space(dedent(`outer
+    @init from-js
+    +uncle
+      @in
+      @out
+      u {:u}
+      @in -> u
+      u -> @out
+    +mid
+      @in
+      @out
+      +inner
+        @in
+        @out
+        @in -> uncle@in
+        uncle@out -> @out
+      @in -> inner@in
+      inner@out -> @out
+    @init -> mid@in`))
+  var mid = slotted(D.SPACESEEDS[seed_id], 'mid')
+  var inner = slotted(mid, 'inner')
+  assert_eq('an uncle (enclosing-level completed def) is visible [spacesyn-scope-chain]',
+    inner.subspaces.length, 1)
+})
+
+// Sockets are scope barriers: content cannot reference outside its own
+// subtree — not even a top-level definition (legal before this change).
+sync_test('socket barrier block [socket-scope-barrier]', function() {
+  var seed_id = D.make_some_space(
+    'helper\n  @in\n  @out\n  h {:h}\n  @in -> h\n  h -> @out\n'
+  + 'outer\n  @init from-js\n'
+  + '  !sock\n    @in\n    @out\n    @in -> helper@in\n    helper@out -> @out\n'
+  + '  @init -> sock@in')
+  var sock = slotted(D.SPACESEEDS[seed_id], 'sock')
+  assert_eq('socket content cannot reference outside its subtree [socket-scope-barrier]',
+    sock.subspaces.length, 0)
+})
+
+// Pin: a LATER sibling is not yet complete — not visible (soft, dropped).
+sync_test('later sibling pin [spacesyn-scope-chain]', function() {
+  var seed_id = D.make_some_space(dedent(`outer
+    @init from-js
+    +beta
+      @in
+      @out
+      @in -> gamma@in
+    +gamma
+      @in
+      @out
+      g {:g}
+      @in -> g
+      g -> @out
+    @init -> beta@in`))
+  var beta = slotted(D.SPACESEEDS[seed_id], 'beta')
+  assert_eq('a later (incomplete) sibling is not visible [spacesyn-scope-chain]',
+    beta.subspaces.length, 0)
+})
+
+// Pin: an ancestor is never visible (incomplete from inside itself).
+sync_test('ancestor pin [spacesyn-scope-chain]', function() {
+  var seed_id = D.make_some_space(dedent(`outer
+    @init from-js
+    +mid2
+      @in
+      @out
+      +inner2
+        @in
+        @out
+        @in -> mid2@in
+      @in -> inner2@in
+      inner2@out -> @out
+    @init -> mid2@in`))
+  var mid = slotted(D.SPACESEEDS[seed_id], 'mid2')
+  var inner = slotted(mid, 'inner2')
+  assert_eq('an ancestor is not visible [spacesyn-scope-chain]',
+    inner.subspaces.length, 0)
+})
+
+// Pin: a nested definition shadows a same-named top-level definition
+// within its defining space [spacesyn-shadow-local].
+sync_test('shadow pin [spacesyn-shadow-local]', function() {
+  var seed_id = D.make_some_space(
+    'dup\n  @in\n  @out\n  toplevel {:t}\n  @in -> toplevel\n  toplevel -> @out\n'
+  + 'outer\n  @init from-js\n'
+  + '  +dup\n    @in\n    @out\n    localsta {:l}\n    @in -> localsta\n    localsta -> @out\n'
+  + '  @init -> dup@in')
+  var dup = slotted(D.SPACESEEDS[seed_id], 'dup')
+  assert_eq('local definition shadows top-level [spacesyn-shadow-local]',
+    dup.station_names, ['localsta'])
+})
+
 // ── Done registering ─────────────────────────────────────────────────
 
 all_registered = true

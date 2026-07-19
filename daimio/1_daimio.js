@@ -3805,12 +3805,14 @@ D.make_some_space = function(stringlike, templates) {
   return D.make_spaceseeds(D.seedlikes_from_string(stringlike, templates))
 }
 
-D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
-  // outer_scope: the top-level seedlike map, passed into nested-definition
-  // parses so a child can reference earlier TOP-LEVEL spaces (two-layer
-  // lexical scope [spacesyn-scope-two-layer]; local defs live under
-  // globally-unique 'name::N' keys, which bare-name references never
-  // match — so a child can never see an enclosing space's other locals).
+D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
+  // scope_chain: resolvers for the enclosing lexical chain, innermost
+  // first [spacesyn-scope-chain] — each maps a name to a seedlike key
+  // among the definitions COMPLETE when the child parse began. Local defs
+  // live under globally-unique 'name::N' keys, which bare-name references
+  // never match — visibility flows only through the chain. A socket child
+  // gets an EMPTY chain: nothing outside its own subtree is referenceable
+  // [socket-scope-barrier].
   var seedlikes = {}
     , seed_offset = -1
     , prop_offset = -1
@@ -3823,12 +3825,16 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
     , maybe_subspace = false
     , subspace_buffer = []
     , templates = templates || {}
+    , scope_chain = scope_chain || []
 
-  var resolve_space = function(name) {              // locals shadow top level [spacesyn-shadow-local]
-    return this_seed.subspaces[name]
-        || (seedlikes[name] && name)
-        || (outer_scope && outer_scope[name] && name)
-        || false
+  var resolve_space = function(name) {              // innermost shadows [spacesyn-shadow-local]
+    if(this_seed.subspaces[name]) return this_seed.subspaces[name]
+    if(seedlikes[name]) return name
+    for(var ci = 0; ci < scope_chain.length; ci++) {
+      var hit = scope_chain[ci](name)
+      if(hit) return hit
+    }
+    return false
   }
 
   // THINK: if we use parser combinators, can we uncombinate in reverse to get back our string?
@@ -3876,10 +3882,15 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
       if(action == 'station') {
         if(sigil) {                                 // sigil-marked nested space definition [spacesyn-subspace-nested]
           // a * sigil rides into the child parse so the child knows it is a
-          // black hole DURING its body parse (JSON -> meta [blackhole-meta])
+          // black hole DURING its body parse (JSON -> meta [blackhole-meta]);
+          // the child's chain adds this level's completed definitions —
+          // except a socket child, whose chain is empty [socket-scope-barrier]
+          var child_chain = sigil == '!' ? [] : [function(name) {
+            return this_seed.subspaces[name] || (seedlikes[name] && name) || false
+          }].concat(scope_chain)
           var child = D.seedlikes_from_string((sigil == '*' ? '*' : '') + action_name
                                               + "\n" + subspace_buffer.join("\n"),
-                                              templates, outer_scope || seedlikes)
+                                              templates, child_chain)
           var local_key = action_name + '::' + (D.Etc.local_def_counter = (D.Etc.local_def_counter || 0) + 1)
           for(var child_name in child) {
             if(child_name == action_name) {
@@ -4188,10 +4199,11 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
             this_seed.stations[name].extraports = this_seed.stations[name].extraports
                                                 ? this_seed.stations[name].extraports.concat([port])
                                                 : [port]
-          } else if(resolve_space(name)) {         // locals first, then top level [spacesyn-scope-two-layer]
+          } else if(resolve_space(name)) {         // innermost visible wins [spacesyn-scope-chain]
             this_seed.subspaces[name] = resolve_space(name)  // TODO: foo.in, foo-1.in, foo-2.in, etc
           } else {
-            D.set_error('Subspace "' + name + '" referenced before definition') // [spacesyn-subspace-before-ref]
+            D.set_error('Subspace "' + name + '" is not visible here (undefined, '
+                      + 'incomplete, or outside a socket barrier)') // [spacesyn-subspace-before-ref] [socket-scope-barrier]
           }
           if(route.length) {
             route.push(part)                     // destination (entering subspace)
