@@ -692,10 +692,16 @@ glob         ::= (name | '*') (':' (name | '*'))*
 
 -- State -------------------------------------------------------
 
-state_decl   ::= '$' name (WS json_value)?
+state_decl   ::= '$' name (WS (name | json_value))?
                                         -- $count 0, $items [1,2,3] [spacesyn-state]
-                                        -- value is JSON; if omitted, var is not set
-                                        -- invalid JSON is a bork
+                                        -- if omitted, var is not set
+                                        -- bare word: definition reference
+                                        -- [state-ref]; true/false/null read as
+                                        -- names (Daimio has no booleans/nulls)
+                                        -- otherwise the value is JSON;
+                                        -- unresolved reference borks
+                                        -- [state-ref-unresolved-bork]; neither
+                                        -- a name nor valid JSON is a bork
 
 -- Dialect ------------------------------------------------------
 
@@ -703,7 +709,10 @@ dialect_decl ::= '{' json_object '}'    -- outer space only [spacesyn-dialect]
                                         -- e.g. {"blocked_methods":{"process":["unquote"]}}
                                         -- restricts the instance dialect (AND);
                                         -- in a subspace: soft error, ignored
-                                        -- [dialect-outer-only]; bad JSON borks
+                                        -- [dialect-outer-only]; in a black hole
+                                        -- the object is METADATA, not a dialect
+                                        -- declaration ([blackhole-meta], §4);
+                                        -- bad JSON borks, everywhere
 
 -- Endpoints ---------------------------------------------------
 
@@ -716,6 +725,12 @@ endpoint     ::= '@' dir (':' name)?    -- space-level port (@in, @out:display)
                                         -- (valid only on a ! socket, §8)
                                         -- [socket-portlike-endpoint]
                | '{' daml '}'           -- anonymous inline station
+                                        -- a body-level line is a JSON
+                                        -- declaration (dialect/metadata) only
+                                        -- when it parses as a single JSON
+                                        -- object; otherwise a line-initial '{'
+                                        -- opens a wire's inline station
+                                        -- [spacesyn-json-vs-wire]
                | name                   -- station (implicit _in/_out)
                                         -- NB: dir keywords (in/out/up/down) and
                                         -- socket-load(-smash) are reserved in the
@@ -743,19 +758,45 @@ defines capacity.
 
 **Subspaces and scope.** A space may define subspaces two ways:
 nested (a sigil-marked block among its properties) or by
-referencing an earlier top-level definition by name. Name
-resolution inside a space's body is **lexical with exactly two
-layers**: (1) the space's own sigil-defined subspaces, else (2)
-top-level spaces defined earlier in the file
-[spacesyn-subspace-before-ref] [spacesyn-scope-two-layer]. Names
-defined in ENCLOSING spaces are not visible — a space can never
-reference its parent's other children or any ancestor, which keeps
-definitions well-founded (no space can include itself). A nested
-name shadows a same-named top-level space only within the exact
-space that defines it [spacesyn-shadow-local]; a collision is
-shadowing, never a merge. The space named `outer` (if present) is
-the root; otherwise the last top-level space defined
-[spacesyn-outer-root] — a nested definition is never root.
+referencing an earlier definition by name. Names resolve against
+the **lexical chain**: a reference may name any definition that is
+already **complete** (its indented body has ended) at the point of
+reference, in the referencing space's own body or in any enclosing
+body, innermost first [spacesyn-subspace-before-ref]
+[spacesyn-scope-chain]. A nested name shadows an outer name within
+the exact space that defines it [spacesyn-shadow-local]; a
+collision is shadowing, never a merge. Ancestors are never
+referenceable — an enclosing definition is not complete from inside
+itself — so no space can include itself; and since a referenced
+definition completed strictly earlier in the source, references are
+well-founded by source position alone. **Sockets are scope
+barriers**: inside a `!name` definition the chain roots at the
+socket — nothing outside the socket's own subtree is referenceable
+[socket-scope-barrier]. A socket's content therefore always
+serializes to a self-contained payload (§8), and its initial inline
+content obeys the same law as every payload later loaded into it.
+The space named `outer` (if present) is the root; otherwise the
+last top-level space defined [spacesyn-outer-root] — a nested
+definition is never root.
+
+**Definition references in state.** `$src worker_v2` initializes
+`$src` with the canonical Astroglot source (§8) of the definition
+`worker_v2`, resolved in the lexical chain [spacesyn-scope-chain]
+at parse time [state-ref]. A bare word in the value slot is always
+a reference — `true`, `false`, and `null` included (Daimio has no
+booleans or nulls); anything else is JSON. The reference is
+parse-time only: every compile re-resolves it, so editing the
+definition updates every capture — but at instantiation the space
+variable holds an ordinary string, and nothing tracks the
+definition afterward. In particular, referencing a socket (`!name`)
+definition captures the definition as written in source; the
+variable DOES NOT change when that socket is later reloaded
+[state-ref-parse-time]. Serialization flattens: the variable
+serializes as its current string value, and the reference does not
+survive (§8) [state-ref-serialize-flat]. The chief use is socket
+reloading: capture a definition, then send it to a socket-load
+port-like — `{$src | >worker@socket-load}` — the same source every
+time, however the file's definitions evolve between compiles.
 
 **Dialect declaration.** A space body may contain a single JSON
 object literal declaring dialect restrictions (`blocked_methods`,
@@ -767,6 +808,9 @@ monotonicity [dialect-inherit-parent] [spacesyn-dialect]
 [dialect-outer-only]. Invalid JSON is a bork. The declared
 restriction is part of the definition and survives serialization
 (§8) [serialize-keeps-dialect-decl]; the instance dialect does not.
+In a black hole definition the JSON object is not a dialect
+declaration at all: it is the hole's metadata, delivered to the App
+at formation ([blackhole-meta], §4).
 
 **Black holes** are declared with the `*` sigil: `*relay`
 [spacesyn-blackhole]. The sigil appears only at the definition
@@ -889,7 +933,7 @@ Borks include:
   - Duplicate station names within a space
   - Duplicate port declarations within a space
   - Duplicate state declarations within a space
-  - Station name collides with subspace name
+  - Station name collides with subspace name [spacesyn-name-collision]
   - Duplicate wiring rule patterns [wiring-no-duplicate]
 
   Reference errors:
@@ -898,9 +942,15 @@ Borks include:
   - A route referencing a station that doesn't exist
   - A port declaration with an unknown flavour
   - A `cmd:` port in a port declaration
+  - A state-declaration definition reference that resolves to no
+    visible definition [state-ref-unresolved-bork]
 
   Invalid values:
-  - State declaration with invalid JSON (`$count notjson`)
+  - State declaration whose value is neither a bare definition name
+    nor valid JSON (`$count {broken`)
+  - A dialect declaration or black-hole metadata object with
+    invalid JSON
+  - A second JSON object declaration in one space body
   - Station declaration with no DAML block
 
   Sigil violations:
@@ -1625,6 +1675,43 @@ App registered under that name [blackhole-sender-outer]
 name carries the space path, so space-level policy is the coarse case
 -- register the same sender for each of the hole's out-ports.
 
+**Metadata.** A black hole's body may contain a single JSON object
+literal: the hole's **metadata**, an opaque value delivered to the
+App in the formation manifest (below) [blackhole-meta]. Daimio never
+interprets it. Metadata is the hole's wrap-stable identity:
+qualified names are root-relative paths that change when a space is
+wrapped inside another, but metadata rides the definition, so the
+App can dispatch on what a hole IS rather than where it currently
+sits. Read it as a capability request: the definition asks for a
+binding; the App decides what, if anything, to grant. Declining is
+safe -- an unbound hole is inert (in-ports swallow
+[blackhole-no-guarantee], out-ports never fire). A second JSON
+object in the same body borks; invalid JSON borks. Metadata is part
+of the definition and survives serialization
+[serialize-keeps-hole-meta] (§8).
+
+**Formation.** When a black hole is instantiated -- with its
+containing space, or inside content arriving through a socket load
+-- the runtime notifies the App with the hole's **manifest**: its
+qualified name, its name, its ports (each with name, direction,
+flavour, and settings), and its metadata [blackhole-manifest]. The
+notification is synchronous, during construction, before any ship
+docks in the newly constructed content. When one construction
+creates several holes, manifests fire in source order (declaration
+order, depth-first through subspaces), matching [qname-structure]
+[blackhole-manifest-order]. When a hole is destroyed -- its
+containing content replaced by a socket transition -- the App is
+notified at the transition's commit point, in the same order
+[blackhole-teardown]. Notifications are outputs to the App, not
+ships: they carry no number, and the rules above fix their
+positions in the observable trace, so a replay reproduces them
+exactly (I17). A notification hook that throws is caught
+([flavour-error-soft], [host-error-sploot]); it never aborts
+construction or a socket transition and creates no bork path
+[manifest-hook-soft]. Ships the App injects from within a hook
+enter at the boundary frontier like any external arrival and dock
+only after construction completes [manifest-inject-frontier].
+
 **No correlation.** A black hole's in and out streams are
 independent [blackhole-uncorrelated]. Nothing pairs an entering
 ship with an emerging one; request/response across a hole is not
@@ -1633,8 +1720,12 @@ part of this model. Black holes declare only in- and out-ports;
 bork [blackhole-inout-only].
 
 **Opacity.** By space boundary opacity (I8), a black hole is
-indistinguishable from an ordinary subspace with the same port
-signature [blackhole-substitutable]. To test a space that wires
+indistinguishable to the parent -- and to every space in the
+topology -- from an ordinary subspace with the same port signature
+[blackhole-substitutable]. (The App is not such an observer: it
+supplies the hole's flavours, receives its world traffic (I10),
+and is notified of its formation ([blackhole-manifest]); opacity
+governs the DAML-level view.) To test a space that wires
 to a black hole, substitute a regular subspace with the same
 ports; to put an external service behind an existing signature,
 do the reverse. Values crossing the boundary follow the same
@@ -1801,6 +1892,14 @@ inside -- the outer application supplies them. A conforming App MUST:
     under its qualified name [sender-attach-registry]. Dialect
     confinement (I2, I4) is only as sound as the App's identity check
     behind those registrations.
+  - **Bind black holes via their manifests.** The App learns of
+    every hole at formation ([blackhole-manifest]) and grants or
+    refuses the binding its metadata requests ([blackhole-meta]):
+    supplying function and channel targets for the hole's flavours,
+    and registering attenuated senders under its out-port qualified
+    names ([sender-attach-registry]) -- re-registering at each
+    formation, since qualified names shift when topology is
+    rewrapped. Declining to bind is safe: an unbound hole is inert.
   - **Answer or time out down-port requests.** Liveness (I9) assumes
     every request the App receives is eventually answered or left to
     the timeout. The App must deliver a response to the waiting
@@ -2797,12 +2896,24 @@ space; reviving it needs `process unquote`, like any dead string
 [serialize-block-dead].
 Socketed subspaces are serialized as `!name` definitions holding
 their current content.
+Anonymous stations serialize **inline**, in the wire chains where
+they occur -- `@in -> {x} -> @out` -- never as named declarations
+[serialize-anon-inline]. Emission preserves their source order, so
+their runtime names ([qname-anon-station]) are stable across a
+serialize and reload. Runtime names (`s1`, `s2`, ...) exist for
+error attribution only; they never appear in serialized output.
 
 A serialized space does NOT include:
   - The instance dialect (the Daimio instance's dialect applies;
     a DECLARED dialect restriction is part of the definition and
-    IS serialized [serialize-keeps-dialect-decl], §3)
+    IS serialized [serialize-keeps-dialect-decl], §3; a black
+    hole's metadata is likewise part of the definition and IS
+    serialized [serialize-keeps-hole-meta], §4)
   - Port wiring (wiring comes from the socket's parent)
+  - Definition references in state declarations -- a
+    reference-initialized space variable serializes as its current
+    string value; the reference itself does not survive (§3)
+    [state-ref-serialize-flat]
 
 ### Sockets and the socket-load port-likes
 

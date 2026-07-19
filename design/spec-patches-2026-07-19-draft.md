@@ -1,4 +1,24 @@
-# Spec patch batch — 2026-07-19 (DRAFT, unapplied)
+# Spec patch batch — 2026-07-19 (APPLIED, same day)
+
+APPLIED to D2-spec.md with four deviations from the text below, per dann's
+final rulings + discoveries at the anchors:
+1. Patch 5 FLIPPED (dann): bare word = definition reference, otherwise JSON
+   — `true`/`false`/`null` read as names (Daimio has no booleans/nulls);
+   grammar is `(name | json_value)`.
+2. Patch 6 discovery: "Station name collides with subspace name" was
+   ALREADY in the §3 bork catalog — spec'd all along, engine-unenforced.
+   [spacesyn-name-collision] attached to the existing line; the probe
+   finding reclassifies as pure engine lag.
+3. Patch 6: the catalog's `$count notjson` example changed meaning under
+   the bare-word rule (now an unresolved-reference bork) — example updated
+   to `$count {broken`; and "a second JSON object declaration in one space
+   body" added as a GENERAL bork (extends the tight-metadata ruling to
+   dialect_decl — engine last-wins today; flag if unwanted).
+4. Patches 10/11 landed as one edit around the §8 does-NOT-include list.
+
+Original draft follows for the trail.
+
+# Spec patch batch — 2026-07-19 (original draft)
 
 Six threads, all ruled by dann this session, drafted as concrete edits to
 D2-spec.md. Ordered by spec section for application. Anchors are quoted
