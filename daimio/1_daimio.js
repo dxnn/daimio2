@@ -2767,10 +2767,10 @@ D.Space = function(seed_id, parent, prng_seed, name, opts) {
 
   // Apply seed dialect restrictions (§3 dialect declarations)
   // Only outer space can declare dialect; subspace declarations are a soft error
-  if(seed.dialect && seed.dialect.blocked_methods) {
-    if(parent) {
+  if(seed.dialect && Object.keys(seed.dialect).length) {
+    if(parent) {                                    // ANY shape soft-errors [dialect-outer-only]
       D.set_error('Subspace cannot declare its own dialect restrictions')
-    } else {
+    } else if(seed.dialect.blocked_methods) {
       var restricted = D.make_restricted_dialect(seed.dialect)
       this.dialect = D.intersect_dialects(this.dialect, restricted)
     }
@@ -2976,6 +2976,9 @@ D.Space.prototype.serialize = function(indent, label) {
 
   if(seed.dialect && Object.keys(seed.dialect).length)
     lines.push(inner + JSON.stringify(seed.dialect))
+
+  if(seed.meta)                                     // [serialize-keeps-hole-meta]
+    lines.push(inner + JSON.stringify(seed.meta))
 
   seed.ports.forEach(function(p) {                  // own ports only: stations get
     if(p.station || p.space) return                 // theirs implicitly; subspace ports
@@ -3594,7 +3597,8 @@ D.Process.prototype.next = function(segment, current, wires, dialect) {
 D.spaceseed_add = function(seed) {
   var good_props = { dialect: 1, stations: 1, subspaces: 1, ports: 1, routes: 1, state: 1, rules: 1
                    , station_names: 1, subspace_names: 1     // source-order names [qname-structure]
-                   , blackhole: 1, socket: 1 }               // space-kind flags (§3 sigils)
+                   , blackhole: 1, socket: 1                 // space-kind flags (§3 sigils)
+                   , meta: 1 }                               // hole metadata [blackhole-meta]
     , item
 
   for(var key in seed)
@@ -3839,7 +3843,20 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
       continuation = continuation.replace(/^\s+|\s+$/g, '')
 
       if(action == 'dialect') {
-        try {this_seed.dialect = JSON.parse(continuation)} catch(e) {}
+        var json_decl
+        try {json_decl = JSON.parse(continuation)}
+        catch(e) {
+          throw new Error((this_seed.blackhole ? 'Invalid JSON in black-hole metadata: '
+                                               : 'Invalid JSON in dialect declaration: ')
+                        + continuation)           // [spacesyn-dialect] [blackhole-meta]
+        }
+        if(this_seed._json_seen)
+          throw new Error('A space body takes at most one JSON object declaration: ' + continuation)
+        this_seed._json_seen = true
+        if(this_seed.blackhole)
+          this_seed.meta = json_decl              // [blackhole-meta]
+        else
+          this_seed.dialect = json_decl
       }
 
       if(action == 'port') {
@@ -3858,7 +3875,10 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
 
       if(action == 'station') {
         if(sigil) {                                 // sigil-marked nested space definition [spacesyn-subspace-nested]
-          var child = D.seedlikes_from_string(action_name + "\n" + subspace_buffer.join("\n"),
+          // a * sigil rides into the child parse so the child knows it is a
+          // black hole DURING its body parse (JSON -> meta [blackhole-meta])
+          var child = D.seedlikes_from_string((sigil == '*' ? '*' : '') + action_name
+                                              + "\n" + subspace_buffer.join("\n"),
                                               templates, outer_scope || seedlikes)
           var local_key = action_name + '::' + (D.Etc.local_def_counter = (D.Etc.local_def_counter || 0) + 1)
           for(var child_name in child) {
@@ -3961,8 +3981,19 @@ D.seedlikes_from_string = function(stringlike, templates, outer_scope) {
     continuation = line
 
     if(line[0] == '{') {
-      action = 'dialect'
-      return
+      // a body-level line is a JSON declaration (dialect/metadata) only when
+      // it parses as a single JSON object; otherwise a line-initial '{' opens
+      // a wire's inline anonymous station [spacesyn-json-vs-wire]
+      var lone_json = false
+      try {JSON.parse(line); lone_json = true} catch(e) {}
+      if(lone_json) {
+        action = 'dialect'
+        return
+      }
+      if(line.indexOf('->') == -1)
+        throw new Error((this_seed.blackhole ? 'Invalid JSON in black-hole metadata: '
+                                             : 'Invalid JSON in dialect declaration: ') + line)
+      // falls through: a wire whose first endpoint is an inline station
     }
 
     name = line.split(' ', 1)[0]
@@ -4242,6 +4273,12 @@ D.make_spaceseeds = function(seedlikes) {
     newseed.dialect = dialect // TODO: check dialect
     if(seed.blackhole) newseed.blackhole = true
     if(seed.socket)    newseed.socket = true
+    if(seed.meta)      newseed.meta = seed.meta     // [blackhole-meta]
+
+    for(var cname in subspaces)                     // one component namespace per body
+      if(stations[cname])
+        throw new Error('A station and a subspace share a name: ' + cname
+                      + ' in ' + seedkey)           // [spacesyn-name-collision]
 
     if(seed.blackhole) {                            // §4 black holes: ports only, in/out only,
       if(Object.keys(stations).length || Object.keys(state).length || routes.length)

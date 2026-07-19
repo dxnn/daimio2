@@ -20,6 +20,12 @@
       "name": "s0",
       "source": "{x}",
       "ports": []
+    },
+    {
+      "id": "s3",
+      "name": "s1",
+      "source": "{x}",
+      "ports": []
     }
   ],
   "subspaces": [],
@@ -27,11 +33,23 @@
     {
       "id": "c0",
       "from": {
+        "id": "s2",
+        "port": "_out"
+      },
+      "to": {
+        "id": "s0",
+        "port": "_in"
+      },
+      "type": "faf"
+    },
+    {
+      "id": "c1",
+      "from": {
         "id": "s1",
         "port": "_out"
       },
       "to": {
-        "id": "s2",
+        "id": "s3",
         "port": "_in"
       },
       "type": "faf"

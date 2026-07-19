@@ -2935,6 +2935,163 @@ parse_test('a declared cmd: port borks [demandport-create]',
     @init -> @out`, true)
 
 
+// ══════════════════════════════════════════════════════════════════════
+// Spec batch 2026-07-19, part 1: hole metadata, JSON borks, name
+// collision, line-initial-{ disambiguation (D2-spec.md 9eda188..2ff6156)
+// ══════════════════════════════════════════════════════════════════════
+
+// A station and a subspace sharing a name bork at compile — the engine
+// used to let the subspace silently shadow the station (orphaning it),
+// with the winner disagreeing between parse and compile phases.
+parse_test('station/subspace name collision borks (station first) [spacesyn-name-collision]',
+  `outer
+    @init from-js
+    foo {:station}
+    +foo
+      @in
+      @out
+    @init -> foo`, true)
+
+parse_test('station/subspace name collision borks (subspace first) [spacesyn-name-collision]',
+  `outer
+    @init from-js
+    +foo
+      @in
+      @out
+    foo {:station}
+    @init -> foo`, true)
+
+// Invalid JSON in a dialect declaration borks — the engine used to
+// swallow it in an empty catch [spacesyn-dialect].
+parse_test('invalid JSON in a dialect declaration borks [spacesyn-dialect]',
+  `outer
+    {broken json
+    @init from-js
+    @init -> @out`, true)
+
+// Invalid JSON in a black hole's metadata borks [blackhole-meta].
+parse_test('invalid JSON in hole metadata borks [blackhole-meta]',
+  `outer
+    @init from-js
+    *relay
+      {not json}
+      @in:feed websock-out
+    @init -> relay@in:feed`, true)
+
+// At most one JSON object declaration per space body.
+parse_test('a second dialect object in one body borks',
+  `outer
+    {"blocked_methods": {"process": ["unquote"]}}
+    {"blocked_aliases": {}}
+    @init from-js
+    @init -> @out`, true)
+
+parse_test('a second metadata object in a hole borks [blackhole-meta]',
+  `outer
+    @init from-js
+    *relay
+      {"binding": "news"}
+      {"binding": "other"}
+      @in:feed websock-out
+    @init -> relay@in:feed`, true)
+
+// Control: a lone JSON object line is still a dialect declaration.
+parse_test('a lone JSON object line is still a dialect declaration (control)',
+  `outer
+    {"blocked_methods": {"process": ["unquote"]}}
+    @init from-js
+    @init -> @out`, false)
+
+// Synchronous seed-inspection helper: a throw is a failure, not a crash.
+function sync_test(label, fn) {
+  try { fn() }
+  catch(e) {
+    fail++
+    failures.push({ label: label, expected: 'no throw', actual: 'threw: ' + e.message })
+  }
+}
+
+// Hole body JSON lands on seed.meta, never seed.dialect [blackhole-meta].
+// Nested definition — the * sigil must reach the child's own parse.
+sync_test('nested hole meta block [blackhole-meta]', function() {
+  var seed_id = D.make_some_space(dedent(`outer
+    @init from-js
+    *relay
+      {"binding": "news", "v": 2}
+      @in:feed websock-out
+    @init -> relay@in:feed`))
+  var outer = D.SPACESEEDS[seed_id]
+  var hole = D.SPACESEEDS[outer.subspaces[0]]
+  assert_eq('nested hole body JSON lands on seed.meta [blackhole-meta]',
+    hole.meta, {binding: 'news', v: 2})
+  assert_eq('hole metadata never touches seed.dialect [blackhole-meta]',
+    hole.dialect || {}, {})
+})
+
+// Same via a top-level hole definition referenced from outer.
+sync_test('top-level hole meta block [blackhole-meta]', function() {
+  var seed_id = D.make_some_space(
+    '*relay\n  {"binding": "news"}\n  @in:feed websock-out\n'
+  + 'outer\n  @init from-js\n  @init -> relay@in:feed')
+  var outer = D.SPACESEEDS[seed_id]
+  var hole = D.SPACESEEDS[outer.subspaces[0]]
+  assert_eq('top-level-defined hole meta lands on seed.meta [blackhole-meta]',
+    hole.meta, {binding: 'news'})
+})
+
+// Metadata is part of the definition and survives serialization
+// [serialize-keeps-hole-meta].
+sync_test('hole meta serialization block [serialize-keeps-hole-meta]', function() {
+  var seed_id = D.make_some_space(dedent(`outer
+    @init from-js
+    *relay
+      {"binding": "news"}
+      @in:feed websock-out
+    @init -> relay@in:feed`))
+  var space = new D.Space(seed_id)
+  var out = space.serialize()
+  assert_eq('hole metadata survives serialization [serialize-keeps-hole-meta]',
+    out.indexOf('{"binding":"news"}') >= 0 ? 'kept' : 'lost: ' + out, 'kept')
+})
+
+// A line-initial inline station opens a wire, not a dialect declaration
+// [spacesyn-json-vs-wire] — the parser used to eat the whole line as a
+// failed dialect parse, silently dropping the route.
+sync_test('line-initial inline station block [spacesyn-json-vs-wire]', function() {
+  var seed_id = D.make_some_space(dedent(`t2
+    @out collect
+    {x} -> @out`))
+  var seed = D.SPACESEEDS[seed_id]
+  assert_eq('line-initial inline station mints its anon [spacesyn-json-vs-wire]',
+    seed.stations.length, 1)
+  assert_eq('line-initial inline station keeps its route [spacesyn-json-vs-wire]',
+    seed.routes.length, 1)
+})
+
+// A dialect_decl of ANY shape in a subspace is a soft error and is
+// ignored [dialect-outer-only] — the engine used to key the soft error
+// on blocked_methods alone, silently accepting other shapes.
+sync_test('subspace dialect shape block [dialect-outer-only]', function() {
+  var errs = []
+  var old_err = D.set_error
+  D.set_error = function(msg) { errs.push(String(msg)); return old_err.call(D, msg) }
+  try {
+    var seed_id = D.make_some_space(dedent(`outer2
+      @init from-js
+      +sub
+        @in
+        @out
+        {"foo": 1}
+      @init -> sub@in`))
+    new D.Space(seed_id)
+  } finally {
+    D.set_error = old_err
+  }
+  assert_eq('subspace JSON of any shape soft-errors [dialect-outer-only]',
+    errs.filter(function(m) { return /dialect/i.test(m) }).length > 0 ? 'soft error' : 'silent',
+    'soft error')
+})
+
 // ── Done registering ─────────────────────────────────────────────────
 
 all_registered = true
