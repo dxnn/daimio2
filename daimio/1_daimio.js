@@ -2965,14 +2965,28 @@ D.block_source = function(block_id) {
 // sigil-marked nested definitions holding their current content; a block
 // in an svar serializes as its source text, dead on reload
 // [serialize-block-dead].
-D.Space.prototype.serialize = function(indent, label) {
+// Seed-level station naming: declared name, else s1, s2, ... by compiled
+// position (NB: spaceseed_add canonicalizes order — see [qname-anon-station]).
+D.seed_station_name = function(seed, station_id) {
+  var names = seed.station_names || [], anon = 0, out = []
+  for(var i = 0; i < seed.stations.length; i++)
+    out.push(names[i] != null ? names[i] : 's' + (++anon))
+  return out[station_id - 1] || String(station_id)
+}
+
+// Seed-level canonical serializer: works from a compiled seed alone. A live
+// Space passes itself as `live` so CURRENT svar values and live (possibly
+// socket-swapped) subspace content serialize instead of the initial
+// definition. Anonymous stations serialize inline in their wire chains
+// [serialize-anon-inline]; a generated name appears only for hand-built
+// shapes no chain can carry (a parsed anon is always one chain occurrence).
+D.serialize_seed = function(seed, indent, label, live) {
   var pad = indent || ''
     , inner = pad + '  '
-    , seed = this.seed
-    , self = this
     , lines = []
+    , station_name = function(id) { return D.seed_station_name(seed, id) }
 
-  lines.push(pad + (label || this.name || 'outer'))
+  lines.push(pad + (label || (live && live.name) || 'outer'))
 
   if(seed.dialect && Object.keys(seed.dialect).length)
     lines.push(inner + JSON.stringify(seed.dialect))
@@ -2993,21 +3007,27 @@ D.Space.prototype.serialize = function(indent, label) {
 
   var state_keys = {}
   Object.keys(seed.state || {}).forEach(function(k) { state_keys[k] = 1 })
-  Object.keys(this.state).forEach(function(k) { state_keys[k] = 1 })
+  if(live) Object.keys(live.state).forEach(function(k) { state_keys[k] = 1 })
   Object.keys(state_keys).forEach(function(k) {
-    var v = self.get_state(k)
+    var v = live ? live.get_state(k) : seed.state[k]
     if(D.is_block(v)) v = D.block_source(v.value.id)
     lines.push(inner + '$' + k + ' ' + (JSON.stringify(v) || '""'))
   })
 
-  seed.stations.forEach(function(block_id, i) {
-    lines.push(inner + self.station_name(i + 1) + ' ' + D.block_source(block_id))
+  // wire chains, merging anons inline [serialize-anon-inline]
+  var names = seed.station_names || []
+  var anon_of_port = function(idx) {
+    var p = seed.ports[idx - 1]
+    return p && p.station && names[p.station - 1] == null ? p.station : 0
+  }
+  var anon_out_port = {}, anon_has_in = {}, routes_from = {}
+  seed.ports.forEach(function(p, pi) {
+    if(p.station && names[p.station - 1] == null && p.name == '_out')
+      anon_out_port[p.station] = pi + 1
   })
-
-  this.subspaces.forEach(function(sub, i) {
-    var sig = sub.seed.blackhole ? '*' : sub.seed.socket ? '!' : '+'
-      , name = (seed.subspace_names && seed.subspace_names[i]) || sub.name || ('sub' + i)
-    lines.push(sub.serialize(inner, sig + name))
+  seed.routes.forEach(function(r, ri) {
+    ;(routes_from[r[0]] = routes_from[r[0]] || []).push(ri)
+    if(anon_of_port(r[1])) anon_has_in[anon_of_port(r[1])] = true
   })
 
   var endpoint = function(idx) {
@@ -3015,30 +3035,82 @@ D.Space.prototype.serialize = function(indent, label) {
     if(!p) return '@unknown'
     if(p.station)
       return (p.name == '_in' || p.name == '_out')
-             ? self.station_name(p.station)
-             : self.station_name(p.station) + '@' + p.name
+             ? station_name(p.station)
+             : station_name(p.station) + '@' + p.name
     if(p.space)
       return ((seed.subspace_names && seed.subspace_names[p.space - 1]) || 'sub' + (p.space - 1))
              + '@' + p.name
     return '@' + p.name
   }
 
-  seed.routes.forEach(function(r) {
-    lines.push(inner + endpoint(r[0]) + ' -> ' + endpoint(r[1]) + (r[2] ? '  ' + r[2] : ''))
+  var consumed = {}, inlined = {}, route_lines = []
+  seed.routes.forEach(function(r, ri) {
+    if(consumed[ri]) return
+    var src_anon = anon_of_port(r[0])
+    if(src_anon && anon_has_in[src_anon]) return    // a continuation; its starter emits it
+    consumed[ri] = true
+    var parts = [src_anon ? D.block_source(seed.stations[src_anon - 1]) : endpoint(r[0])]
+    if(src_anon) inlined[src_anon] = true
+    var cur = r, timeout = r[2]
+    while(true) {
+      var da = anon_of_port(cur[1])
+      if(!da) { parts.push(endpoint(cur[1])); break }
+      parts.push(D.block_source(seed.stations[da - 1]))
+      inlined[da] = true
+      var nexts = (routes_from[anon_out_port[da]] || []).filter(function(x) { return !consumed[x] })
+      if(!nexts.length) break                       // the anon is the chain's sink
+      cur = seed.routes[nexts[0]]
+      consumed[nexts[0]] = true
+      if(cur[2] && !timeout) timeout = cur[2]
+    }
+    route_lines.push(inner + parts.join(' -> ') + (timeout ? '  ' + timeout : ''))
   })
+  seed.routes.forEach(function(r, ri) {             // hand-built leftovers: old form
+    if(consumed[ri]) return
+    route_lines.push(inner + endpoint(r[0]) + ' -> ' + endpoint(r[1]) + (r[2] ? '  ' + r[2] : ''))
+    if(anon_of_port(r[0])) delete inlined[anon_of_port(r[0])]
+    if(anon_of_port(r[1])) delete inlined[anon_of_port(r[1])]
+  })
+
+  seed.stations.forEach(function(block_id, i) {     // declared stations; an anon
+    if(names[i] == null && inlined[i + 1]) return   // only when no chain carried it
+    lines.push(inner + station_name(i + 1) + ' ' + D.block_source(block_id))
+  })
+
+  if(live) {
+    live.subspaces.forEach(function(sub, i) {
+      var sig = sub.seed.blackhole ? '*' : sub.seed.socket ? '!' : '+'
+        , name = (seed.subspace_names && seed.subspace_names[i]) || sub.name || ('sub' + i)
+      lines.push(sub.serialize(inner, sig + name))
+    })
+  } else {
+    ;(seed.subspaces || []).forEach(function(sid, i) {
+      var subseed = D.SPACESEEDS[sid]
+      if(!subseed) return
+      var sig = subseed.blackhole ? '*' : subseed.socket ? '!' : '+'
+        , name = (seed.subspace_names && seed.subspace_names[i]) || ('sub' + i)
+      lines.push(D.serialize_seed(subseed, inner, sig + name))
+    })
+  }
+
+  route_lines.forEach(function(l) { lines.push(l) })
 
   ;(seed.rules || []).forEach(function(rule) {
     var holder = rule.holder_station
-                 ? self.station_name(rule.holder_station)
+                 ? station_name(rule.holder_station)
                  : ((seed.subspace_names && seed.subspace_names[rule.holder_space - 1]) || 'sub' + (rule.holder_space - 1))
       , target = rule.forward ? '@cmd'
                : rule.target_port ? endpoint(rule.target_port)
-               : self.station_name(seed.ports[rule.target_in - 1].station)
+               : station_name(seed.ports[rule.target_in - 1].station)
     lines.push(inner + holder + '@cmd:' + rule.pattern + ' <-> ' + target
              + (rule.timeout ? '  ' + rule.timeout : ''))
   })
 
   return lines.join('\n')
+}
+
+D.Space.prototype.serialize = function(indent, label) {
+  return D.serialize_seed(this.seed, indent, label, this)
 }
 
 D.Space.prototype.root_frontier = function() {

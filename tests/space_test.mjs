@@ -3216,6 +3216,59 @@ sync_test('shadow pin [spacesyn-shadow-local]', function() {
     dup.station_names, ['localsta'])
 })
 
+// ══════════════════════════════════════════════════════════════════════
+// Spec batch 2026-07-19, part 3: anonymous stations serialize inline
+// [serialize-anon-inline]
+// ══════════════════════════════════════════════════════════════════════
+
+// Anon stations inline into their wire chains; generated names never
+// appear in serialized output.
+sync_test('anon inline serialization block [serialize-anon-inline]', function() {
+  var seed_id = D.make_some_space('t3\n  @init from-js\n  @out collect\n  @init -> {x} -> @out')
+  var out = new D.Space(seed_id).serialize()
+  assert_eq('no generated anon declarations in serialized output [serialize-anon-inline]',
+    /\bs\d+ \{/.test(out) ? 'generated: ' + out : 'clean', 'clean')
+  assert_eq('anon chains inline [serialize-anon-inline]',
+    out.indexOf('@init -> {x} -> @out') >= 0 ? 'inline' : 'missing: ' + out, 'inline')
+})
+
+// The name-capture bug: a DECLARED station named s1 plus one anon used to
+// serialize as two `s1` declarations — the reparse clobbered one.
+// NB: anon bodies here are numeric literals — blocks are content-addressed
+// by compiled structure, so two unknown-alias bodies ({zz}, {aa}) share one
+// block id and block_source keeps only the first text (pre-existing,
+// flagged to dann 2026-07-19).
+sync_test('anon name-capture block [serialize-anon-inline]', function() {
+  var seed_id = D.make_some_space('t4\n  @init from-js\n  @out collect\n'
+    + '  s1 {1}\n  @init -> s1\n  s1 -> @out\n  @init -> {2} -> @out')
+  var out = new D.Space(seed_id).serialize()
+  var re_id = D.make_some_space(out)
+  assert_eq('declared s1 + anon survive a serialize/reparse round trip [serialize-anon-inline]',
+    D.SPACESEEDS[re_id].stations.length, 2)
+})
+
+// Pin: serialize is idempotent across a reparse.
+sync_test('serialize idempotence block [serialize-anon-inline]', function() {
+  var src = 't5\n  @init from-js\n  @out collect\n  @init -> {1} -> @out\n  @init -> {2} -> @out'
+  var s1 = new D.Space(D.make_some_space(src)).serialize()
+  var s2 = new D.Space(D.make_some_space(s1)).serialize()
+  assert_eq('serialize is idempotent across a reparse [serialize-anon-inline]', s2, s1)
+})
+
+// Pin: every anon survives serialize/reparse with its source. NB compiled
+// order is CANONICAL (spaceseed_add content-sorts stations/ports/routes for
+// content addressing), NOT source order — [qname-anon-station]'s
+// source-order numbering diverges for anons (pre-existing, flagged to dann
+// 2026-07-19). Reload STABILITY rides the idempotence pin above.
+sync_test('anon survival block [serialize-anon-inline]', function() {
+  var src = 't6\n  @init from-js\n  @out collect\n  @init -> {11} -> @out\n  @init -> {22} -> @out'
+  var out = new D.Space(D.make_some_space(src)).serialize()
+  var re = D.SPACESEEDS[D.make_some_space(out)]
+  var sources = re.stations.map(function(b) { return D.block_source(b) }).sort()
+  assert_eq('both anons survive serialize/reparse with their sources [serialize-anon-inline]',
+    sources, ['{11}', '{22}'])
+})
+
 // ── Done registering ─────────────────────────────────────────────────
 
 all_registered = true
