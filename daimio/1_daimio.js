@@ -4027,15 +4027,20 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
                                               + "\n" + subspace_buffer.join("\n"),
                                               templates, child_chain)
           var local_key = action_name + '::' + (D.Etc.local_def_counter = (D.Etc.local_def_counter || 0) + 1)
+          var got_child = false
           for(var child_name in child) {
             if(child_name == action_name) {
               if(sigil == '!') child[child_name].socket = true       // [spacesyn-socket]
               if(sigil == '*') child[child_name].blackhole = true    // [spacesyn-blackhole]
               seedlikes[local_key] = child[child_name]
+              got_child = true
             } else {
               seedlikes[child_name] = child[child_name]  // grandchild '::' keys are globally unique
             }
           }
+          if(!got_child)                                 // the sigil label produced no
+            D.bork('A nested space definition takes an indented body: '  // definition — an
+                   + action_name)                        // empty/comment-only body [spacesyn-subspace-nested]
           this_seed.subspaces[action_name] = local_key   // shadows any top-level name [spacesyn-shadow-local]
         }
         else {

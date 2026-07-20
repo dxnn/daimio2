@@ -2933,6 +2933,22 @@ parse_test('a bare nested block with space structure borks [spacesyn-sigil-requi
       @in -> @out
     @init -> inner@in`, true)
 
+// A sigil-marked nested definition with no indented body borks
+// [spacesyn-subspace-nested] — it used to crash make_spaceseeds (the child
+// parse produced no seedlike, so subspace-port setup dereferenced undefined).
+// parse_test only checks THAT it threw, so assert the throw is a real bork.
+;(function() {
+  var e = null
+  try { D.make_some_space('a\n  +b') } catch(err) { e = err }
+  if(e && e.is_bork) pass++
+  else {
+    fail++
+    failures.push({ label: 'empty-body nested subspace borks [spacesyn-subspace-nested]',
+      expected: 'is_bork throw',
+      actual: e ? ('threw non-bork: ' + e.message) : 'no throw' })
+  }
+})()
+
 // A black hole may contain only ports — a station/state/wire inside borks.
 parse_test('black hole with a station borks [blackhole-only-ports]',
   `outer
