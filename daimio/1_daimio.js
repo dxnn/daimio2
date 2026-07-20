@@ -2853,6 +2853,48 @@ D.Space = function(seed_id, parent, prng_seed, name, opts) {
   this.only_one_process = true
   this.processes = []
   this.queue = []
+
+  if(seed.blackhole)                                // tell the App a hole formed,
+    D.notify_blackhole('on_blackhole', this)        // synchronously, before any ship
+}                                                   // docks [blackhole-manifest]
+
+// The App-facing black-hole manifest [blackhole-manifest]: everything the
+// App needs to bind the hole — where it is now (qname), its surface
+// (ports), and its declared metadata (the wrap-stable binding key
+// [blackhole-meta]).
+D.blackhole_manifest = function(space) {
+  return {
+    qname: space.space_path(),
+    name: space.name,
+    ports: space.seed.ports.map(function(p) {
+      return { name: p.name
+             , dir: p.name.split(':')[0]
+             , flavour: p.flavour
+             , settings: (p.settings && p.settings.all) ? p.settings.all.slice(1, -1) : [] }
+    }),
+    meta: space.seed.meta
+  }
+}
+
+// Formation/teardown notifications: synchronous outputs to the App, not
+// ships; a hook throw is caught and never aborts construction or a socket
+// transition [manifest-hook-soft]. No-op unless the App set the hook.
+D.notify_blackhole = function(hook, space) {
+  if(typeof D.Etc[hook] != 'function') return
+  try { D.Etc[hook](D.blackhole_manifest(space)) }
+  catch(e) {
+    D.set_error('Black-hole ' + (hook == 'on_blackhole' ? 'formation' : 'teardown')
+              + ' hook error: ' + e.message)
+  }
+}
+
+// Teardown notifications for every hole inside a replaced content tree,
+// fired at the transition's commit point [blackhole-teardown].
+D.teardown_blackholes = function(space) {
+  if(!space) return
+  if(space.seed && space.seed.blackhole)
+    D.notify_blackhole('on_blackhole_teardown', space)
+  ;(space.subspaces || []).forEach(function(sub) { D.teardown_blackholes(sub) })
 }
 
 // Replace a socket slot's content with freshly-loaded Astroglot (§8).
@@ -2904,6 +2946,7 @@ D.socket_load = function(port, src, mode) {
 }
 
 D.perform_socket_swap = function(parent, idx, seed_id, old) {
+  D.teardown_blackholes(old)                        // [blackhole-teardown]
   var fresh = new D.Space(seed_id, parent, undefined, old && old.name)
   parent.subspaces[idx] = fresh
 

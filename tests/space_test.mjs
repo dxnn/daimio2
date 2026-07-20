@@ -3350,6 +3350,93 @@ sync_test('state ref socket parse-time block [state-ref-parse-time]', function()
     typeof before == 'string' && before.length > 0, true)
 })
 
+// ══════════════════════════════════════════════════════════════════════
+// Spec batch 2026-07-19, part 5: hole formation/teardown manifests
+// [blackhole-manifest] [blackhole-teardown] [manifest-hook-soft]
+// ══════════════════════════════════════════════════════════════════════
+
+// Formation delivers qname, name, ports (name/dir/flavour/settings), and
+// meta — synchronously at construction.
+sync_test('manifest formation block [blackhole-manifest]', function() {
+  var manifests = []
+  D.Etc.on_blackhole = function(m) { manifests.push(m) }
+  try {
+    var seed_id = D.make_some_space(dedent(`outer13
+      @init from-js
+      *relay
+        {"binding": "news"}
+        @in:feed websock-out
+        @out:news websock-in
+      @init -> relay@in:feed`))
+    new D.Space(seed_id)
+  } finally { D.Etc.on_blackhole = null }
+  assert_eq('one formation manifest fired [blackhole-manifest]', manifests.length, 1)
+  var m = manifests[0] || {}
+  assert_eq('manifest qname [blackhole-manifest]', m.qname, 'relay')
+  assert_eq('manifest name [blackhole-manifest]', m.name, 'relay')
+  assert_eq('manifest meta [blackhole-meta]', m.meta, {binding: 'news'})
+  assert_eq('manifest ports carry name/dir/flavour [blackhole-manifest]',
+    (m.ports || []).map(function(p) { return p.name + '/' + p.dir + '/' + p.flavour }).sort(),
+    ['in:feed/in/websock-out', 'out:news/out/websock-in'])
+})
+
+// Formation covers holes arriving in socket-loaded content; teardown fires
+// for holes inside the replaced content at the transition's commit point.
+sync_test('manifest socket lifecycle block [blackhole-teardown]', function() {
+  var formed = [], gone = []
+  D.Etc.on_blackhole = function(m) { formed.push(m.name) }
+  D.Etc.on_blackhole_teardown = function(m) { gone.push(m.name) }
+  try {
+    var seed_id = D.make_some_space(dedent(`outer14
+      @init from-js
+      !slot
+        @in
+        @out
+        *hole_a
+          @in:feed websock-out
+        st {6}
+        @in -> st
+        st -> @out
+        st -> hole_a@in:feed
+      @init -> slot@in`))
+    var space = new D.Space(seed_id)
+    var load_port = null
+    space.ports.forEach(function(p) { if(p.flavour == 'socket-load-smash') load_port = p })
+    D.socket_load(load_port,
+      'fresh\n  @in\n  @out\n  *hole_b\n    @in:feed websock-out\n'
+      + '  f {7}\n  @in -> f\n  f -> @out\n  f -> hole_b@in:feed',
+      'smash')
+  } finally { D.Etc.on_blackhole = null; D.Etc.on_blackhole_teardown = null }
+  assert_eq('formation fired for the initial and the loaded hole [blackhole-manifest]',
+    formed, ['hole_a', 'hole_b'])
+  assert_eq('teardown fired for the replaced hole [blackhole-teardown]',
+    gone, ['hole_a'])
+})
+
+// A hook throw is caught: construction survives, soft error only.
+sync_test('manifest hook throw block [manifest-hook-soft]', function() {
+  var errs = []
+  var old_err = D.set_error
+  D.set_error = function(msg) { errs.push(String(msg)); return old_err.call(D, msg) }
+  D.Etc.on_blackhole = function() { throw new Error('app exploded') }
+  var space = null
+  try {
+    var seed_id = D.make_some_space(dedent(`outer15
+      @init from-js
+      *relay2
+        @in:feed websock-out
+      @init -> relay2@in:feed`))
+    space = new D.Space(seed_id)
+  } finally {
+    D.Etc.on_blackhole = null
+    D.set_error = old_err
+  }
+  assert_eq('construction survives a throwing hook [manifest-hook-soft]',
+    !!(space && space.subspaces && space.subspaces.length), true)
+  assert_eq('the throw lands as a soft error [manifest-hook-soft]',
+    errs.filter(function(m) { return /formation hook error/.test(m) }).length, 1)
+})
+
 // ── Done registering ─────────────────────────────────────────────────
 
 all_registered = true
