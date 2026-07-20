@@ -989,6 +989,15 @@ and initial state. A spaceseed is inert -- it does not process ships
 or hold live state. To run, it must be instantiated into a space
 (see Spaces below).
 
+Compilation **canonicalizes** the seed: stations, ports, routes, and
+subspaces are stored in a content-derived canonical order, with
+declared names riding the permutation -- so two sources describing
+the same space compile to the identical seed regardless of
+declaration order [seed-canonical-order]. Wherever this spec says
+"canonical order" it means this order: a deterministic function of
+the definition's content, independent of how the source arranges its
+declarations.
+
 TODO: doesn't wiringRules subsume fafRoutes and contracts? 
 TODO: do we really need a flag for blackhole? 
 
@@ -1066,7 +1075,7 @@ q in QName      -- qualified names: spaces, stations, ports [qname-structure]
 ```
 
 **Qualified names.** Every space, station, and port has a qualified
-name derived from the source order alone [qname-structure]. A
+name derived from the definition alone [qname-structure]. A
 space's qualified name is its path of subspace names from the outer
 root, `/`-separated. A station appends its name to its space's path.
 A port appends the §3 endpoint syntax:
@@ -1083,7 +1092,8 @@ Uniqueness follows from existing rules: subspace names are unique per
 parent, station names cannot collide with subspace names, port names
 are unique per space, and bare vs named ports are distinct
 [port-bare-named-coexist]. Anonymous inline stations are named `s1`,
-`s2`, ... in source order [qname-anon-station]. A qualified-name
+`s2`, ... in canonical order ([seed-canonical-order], §3)
+[qname-anon-station]. A qualified-name
 identity does not itself encode kind -- `game/player1` (space) and
 `game/player1/splitter` (station) are distinguished by the topology,
 not the string. (In an Astroglot wire endpoint a subspace is always
@@ -1701,8 +1711,9 @@ qualified name, its name, its ports (each with name, direction,
 flavour, and settings), and its metadata [blackhole-manifest]. The
 notification is synchronous, during construction, before any ship
 docks in the newly constructed content. When one construction
-creates several holes, manifests fire in source order (declaration
-order, depth-first through subspaces), matching [qname-structure]
+creates several holes, manifests fire in canonical order (the
+compiled seed's subspace order, depth-first --
+[seed-canonical-order]), matching [qname-structure]
 [blackhole-manifest-order]. When a hole is destroyed -- its
 containing content replaced by a socket transition -- the App is
 notified at the transition's commit point, in the same order
@@ -1985,9 +1996,9 @@ sent onto it -- always, not merely as a tiebreak [routing-deferred-order].
 successive docks of a wire's source the numbers only increase, so a
 wire's FIFO order and number order never disagree.) Ships a process sends
 to *different* wires that converge at one destination queue dock in the
-wires' declaration order [sched-tie-wire]. Both orderings are fixed by
-the source and the schedule, so two conforming implementations produce
-the same order.
+wires' canonical route order ([seed-canonical-order])
+[sched-tie-wire]. Both orderings are fixed by the definition and the
+schedule, so two conforming implementations produce the same order.
 
 ### Deterministic scheduling
 
@@ -2010,8 +2021,8 @@ docks into its held station by the same rule, with the response's
 number as the incoming number [sched-reentry-uniform].
 
 **Order.** Each space docks its lowest-numbered pending ship next
-[sched-dock-lowest]. Equal numbers resolve by the declaration order of
-the carrying wire in the space's source [sched-tie-wire], then by FIFO
+[sched-dock-lowest]. Equal numbers resolve by the carrying wire's
+position in the seed's canonical route order [sched-tie-wire], then by FIFO
 position within that wire [sched-wire-fifo]; a ship delivered with no
 carrying wire -- an error ship sent directly to `@out:err` (§12) --
 sorts after all wired ships at its number, by emission order. This key
@@ -2903,10 +2914,12 @@ their current content -- self-contained by the socket scope barrier
 ([socket-scope-barrier], §3).
 Anonymous stations serialize **inline**, in the wire chains where
 they occur -- `@in -> {x} -> @out` -- never as named declarations
-[serialize-anon-inline]. Emission preserves their source order, so
-their runtime names ([qname-anon-station]) are stable across a
-serialize and reload. Runtime names (`s1`, `s2`, ...) exist for
-error attribution only; they never appear in serialized output.
+[serialize-anon-inline]. Emission follows the seed's canonical order
+([seed-canonical-order]) -- a deterministic function of the
+definition -- so their runtime names ([qname-anon-station]) are
+stable across a serialize and reload. Runtime names (`s1`, `s2`,
+...) exist for error attribution only; they never appear in
+serialized output.
 
 A serialized space does NOT include:
   - The instance dialect (the Daimio instance's dialect applies;
@@ -5130,14 +5143,12 @@ several reductions could make identity checks more powerful:
     normal form.
 
 **Spaceseed normal form improvements:**
-  - **Station/route ordering.** Reordering stations or routes
-    produces a different seed even if the topology is the same.
-    A canonical ordering (e.g., topological sort of stations,
-    lexicographic sort of routes) would equate these.
-  - **Port index normalization.** Port indices depend on
-    declaration order. Renumbering by canonical station/port
-    order would make the seed independent of declaration
-    sequence.
+  - **Station/route ordering: DONE in substance.** Compilation
+    already canonicalizes station, port, route, and subspace order
+    ([seed-canonical-order], §3), so reordering declarations
+    yields the identical seed. A semantically deeper ordering
+    (e.g., topological sort of stations) remains open as a
+    refinement.
 
 Stronger normal forms improve deduplication (more sharing in the
 copy/paste/evolve model) and make identity checks more useful for

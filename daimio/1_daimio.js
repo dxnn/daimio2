@@ -2975,7 +2975,7 @@ D.Space.prototype.space_path = function() {
 }
 
 // A station's bare name; anonymous stations are named s1, s2, ... in
-// source order [qname-anon-station].
+// canonical order [qname-anon-station] [seed-canonical-order].
 D.Space.prototype.station_name = function(station_id) {
   if(!this._qnames) {
     var names = this.seed.station_names || []
@@ -3008,8 +3008,8 @@ D.block_source = function(block_id) {
 // sigil-marked nested definitions holding their current content; a block
 // in an svar serializes as its source text, dead on reload
 // [serialize-block-dead].
-// Seed-level station naming: declared name, else s1, s2, ... by compiled
-// position (NB: spaceseed_add canonicalizes order — see [qname-anon-station]).
+// Seed-level station naming: declared name, else s1, s2, ... by canonical
+// position [qname-anon-station] [seed-canonical-order].
 D.seed_station_name = function(seed, station_id) {
   var names = seed.station_names || [], anon = 0, out = []
   for(var i = 0; i < seed.stations.length; i++)
@@ -3711,7 +3711,7 @@ D.Process.prototype.next = function(segment, current, wires, dialect) {
 
 D.spaceseed_add = function(seed) {
   var good_props = { dialect: 1, stations: 1, subspaces: 1, ports: 1, routes: 1, state: 1, rules: 1
-                   , station_names: 1, subspace_names: 1     // source-order names [qname-structure]
+                   , station_names: 1, subspace_names: 1     // declared names, canonical order [qname-structure]
                    , blackhole: 1, socket: 1                 // space-kind flags (§3 sigils)
                    , meta: 1 }                               // hole metadata [blackhole-meta]
     , item
@@ -4461,7 +4461,8 @@ D.make_spaceseeds = function(seedlikes) {
 
     var station_key_to_index = {}
     newseed.stations = []
-    newseed.station_names = []                  // source-order names; null = anonymous
+    newseed.station_names = []                  // declared names; null = anonymous
+                                                // (canonical order after spaceseed_add)
     for(var key in stations) {                  // (qnames name anons s1, s2, ... [qname-anon-station])
       newseed.stations.push(D.Parser.string_to_block_segment(stations[key].value).value.id) // block id
       newseed.station_names.push(stations[key].anon ? null : key)
@@ -4485,7 +4486,8 @@ D.make_spaceseeds = function(seedlikes) {
 
     var subspace_key_to_index = {}
     newseed.subspaces = []
-    newseed.subspace_names = []                 // source-order names [qname-structure]
+    newseed.subspace_names = []                 // declared names [qname-structure]
+                                                // (canonical order after spaceseed_add)
     for(var key in subspaces) {
       var spacekey = subspaces[key]
       newseed.subspaces.push(seedmap[spacekey]) // space id // TODO: error if not in seedmap
