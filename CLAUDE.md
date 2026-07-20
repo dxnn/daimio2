@@ -429,8 +429,13 @@ were rewritten to assert the bork. Also renamed `D.set_error` → **`D.sploot`**
 (soft error; 91 sites, no alias) and added **`D.bork(msg)`** (= throw)
 centralizing the 27 space-def throws in 1_daimio.js. 15/15 green, fuzzer
 clean (added `/^Recursion depth bound/` to the fuzzer allowlist — a
-pre-existing gap for the [depth-bound-instance] sploot). NOT yet committed
-(34 files) — left for dann to review/commit.
+pre-existing gap for the [depth-bound-instance] sploot). Committed 8fd9f79
+(one feat, 34 files). `D.bork` is tagged `is_bork`. Code review flagged one
+follow-up: the bork's scope reaches station named-port refs too, so the
+spec §3 splitter example (bare-ref-created `splitter` + `splitter@left`)
+now borks — but that pattern never actually worked (it silently dropped
+`splitter` and its routes); named ports only resolve on explicitly-declared
+stations. Fix the §3 example (declare `splitter`) or document the rule.
 
 ## Test status (as of 2026-07-16 — reviewer-findings sweep)
 
