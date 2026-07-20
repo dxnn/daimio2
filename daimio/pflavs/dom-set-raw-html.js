@@ -25,9 +25,9 @@ D.import_port_flavour('dom-set-raw-html', {
     this.element = document.getElementById(this.settings.thing)
 
     if(!this.element)
-      return D.set_error('That dom thing ("' + this.settings.thing + '") is not present')
+      return D.sploot('That dom thing ("' + this.settings.thing + '") is not present')
 
     if(!('innerHTML' in this.element))
-      return D.set_error('That dom thing has no innerHTML')
+      return D.sploot('That dom thing has no innerHTML')
   }
 })

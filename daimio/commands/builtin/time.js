@@ -39,7 +39,7 @@ D.import_models({
                    : new Date(0)
 
           if(isNaN(date.valueOf()))
-            return D.set_error('Invalid timestamp')
+            return D.sploot('Invalid timestamp')
 
           return { year:   date.getFullYear()
                  , month:  date.getMonth() + 1

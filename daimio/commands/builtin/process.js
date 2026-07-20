@@ -108,7 +108,7 @@ D.import_models({
                      })[0]
 
           if(!port)
-            return D.set_error('No corresponding port exists on this station')
+            return D.sploot('No corresponding port exists on this station')
 
           // send the value, go async while we wait for the reply
 

@@ -945,7 +945,7 @@ Borks include:
   Reference errors:
   - Referencing a definition that is not visible in the lexical
     chain -- undefined, not yet complete, or outside a socket
-    barrier [spacesyn-scope-chain]
+    barrier [spacesyn-scope-chain] [spacesyn-unresolved-ref]
   - Referencing a subspace or station that doesn't exist
   - A route referencing a station that doesn't exist
   - A port declaration with an unknown flavour

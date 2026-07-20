@@ -481,6 +481,7 @@ var daimio_error_patterns = [
   /^No end tag for block/,
   /^Invalid code point/,
   /^Pipeline variables may be set at most once/,
+  /^Recursion depth bound/,
 ]
 
 D.on_error = function(command, error) {

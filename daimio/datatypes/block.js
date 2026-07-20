@@ -14,7 +14,7 @@ D.import_type('block', function(value) {
       // tracks synchronous block-eval nesting per space (async re-entries reset
       // it — they cannot stack-overflow).
       if((space.eval_depth || 0) >= space.depth_bound)
-        return D.set_error('Recursion depth bound (' + space.depth_bound + ') exceeded')
+        return D.sploot('Recursion depth bound (' + space.depth_bound + ') exceeded')
 
       var inherited = {}
       if(process && process.state) {

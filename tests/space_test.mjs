@@ -1745,7 +1745,8 @@ space_test(
 // §3 [spacesyn-subspace-before-ref]
 // Subspaces must be defined before they are referenced in routes.
 // Correct order: child defined first, outer references child@in after.
-// Forward ref (outer first, child after) should not produce a working space.
+// Forward ref (outer first, child after) borks — the unresolved reference
+// fails to compile, no spaceseed created [spacesyn-unresolved-ref].
 ;(function() {
   // [spacesyn-subspace-before-ref]
   // Correct order works
@@ -1760,16 +1761,16 @@ space_test(
       expected: 'subspace created', actual: 'no subspace' })
   }
 
-  // Forward ref: outer references child before child is defined
+  // Forward ref: outer references child before child is defined — borks
+  // [spacesyn-unresolved-ref]
   var bad = 'outer\n  @init from-js\n  @out to-js\n  @init -> child@in\nchild\n  @in from-js\n  @out to-js\n'
-  var bad_id = D.make_some_space(bad)
-  var bad_space = new D.Space(bad_id)
-  var bad_has_subspace = bad_space.subspaces && bad_space.subspaces.length > 0
-  if(!bad_has_subspace) pass++
+  var borked = false
+  try { D.make_some_space(bad) } catch(e) { borked = true }
+  if(borked) pass++
   else {
     fail++
-    failures.push({ label: '[spacesyn-subspace-before-ref] forward ref rejected',
-      expected: 'no subspace (forward ref rejected)', actual: 'subspace created' })
+    failures.push({ label: '[spacesyn-unresolved-ref] forward ref borks',
+      expected: 'bork (no spaceseed)', actual: 'compiled successfully' })
   }
 })()
 
@@ -3073,8 +3074,8 @@ sync_test('line-initial inline station block [spacesyn-json-vs-wire]', function(
 // on blocked_methods alone, silently accepting other shapes.
 sync_test('subspace dialect shape block [dialect-outer-only]', function() {
   var errs = []
-  var old_err = D.set_error
-  D.set_error = function(msg) { errs.push(String(msg)); return old_err.call(D, msg) }
+  var old_err = D.sploot
+  D.sploot = function(msg) { errs.push(String(msg)); return old_err.call(D, msg) }
   try {
     var seed_id = D.make_some_space(dedent(`outer2
       @init from-js
@@ -3085,7 +3086,7 @@ sync_test('subspace dialect shape block [dialect-outer-only]', function() {
       @init -> sub@in`))
     new D.Space(seed_id)
   } finally {
-    D.set_error = old_err
+    D.sploot = old_err
   }
   assert_eq('subspace JSON of any shape soft-errors [dialect-outer-only]',
     errs.filter(function(m) { return /dialect/i.test(m) }).length > 0 ? 'soft error' : 'silent',
@@ -3151,21 +3152,17 @@ sync_test('uncle reference block [spacesyn-scope-chain]', function() {
 })
 
 // Sockets are scope barriers: content cannot reference outside its own
-// subtree — not even a top-level definition (legal before this change).
-sync_test('socket barrier block [socket-scope-barrier]', function() {
-  var seed_id = D.make_some_space(
+// subtree — not even a top-level definition. The out-of-scope reference
+// borks [socket-scope-barrier] [spacesyn-unresolved-ref].
+parse_test('socket content referencing outside its subtree borks [socket-scope-barrier]',
     'helper\n  @in\n  @out\n  h {:h}\n  @in -> h\n  h -> @out\n'
   + 'outer\n  @init from-js\n'
   + '  !sock\n    @in\n    @out\n    @in -> helper@in\n    helper@out -> @out\n'
-  + '  @init -> sock@in')
-  var sock = slotted(D.SPACESEEDS[seed_id], 'sock')
-  assert_eq('socket content cannot reference outside its subtree [socket-scope-barrier]',
-    sock.subspaces.length, 0)
-})
+  + '  @init -> sock@in', true)
 
-// Pin: a LATER sibling is not yet complete — not visible (soft, dropped).
-sync_test('later sibling pin [spacesyn-scope-chain]', function() {
-  var seed_id = D.make_some_space(dedent(`outer
+// Pin: a LATER sibling is not yet complete — not visible, so the
+// reference borks [spacesyn-scope-chain] [spacesyn-unresolved-ref].
+parse_test('a reference to a later (incomplete) sibling borks [spacesyn-scope-chain]', `outer
     @init from-js
     +beta
       @in
@@ -3177,15 +3174,11 @@ sync_test('later sibling pin [spacesyn-scope-chain]', function() {
       g {:g}
       @in -> g
       g -> @out
-    @init -> beta@in`))
-  var beta = slotted(D.SPACESEEDS[seed_id], 'beta')
-  assert_eq('a later (incomplete) sibling is not visible [spacesyn-scope-chain]',
-    beta.subspaces.length, 0)
-})
+    @init -> beta@in`, true)
 
-// Pin: an ancestor is never visible (incomplete from inside itself).
-sync_test('ancestor pin [spacesyn-scope-chain]', function() {
-  var seed_id = D.make_some_space(dedent(`outer
+// Pin: an ancestor is never visible (incomplete from inside itself) —
+// the reference borks [spacesyn-scope-chain] [spacesyn-unresolved-ref].
+parse_test('a reference to an ancestor borks [spacesyn-scope-chain]', `outer
     @init from-js
     +mid2
       @in
@@ -3196,12 +3189,7 @@ sync_test('ancestor pin [spacesyn-scope-chain]', function() {
         @in -> mid2@in
       @in -> inner2@in
       inner2@out -> @out
-    @init -> mid2@in`))
-  var mid = slotted(D.SPACESEEDS[seed_id], 'mid2')
-  var inner = slotted(mid, 'inner2')
-  assert_eq('an ancestor is not visible [spacesyn-scope-chain]',
-    inner.subspaces.length, 0)
-})
+    @init -> mid2@in`, true)
 
 // Pin: a nested definition shadows a same-named top-level definition
 // within its defining space [spacesyn-shadow-local].
@@ -3416,8 +3404,8 @@ sync_test('manifest socket lifecycle block [blackhole-teardown]', function() {
 // A hook throw is caught: construction survives, soft error only.
 sync_test('manifest hook throw block [manifest-hook-soft]', function() {
   var errs = []
-  var old_err = D.set_error
-  D.set_error = function(msg) { errs.push(String(msg)); return old_err.call(D, msg) }
+  var old_err = D.sploot
+  D.sploot = function(msg) { errs.push(String(msg)); return old_err.call(D, msg) }
   D.Etc.on_blackhole = function() { throw new Error('app exploded') }
   var space = null
   try {
@@ -3429,7 +3417,7 @@ sync_test('manifest hook throw block [manifest-hook-soft]', function() {
     space = new D.Space(seed_id)
   } finally {
     D.Etc.on_blackhole = null
-    D.set_error = old_err
+    D.sploot = old_err
   }
   assert_eq('construction survives a throwing hook [manifest-hook-soft]',
     !!(space && space.subspaces && space.subspaces.length), true)

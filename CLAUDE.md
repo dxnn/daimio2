@@ -415,6 +415,23 @@ OPEN FLAGS for dann from implementation:
   send_value_to_js_port only. REVISIT marked in TEST_TODO.md (dann,
   2026-07-19); interacts with the notification design.
 
+## 2026-07-19 (cont'd): bork/sploot vocabulary + unresolved-wire-ref borks
+
+Reconciled a JS/Rust divergence (dann): an unresolved subspace reference in
+a wire now **borks** [spacesyn-unresolved-ref] instead of silently dropping
+the wire — matching Rust and the §3 [spacedef-hard-error] list (JS was the
+lone soft-dropper; the FAF `->` path used a parse-time `D.set_error` that was
+a silent no-op). dann ruled **Option A**: bork ALL out-of-scope refs
+(later-sibling / ancestor / across a socket barrier), no socket carve-out —
+`resolve_space` can't tell "typo" from "out of scope" anyway. Three
+[spacesyn-scope-chain]/[socket-scope-barrier] tests that had pinned the drop
+were rewritten to assert the bork. Also renamed `D.set_error` → **`D.sploot`**
+(soft error; 91 sites, no alias) and added **`D.bork(msg)`** (= throw)
+centralizing the 27 space-def throws in 1_daimio.js. 15/15 green, fuzzer
+clean (added `/^Recursion depth bound/` to the fuzzer allowlist — a
+pre-existing gap for the [depth-bound-instance] sploot). NOT yet committed
+(34 files) — left for dann to review/commit.
+
 ## Test status (as of 2026-07-16 — reviewer-findings sweep)
 
 15/15 suites green, fuzzer clean. Two threads landed. First, the §10

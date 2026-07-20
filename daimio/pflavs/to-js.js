@@ -19,7 +19,7 @@ D.import_port_flavour('to-js', {
 
     var fun = D.Etc.fun && D.Etc.fun[this.settings.thing]
     if(!fun)
-      return D.set_error('No fun found')
+      return D.sploot('No fun found')
 
     fun(ship)
   }

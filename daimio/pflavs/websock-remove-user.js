@@ -13,7 +13,7 @@ D.import_port_flavour('websock-remove-user', {
     var self = this
 
     if(!D.Etc.socket)
-      return D.set_error('You must place a valid socket connection in D.Etc.socket')
+      return D.sploot('You must place a valid socket connection in D.Etc.socket')
 
     D.Etc.socket.on('disconnected', function (ship) {
       if(!ship.user) return false

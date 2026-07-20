@@ -14,7 +14,7 @@ D.import_pathfinder('key', {
   },
   create: function(value, key) {
     if(D.is_banned_key(key))
-      return [D.set_error('Illegal key name: ' + key)]
+      return [D.sploot('Illegal key name: ' + key)]
 
     if(!D._hop.call(value, key))
       value[key] = {}
@@ -23,7 +23,7 @@ D.import_pathfinder('key', {
   },
   set: function(value, key, new_val, parent) {
     if(D.is_banned_key(key))
-      return D.set_error('Illegal key name: ' + key)
+      return D.sploot('Illegal key name: ' + key)
     // TODO: this can't work until we have access to the parent object...
     // if(Array.isArray(value) && !/^\d+$/.test(key)) { // proper array and non-N key
     //   // convert the array into an object so the key will stick

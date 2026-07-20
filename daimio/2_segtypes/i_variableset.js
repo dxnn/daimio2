@@ -32,7 +32,7 @@ D.SegmentTypes.VariableSet = {
             && future_segment.value.name == name })
      .forEach(function(future_segment) {                // TODO: this doesn't catch {2 | >foo | >foo}
        if(future_segment.value.prevkey)
-         return D.set_error('Pipeline variables may be set at most once per pipeline')
+         return D.sploot('Pipeline variables may be set at most once per pipeline')
        future_segment.value.prevkey = new_key
      })
 

@@ -158,7 +158,7 @@ D.import_models({
         fun: function(value, by) {
           return D.Etc.Math.solver(value, by, function(a, b) {
             if(!b)
-              return D.set_error('Division by zero is a crime against nature') || 0
+              return D.sploot('Division by zero is a crime against nature') || 0
             return a / b
           });
         },
@@ -191,7 +191,7 @@ D.import_models({
           // NOTE: the default JS '%' operator is the remainder. we fiddle with negatives to make this a true modulo operation.
           return D.Etc.Math.solver(value, by, function(a, b) {
             if(!b)
-              return D.set_error('Modulation by zero is a crime against nature') || 0
+              return D.sploot('Modulation by zero is a crime against nature') || 0
 
             return a >= 0 == b > 0 ? a % b : a % b + b
             // return a > 0 ^ b > 0 ? -a % b : a % b // so pretty, but so wrong
@@ -226,7 +226,7 @@ D.import_models({
         fun: function(value, exp) {
           // THINK: can we solver this?
           if(value < 0 && exp % 1)
-            return D.set_error('Roots of negatives are not real') || 0
+            return D.sploot('Roots of negatives are not real') || 0
 
           return Math.pow(value, exp) || 0
         },
@@ -483,7 +483,7 @@ D.Etc.Math.singleArray = function(value, to, fun) {
 D.Etc.Math.naryanArray = function(value, to, fun) {
   if(!D.is_numeric(value)) {
     if(value)
-      D.set_error("That is not a numeric value")
+      D.sploot("That is not a numeric value")
     value = 0
   }
   if(!D.is_numeric(to)) {

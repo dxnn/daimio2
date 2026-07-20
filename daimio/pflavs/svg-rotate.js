@@ -17,7 +17,7 @@ D.import_port_flavour('svg-rotate', {
     var element = document.getElementById(ship.thing)
 
     if(!element)
-      return D.set_error('You seem to be lacking elementary flair')
+      return D.sploot('You seem to be lacking elementary flair')
 
     var x = typeof ship.x === 'number' ? ship.x : element.x.baseVal.value + (element.width.baseVal.value / 2)
       , y = typeof ship.y === 'number' ? ship.y : element.y.baseVal.value + (element.height.baseVal.value / 2)

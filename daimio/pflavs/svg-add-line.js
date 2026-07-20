@@ -17,10 +17,10 @@ D.import_port_flavour('svg-add-line', {
     var element = document.getElementById(ship.thing)
 
     if(!element)
-      return D.set_error('You seem to be lacking elementary flair')
+      return D.sploot('You seem to be lacking elementary flair')
 
     if(!element.getCTM)
-      return D.set_error("That doesn't look like an svg element to me")
+      return D.sploot("That doesn't look like an svg element to me")
 
     var x1 = ship.x1 || 0
       , y1 = ship.y1 || 0

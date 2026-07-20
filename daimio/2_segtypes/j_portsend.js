@@ -23,7 +23,7 @@ D.SegmentTypes.PortSend = {
       port.exit(inputs[0], process)
     }
     else {
-      D.set_error('Invalid port "' + to + '" detected')
+      D.sploot('Invalid port "' + to + '" detected')
     }
 
     return inputs[0]

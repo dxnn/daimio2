@@ -13,7 +13,7 @@ D.SegmentTypes.Fancy = {
     var glyph = token.value.replace(/^([^a-z0-9.]+).*/i, "$1")
 
     if(!D.Fancies[glyph]) {
-      D.set_error('Your fancies are borken:' + glyph + ' ' + token.value)
+      D.sploot('Your fancies are borken:' + glyph + ' ' + token.value)
       return [L, R]
     }
 

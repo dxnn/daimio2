@@ -29,7 +29,7 @@ D.import_port_flavour('svg-move', {
     var element = document.getElementById(ship.thing)
 
     if(!element)
-      return D.set_error('You seem to be lacking elementary flair')
+      return D.sploot('You seem to be lacking elementary flair')
 
     if(element.x !== undefined) { // a regular element
 

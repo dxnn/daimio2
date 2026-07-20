@@ -402,7 +402,7 @@ D.import_models({
           var length = data.length
 
           if(length < 2)
-            return D.set_error('The data parameter must contain at least two elements') || {}
+            return D.sploot('The data parameter must contain at least two elements') || {}
 
           while(index < length) {
             key = data[index++]
@@ -946,7 +946,7 @@ D.import_models({
             return []
 
           if(length > D.Etc.max_range_length)
-            return D.set_error('Range length exceeds maximum of ' + D.Etc.max_range_length) || []
+            return D.sploot('Range length exceeds maximum of ' + D.Etc.max_range_length) || []
 
           for(var i = 1; i <= length; i++) {
             value += step

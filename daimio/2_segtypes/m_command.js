@@ -97,7 +97,7 @@ import D from '../1_daimio.js'
                 : pfunk.typefun(inputs[pfunk.key])                  // we have to do this part at runtime
 
       if(!check_constraint(pval, pfunk)) {
-        D.set_error('Value "' + pval + '" not allowed for parameter "' + pfunk.name + '"')
+        D.sploot('Value "' + pval + '" not allowed for parameter "' + pfunk.name + '"')
         return false
       }
 
@@ -166,9 +166,9 @@ import D from '../1_daimio.js'
     }
 
     if(!rule || rule.forward)                                       // no wiring anywhere along the chain —
-      return D.set_error('Unwired effectful command "'              // sploot to empty
-                       + segment.value.handler + ' '                // [effectful-unwired-sploot]
-                       + segment.value.method + '"')
+      return D.sploot('Unwired effectful command "'              // sploot to empty
+                      + segment.value.handler + ' '                // [effectful-unwired-sploot]
+                      + segment.value.method + '"')
 
     var params = prep_params(segment.paramlist, inputs)
     if(params === false) return ""
@@ -181,7 +181,7 @@ import D from '../1_daimio.js'
     var answered = false                                            // the transient cmd port lives exactly as long
     var respond_once = function(value) {                            // as one request [cmd-transient]: first response
       if(answered)                                                  // resumes, the rest ghost [P-singleresponse]
-        return D.set_error('Ghost ship: late response for ' + effect.portType)
+        return D.sploot('Ghost ship: late response for ' + effect.portType)
       answered = true
       prior_starter(value)
     }
@@ -194,7 +194,7 @@ import D from '../1_daimio.js'
     // (same-space sub-process, no port crossing).
     var respond_redock = function(value, resp_number) {
       if(answered)
-        return D.set_error('Ghost ship: late response for ' + effect.portType)
+        return D.sploot('Ghost ship: late response for ' + effect.portType)
       if(resp_number === undefined) resp_number = space.root_frontier()
       process.number = Math.max(space.counter || 0, resp_number) + 1
       space.counter = process.number
@@ -213,7 +213,7 @@ import D from '../1_daimio.js'
                                   ? Math.min.apply(null, chain_timeouts)
                                   : D.Etc.default_timeout), function() {
       if(answered) return
-      D.set_error('Request timed out: ' + effect.portType)
+      D.sploot('Request timed out: ' + effect.portType)
       respond_redock('')                                            // a timeout firing is an external event: it
     })                                                              // enters at the frontier [sched-entry-frontier]
 
@@ -264,7 +264,7 @@ import D from '../1_daimio.js'
 
   function run_fun(segment, inputs, prior_starter, process) {
     if(segment.errors) {
-      segment.errors.forEach(function(error) {D.set_error(error)})
+      segment.errors.forEach(function(error) {D.sploot(error)})
       return ""                                                     // THINK: maybe {} or {noop: true} or something
     }                                                               // so false flows through instead of previous value
 
@@ -346,9 +346,9 @@ import D from '../1_daimio.js'
         var word = items.shift()
 
         if(!/^[a-z]/.test(word) && word != '__alias__') {           // ugh derp
-          D.set_error('Invalid parameter name "' + word
-                    + '" for "' + JSON.stringify(token.value)
-                    + '"')
+          D.sploot('Invalid parameter name "' + word
+                   + '" for "' + JSON.stringify(token.value)
+                   + '"')
           if(items.length)
             items.shift()
           continue
@@ -402,7 +402,7 @@ import D from '../1_daimio.js'
       if(!segment.method) {
         var error = 'You have failed to provide an adequate method: '
               + segment.value.handler + ' ' + segment.value.method
-        D.set_error(error)
+        D.sploot(error)
         segment.errors = [error]
 
         if(!segment._dcache) segment._dcache = {}

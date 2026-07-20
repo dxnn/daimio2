@@ -21,7 +21,7 @@ D.import_port_flavour('websock-out', {
       channel = this.settings.thing // explicit third param only -- no sugar
 
     if(!D.Etc.socket)
-      return D.set_error('You must place a valid socket connection in D.Etc.socket')
+      return D.sploot('You must place a valid socket connection in D.Etc.socket')
 
     D.Etc.socket.emit(channel, ship)
   }

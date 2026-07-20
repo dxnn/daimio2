@@ -12,7 +12,7 @@ D.SegmentTypes.Pipeline = {
     var last_replacement = new_tokens[new_tokens.length - 1]
 
     if(!last_replacement){
-      // D.set_error('The previous replacement does not exist')
+      // D.sploot('The previous replacement does not exist')
       return [L, R]
     }
 

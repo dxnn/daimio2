@@ -93,9 +93,21 @@ D.noop     = function() {}
 D.identity = function(x) {return x}
 D.concat   = function(a,b) {return a.concat(b)}
 
-D.set_error = function(error) {
+D.sploot = function(error) {
   // use this to set simple errors
+  // a sploot is a soft error: routes to the space's @err port if present,
+  // else a silent no-op; runtime totality preserved. Returns "".
   return D.on_error('', error)
+}
+
+D.bork = function(message) {
+  // a bork is a hard error: a malformed space definition fails to compile
+  // and no spaceseed is created [spacedef-hard-error]. Compile-time only.
+  // Tagged `is_bork` so a catch site can tell an intended bork from an
+  // unexpected JS crash structurally, without matching on the message.
+  var error = new Error(message)
+  error.is_bork = true
+  throw error
 }
 
 D.on_error = function(command, error) {
@@ -255,7 +267,7 @@ D.safe_string_to_regex = function(string, global, process) {
   if(process && process.space && process.space.dialect
   && process.space.dialect.policy && process.space.dialect.policy.no_user_regex
   && D.is_regex(string)) {
-    D.set_error('User-supplied regex patterns are not allowed in restricted mode')
+    D.sploot('User-supplied regex patterns are not allowed in restricted mode')
     return RegExp(D.regex_escape(string), (global ? 'g' : ''))
   }
   return D.string_to_regex(string, global)
@@ -929,7 +941,7 @@ D.port_standard_exit = function(ship, process) {
   // smashed socket content cannot emit: a late response from a destroyed
   // process is a ghost [socket-smash]
   if(this.space && this.space._smashed)
-    return D.set_error('Ghost ship: output from smashed socket content')
+    return D.sploot('Ghost ship: output from smashed socket content')
 
   // THINK: this makes the interface feel more responsive on big pages, but is it the right thing to do?
   if(this.space)
@@ -1000,7 +1012,7 @@ D.port_standard_enter = function(ship, process) {
   // a smashed content's boundary is severed: anything still crossing in
   // is a ghost [socket-smash]
   if(this.pair && this.pair.space && this.pair.space._smashed)
-    return D.set_error('Ghost ship: arrival at smashed socket content')
+    return D.sploot('Ghost ship: arrival at smashed socket content')
 
   // ── Round-trip port occupancy ──────────────────────────────────────
   // A spaced round-trip pair (up/down flavour, both halves live in
@@ -1042,13 +1054,13 @@ D.port_standard_enter = function(ship, process) {
                     || D.Etc.default_timeout
       D.register_timeout(D.now() + timeout_ms, function() {
         if(!inside._rt_occupied || inside._rt_era !== era) return
-        D.set_error('Round-trip port timed out: "' + inside.name + '"')
+        D.sploot('Round-trip port timed out: "' + inside.name + '"')
         response_half.enter('')
       })
     }
     else if(inside) {                                     // response side
       if(!inside._rt_occupied)
-        return D.set_error('Ghost ship: unrequested arrival at round-trip port "' + this.name + '"')
+        return D.sploot('Ghost ship: unrequested arrival at round-trip port "' + this.name + '"')
 
       inside._rt_occupied = false
       var respond = inside._rt_return
@@ -1070,7 +1082,7 @@ D.port_standard_enter = function(ship, process) {
     return this.pair.exit(ship, (sender || number !== undefined) ? {sender: sender, number: number} : undefined)
 
   if(!this.station)
-    return D.set_error('Every port must have a pair or a station')
+    return D.sploot('Every port must have a pair or a station')
 
   this.space.dock(ship, this.station, sender, number) // THINK: always async...?
 }
@@ -1095,12 +1107,12 @@ D.port_standard_sync = function(ship, callback) {
 
 D.import_port_flavour = function(flavourname, pflav) {
   if(D.PortFlavours[flavourname])
-    return D.set_error('That port flavour has already been im-port-ed')
+    return D.sploot('That port flavour has already been im-port-ed')
 
   // TODO: just use Port or something as a proto for pflav, then the fall-through is automatic
 
   if(!pflav)
-    return D.set_error('That flavour is not desirable')
+    return D.sploot('That flavour is not desirable')
 
   if(!pflav.settings)                             // settings are params for port construction
     pflav.settings = []                           // THINK: error if no settings?
@@ -1127,7 +1139,7 @@ D.import_port_flavour = function(flavourname, pflav) {
     pflav.sync = D.port_standard_sync
 
   // if([pflav.enter, pflav.add].every(function(v) {return typeof v == 'function'}))
-  //   return D.set_error("That port flavour's properties are invalid")
+  //   return D.sploot("That port flavour's properties are invalid")
 
   D.PortFlavours[flavourname] = pflav
   return true
@@ -1147,7 +1159,7 @@ D.import_fancy = function(ch, obj) {
     // TODO: check obj.eat
     D.Fancies[ch] = obj
   } else {
-    D.set_error('Your fancies are more borken')
+    D.sploot('Your fancies are more borken')
   }
 
   D.Etc.FancyRegex = RegExp(Object.keys(D.Fancies)
@@ -1248,7 +1260,7 @@ D.import_fancy('__', {
     token.value = pieces.shift()
 
     if(token.value != '__' && token.value != '__in') {
-      D.set_error('Only __ and __in are allow to start with __')
+      D.sploot('Only __ and __in are allow to start with __')
       token.type = 'String'                                           // error segment stays in pipeline
       token.value = ''                                                // and produces empty value
       return [token]
@@ -1368,7 +1380,7 @@ D.import_models = function(new_models) {
     for(var method_key in methods) {                // P-effectpartition: exactly one of fun / effect
       var method = methods[method_key]
       if(!method.fun == !method.effect) {           // both, or neither
-        D.set_error('Command "' + model_key + ' ' + method_key + '" must have exactly one of fun or effect')
+        D.sploot('Command "' + model_key + ' ' + method_key + '" must have exactly one of fun or effect')
         delete methods[method_key]
       }
     }
@@ -1468,7 +1480,7 @@ D.peek = function(base, path) {
     }
 
     if(!pf)
-      return D.set_error('No matching pathfinder was found')
+      return D.sploot('No matching pathfinder was found')
 
     for(var j=0, k=todo.length; j < k; j++) {
       if(test == 'many')                                    // traversal: children only, arity varies
@@ -1554,7 +1566,7 @@ D.poke = function(base, path, value) {
     }
 
     if(!pf)
-      return D.set_error('No matching pathfinder was found')
+      return D.sploot('No matching pathfinder was found')
 
     if(i < l - 1) {
       // --- intermediate step: create/traverse ---
@@ -1563,7 +1575,7 @@ D.poke = function(base, path, value) {
       for(var j=0, k=todo.length; j < k; j++) {
         // [poke-key-unkeyed-fail] non-numeric string key on non-empty unkeyed array: soft error + skip
         if(Array.isArray(todo[j]) && todo[j].length && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key) && !/^\d+$/.test(key)) {
-          D.set_error('Cannot poke key "' + key + '" into an unkeyed list')
+          D.sploot('Cannot poke key "' + key + '" into an unkeyed list')
           continue
         }
         // [poke-key-empty] empty array + string key: convert to object (empty ≡ Empty)
@@ -1617,7 +1629,7 @@ D.poke = function(base, path, value) {
       for(var j=0, k=todo.length; j < k; j++) {
         // [poke-key-unkeyed-fail] non-numeric string key on non-empty unkeyed array: soft error + skip
         if(Array.isArray(todo[j]) && todo[j].length && test == 'one' && typeof key == 'string' && !/^#-?\d/.test(key) && !/^\d+$/.test(key)) {
-          D.set_error('Cannot poke key "' + key + '" into an unkeyed list')
+          D.sploot('Cannot poke key "' + key + '" into an unkeyed list')
           continue
         }
         // [poke-key-empty] empty array + string key: convert to object
@@ -1678,7 +1690,7 @@ D.delete_path = function(base, path) {
     }
     else if(Array.isArray(v)) {                           // [delete-key-unkeyed]: key coercion
       if(/^\d+$/.test(key)) ks = (+key < v.length) ? [key] : []
-      else D.set_error('Cannot delete key "' + key + '" from an unkeyed list')
+      else D.sploot('Cannot delete key "' + key + '" from an unkeyed list')
     }
     else                                                  // [delete-key-keyed]: no-op if missing
       ks = D._hop.call(v, key) ? [key] : []
@@ -1900,7 +1912,7 @@ D.Parser.pipeline_string_to_tokens = function(string, quoted) {
       , block_match = pipeline.match(/^\{begin (\w+)/)
 
     if(!block_match) {
-      D.set_error('Invalid block name in ' + pipeline)
+      D.sploot('Invalid block name in ' + pipeline)
       return []
     }
 
@@ -1915,7 +1927,7 @@ D.Parser.pipeline_string_to_tokens = function(string, quoted) {
   }
   else {
     if(string[0] != '{' && string.slice(-1) != '}') {
-      D.set_error('That string is not a pipeline')
+      D.sploot('That string is not a pipeline')
       return []
     }
 
@@ -2648,20 +2660,20 @@ D.Port = function(port_template, space) {
   var pflav = D.PortFlavours[flavour]
 
   if(!pflav)
-    return D.set_error('Port flavour "' + flavour + '" could not be identified')
+    return D.sploot('Port flavour "' + flavour + '" could not be identified')
 
   if(pflav.unsafe && space && space.dialect && space.dialect.policy.restrict_unsafe_ports) {
-    return D.set_error('Port flavour "' + flavour + '" is not allowed in this space')
+    return D.sploot('Port flavour "' + flavour + '" is not allowed in this space')
   }
 
   // if(D.PORTS[name])
-  //   return D.set_error('That port has already been added')
+  //   return D.sploot('That port has already been added')
 
   if(!name)
     name = 'port-' + Math.random()
 
   // if(!space)
-  //   return D.set_error('Every port must have a space')
+  //   return D.sploot('Every port must have a space')
 
   var port = Object.create(pflav)
 
@@ -2734,7 +2746,7 @@ D.Space = function(seed_id, parent, prng_seed, name, opts) {
     , self = this
 
   if(!seed)
-    return D.set_error('Invalid spaceseed')
+    return D.sploot('Invalid spaceseed')
 
   this.seed = seed
   this.state = {}
@@ -2769,7 +2781,7 @@ D.Space = function(seed_id, parent, prng_seed, name, opts) {
   // Only outer space can declare dialect; subspace declarations are a soft error
   if(seed.dialect && Object.keys(seed.dialect).length) {
     if(parent) {                                    // ANY shape soft-errors [dialect-outer-only]
-      D.set_error('Subspace cannot declare its own dialect restrictions')
+      D.sploot('Subspace cannot declare its own dialect restrictions')
     } else if(seed.dialect.blocked_methods) {
       var restricted = D.make_restricted_dialect(seed.dialect)
       this.dialect = D.intersect_dialects(this.dialect, restricted)
@@ -2883,7 +2895,7 @@ D.notify_blackhole = function(hook, space) {
   if(typeof D.Etc[hook] != 'function') return
   try { D.Etc[hook](D.blackhole_manifest(space)) }
   catch(e) {
-    D.set_error('Black-hole ' + (hook == 'on_blackhole' ? 'formation' : 'teardown')
+    D.sploot('Black-hole ' + (hook == 'on_blackhole' ? 'formation' : 'teardown')
               + ' hook error: ' + e.message)
   }
 }
@@ -2912,13 +2924,13 @@ D.socket_load = function(port, src, mode) {
 
   var seed_id
   try { seed_id = D.make_some_space(String(src)) }
-  catch(e) { return D.set_error('Socket load splooted: ' + e.message) }
+  catch(e) { return D.sploot('Socket load splooted: ' + e.message) }
 
   var newseed = D.SPACESEEDS[seed_id]
   if(!newseed)
-    return D.set_error('Socket load splooted: no space compiled')
+    return D.sploot('Socket load splooted: no space compiled')
   if(newseed.blackhole)                             // [blackhole-no-socket-load] (load side)
-    return D.set_error('Socket load splooted: a black hole cannot be loaded')
+    return D.sploot('Socket load splooted: a black hole cannot be loaded')
 
   var busy = old && (old.processes.length || old.queue.length || old._drain_pending)
 
@@ -3180,7 +3192,7 @@ D.Space.prototype.loadSubspace = function(daml) {
   // Parse DAML source text into a space seed and install as a subspace
   var seed_id = D.make_some_space(daml)
   if (typeof seed_id !== 'number')
-    return D.set_error('Failed to load subspace from DAML')
+    return D.sploot('Failed to load subspace from DAML')
 
   // Create the subspace with this space as parent
   var subspace = new D.Space(seed_id, this)
@@ -3214,7 +3226,7 @@ D.Space.prototype.dock = function(ship, station_id, sender, ship_number) {
   var out_port = D.filter_ports(this.ports, station_id, '_out')
 
   if(!out_port)
-    return D.set_error('That out port is unavailable')
+    return D.sploot('That out port is unavailable')
 
   // The process number is assigned when the ship actually STARTS — a ship
   // queued behind a held space re-numbers past the wait [sched-dock-max],
@@ -3240,7 +3252,7 @@ D.Space.prototype.please_change_your_seed_to = function(seed_id) {
     , new_seed = D.SPACESEEDS[seed_id]
 
   if(!new_seed)
-    return D.set_error('You done messed up')
+    return D.sploot('You done messed up')
 
   if(JSON.stringify(old_seed) == JSON.stringify(new_seed))
     console.log('Identical seeds')
@@ -3351,7 +3363,7 @@ D.Space.prototype.change_seed = function(seed_id) {
 //   var index = this.stations.indexOf(station)
 //
 //   if(index == -1)
-//     return D.set_error('No such station found')
+//     return D.sploot('No such station found')
 //
 //   // TODO: remove the station's ports
 //
@@ -3393,7 +3405,7 @@ D.Space.prototype.execute = function(ablock_or_segment, scope, prior_starter, st
   // if(!when_done) {
   //   when_done = function(result) {
   //     // THINK: what should we do here?
-  //     D.set_error("No when_done callback sent to space.execute for result: " + D.stringify(result))
+  //     D.sploot("No when_done callback sent to space.execute for result: " + D.stringify(result))
   //   }
   // }
 
@@ -3453,7 +3465,7 @@ D.Space.prototype.try_execute = function(process) {
   try {
     return process.run()
   } catch(e) {
-    D.set_error(e.message)
+    D.sploot(e.message)
   }
 }
 
@@ -3969,12 +3981,12 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
         var json_decl
         try {json_decl = JSON.parse(continuation)}
         catch(e) {
-          throw new Error((this_seed.blackhole ? 'Invalid JSON in black-hole metadata: '
-                                               : 'Invalid JSON in dialect declaration: ')
-                        + continuation)           // [spacesyn-dialect] [blackhole-meta]
+          D.bork((this_seed.blackhole ? 'Invalid JSON in black-hole metadata: '
+                 : 'Invalid JSON in dialect declaration: ')
+                 + continuation)           // [spacesyn-dialect] [blackhole-meta]
         }
         if(this_seed._json_seen)
-          throw new Error('A space body takes at most one JSON object declaration: ' + continuation)
+          D.bork('A space body takes at most one JSON object declaration: ' + continuation)
         this_seed._json_seen = true
         if(this_seed.blackhole)
           this_seed.meta = json_decl              // [blackhole-meta]
@@ -3984,11 +3996,11 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
 
       if(action == 'port') {
         if(action_name.indexOf('cmd:') == 0)        // [demandport-create]
-          throw new Error('cmd: ports are demand-created and cannot be declared: @' + action_name)
+          D.bork('cmd: ports are demand-created and cannot be declared: @' + action_name)
         value = continuation ? continuation.split(/\s+/) : [action_name]
         if(value[0] == 'socket-load' || value[0] == 'socket-load-smash')
-          throw new Error('the socket-load flavour is retired — declare the socket with !name; '
-                        + 'its port-likes are implicit: @' + action_name)  // [socket-portlike-implicit]
+          D.bork('the socket-load flavour is retired — declare the socket with !name; '
+                 + 'its port-likes are implicit: @' + action_name)  // [socket-portlike-implicit]
         this_seed.ports[action_name] = value //.map(function(item) {return item.replace(/^\s+|\s+$/g, '')})
       }
 
@@ -4000,14 +4012,14 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
           // read as names (Daimio has no booleans or nulls)
           var refkey = resolve_space(continuation)
           if(!refkey)
-            throw new Error('State reference "' + continuation + '" resolves to '
-                          + 'no visible definition: $' + action_name)  // [state-ref-unresolved-bork]
+            D.bork('State reference "' + continuation + '" resolves to '
+                   + 'no visible definition: $' + action_name)  // [state-ref-unresolved-bork]
           this_seed.state[action_name] = {__spaceref: refkey}
         } else {
           try {this_seed.state[action_name] = JSON.parse(continuation)}
           catch(e) {
-            throw new Error('State value is neither a definition name nor valid JSON: $'
-                          + action_name + ' ' + continuation)
+            D.bork('State value is neither a definition name nor valid JSON: $'
+                   + action_name + ' ' + continuation)
           }
         }
       }
@@ -4043,9 +4055,9 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
           }).length
 
           if(structural)                            // a bare block is always a station — never a silent subspace
-            throw new Error('A nested space definition requires its sigil '
-                          + '(+name subspace, *name black hole, !name socket): '
-                          + action_name)            // [spacesyn-sigil-required]
+            D.bork('A nested space definition requires its sigil '
+                   + '(+name subspace, *name black hole, !name socket): '
+                   + action_name)            // [spacesyn-sigil-required]
 
           if(!continuation && templates[action_name])
             continuation = templates[action_name]
@@ -4113,8 +4125,8 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
       }
 
       if(line[0] == '+' || line[0] == '!')          // [spacesyn-sigil-required] [socket-load-not-root]
-        throw new Error('The ' + line[0] + ' sigil marks a nested space definition; '
-                      + 'top-level spaces are bare (or *name for a black hole): ' + line)
+        D.bork('The ' + line[0] + ' sigil marks a nested space definition; '
+               + 'top-level spaces are bare (or *name for a black hole): ' + line)
 
       if(seed_name)                                 // finalize the previous definition's
         top_sources[seed_name] =                    // raw text (this label line excluded)
@@ -4143,8 +4155,8 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
         return
       }
       if(line.indexOf('->') == -1)
-        throw new Error((this_seed.blackhole ? 'Invalid JSON in black-hole metadata: '
-                                             : 'Invalid JSON in dialect declaration: ') + line)
+        D.bork((this_seed.blackhole ? 'Invalid JSON in black-hole metadata: '
+               : 'Invalid JSON in dialect declaration: ') + line)
       // falls through: a wire whose first endpoint is an inline station
     }
 
@@ -4165,7 +4177,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
 
     if(/^[+!*][a-z]/.test(name) && line.indexOf('->') == -1) {
       if(continuation)                              // a sigil label takes an indented body, nothing inline
-        throw new Error('A nested space definition takes an indented body: ' + line)
+        D.bork('A nested space definition takes an indented body: ' + line)
       sigil = name[0]                               // [spacesyn-subspace-nested]
       action_name = name.slice(1)
       action = 'station'
@@ -4195,7 +4207,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
       // Malformed contracts bork hard [spacedef-hard-error] [roundtrip-enex-lhs].
       var parts = line.split('<->')
       if(parts.length != 2)
-        throw new Error('A contract must have exactly two endpoints: ' + line)
+        D.bork('A contract must have exactly two endpoints: ' + line)
 
       var lhs = parts[0].replace(/^\s+|\s+$/g, '')
         , rhs = parts[1].replace(/^\s+|\s+$/g, '')
@@ -4239,7 +4251,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
         var lsplit = lhs.split('.', 2)
           , lspace = resolve_space(lsplit[0])
         if(!lspace || !/^down(:|$)/.test(lsplit[1]))
-          throw new Error('Contract LHS must be an up/down port or a subspace down port: ' + line)
+          D.bork('Contract LHS must be an up/down port or a subspace down port: ' + line)
         this_seed.subspaces[lsplit[0]] = lspace
         lkey = lhs
       }
@@ -4248,7 +4260,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
           , lflav = ldecl && D.PortFlavours[ldecl[0]]
           , ldir  = lflav ? lflav.dir : lhs.split(':')[0]
         if(ldir != 'up')                                 // my-own contract LHS is Enter-N-Exit: @up only
-          throw new Error('Contract LHS must be an @up port, or a subspace @down/@cmd port: ' + line)
+          D.bork('Contract LHS must be an @up port, or a subspace @down/@cmd port: ' + line)
         if(!ldecl)
           this_seed.ports[lhs] = [ldir]                  // implicit creation, default flavour for the direction
         lkey = lhs
@@ -4266,7 +4278,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
           , rflav = rdecl && D.PortFlavours[rdecl[0]]
           , rdir  = rflav ? rflav.dir : rport.split(':')[0]
         if(rdir != 'down')                               // my-own contract RHS is Exit-N-Reenter: @down only
-          throw new Error('Contract RHS must be a station, an @down port, or a subspace @up port: ' + line)
+          D.bork('Contract RHS must be a station, an @down port, or a subspace @up port: ' + line)
         if(!rdecl)
           this_seed.ports[rport] = [rdir]
         rkey = rport
@@ -4276,9 +4288,9 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
           , rsplit = rnorm.split('.', 2)
           , rspace = resolve_space(rsplit[0])
         if(this_seed.stations[rsplit[0]])
-          throw new Error('A station named port cannot fulfill a contract (use the bare station name): ' + line)
+          D.bork('A station named port cannot fulfill a contract (use the bare station name): ' + line)
         if(!rspace || !/^up(:|$)/.test(rsplit[1]))
-          throw new Error('Contract RHS must be a station, a down port, or a subspace up port: ' + line)
+          D.bork('Contract RHS must be a station, a down port, or a subspace up port: ' + line)
         this_seed.subspaces[rsplit[0]] = rspace
         rkey = rnorm
       }
@@ -4317,8 +4329,8 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
         }
 
         if(/^[+!*]/.test(part))                     // references always use the bare name
-          throw new Error('Sigils appear only at definition sites; endpoints use the bare name: '
-                        + part)                     // [blackhole-ref-bare]
+          D.bork('Sigils appear only at definition sites; endpoints use the bare name: '
+                 + part)                     // [blackhole-ref-bare]
 
         if(part.indexOf('@') > 0)                  // name@port endpoint (§3) — '.' is the internal key form
           part = part.replace('@', '.')
@@ -4343,13 +4355,13 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
           } else if(resolve_space(name)) {         // innermost visible wins [spacesyn-scope-chain]
             this_seed.subspaces[name] = resolve_space(name)  // TODO: foo.in, foo-1.in, foo-2.in, etc
           } else {
-            D.set_error('Subspace "' + name + '" is not visible here (undefined, '
-                      + 'incomplete, or outside a socket barrier)') // [spacesyn-subspace-before-ref] [socket-scope-barrier]
+            D.bork('Subspace "' + name + '" is not visible here (undefined, '
+                   + 'incomplete, or outside a socket barrier)') // [spacesyn-unresolved-ref] [spacesyn-subspace-before-ref] [socket-scope-barrier]
           }
           if(route.length) {
             route.push(part)                     // destination (entering subspace)
             if(!route[0] || !route[1]) {
-              D.set_error('Port not found in line: ' + line)
+              D.sploot('Port not found in line: ' + line)
               route = []
             } else {
               push_route(route)
@@ -4365,7 +4377,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
           else {
             route.push(part + '.in')               // TODO: ensure pushed route isn't null,null
             if(!route[0] || !route[1]) {
-              D.set_error('Port not found in line: ' + line)
+              D.sploot('Port not found in line: ' + line)
               route = []
             }
             else {
@@ -4380,7 +4392,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
         if(route.length == 2) {
           // only the port branch reaches here with a full pair
           if(!route[0] || !route[1]) {
-            D.set_error('Port not found in line: ' + line)
+            D.sploot('Port not found in line: ' + line)
             route = []
           }
           else {
@@ -4452,24 +4464,24 @@ D.make_spaceseeds = function(seedlikes) {
 
     for(var cname in subspaces)                     // one component namespace per body
       if(stations[cname])
-        throw new Error('A station and a subspace share a name: ' + cname
-                      + ' in ' + seedkey)           // [spacesyn-name-collision]
+        D.bork('A station and a subspace share a name: ' + cname
+               + ' in ' + seedkey)           // [spacesyn-name-collision]
 
     if(seed.blackhole) {                            // §4 black holes: ports only, in/out only,
       if(Object.keys(stations).length || Object.keys(state).length || routes.length)
-        throw new Error('A black hole has no interior — ports only: '
-                      + seedkey)                    // [blackhole-only-ports] [blackhole-no-interior]
+        D.bork('A black hole has no interior — ports only: '
+               + seedkey)                    // [blackhole-only-ports] [blackhole-no-interior]
       for(var key in ports) {
         var bdir = key.split(':')[0]
         if(bdir == 'up' || bdir == 'down')
-          throw new Error('A black hole has in/out ports only: @' + key)  // [blackhole-inout-only]
+          D.bork('A black hole has in/out ports only: @' + key)  // [blackhole-inout-only]
         var bflav = ports[key][0] == key            // bare decl: generic OPPOSING flavour
                   ? (bdir == 'in' ? 'out' : 'in')   // [blackhole-default-flavour]
                   : ports[key][0]
         var bfdir = D.PortFlavours[bflav] && D.PortFlavours[bflav].dir
         if(bfdir && bfdir == bdir)
-          throw new Error('A black hole port flavour must oppose its direction: @' + key
-                        + ' ' + bflav)              // [blackhole-flavour-oppose]
+          D.bork('A black hole port flavour must oppose its direction: @' + key
+                 + ' ' + bflav)              // [blackhole-flavour-oppose]
         ports[key] = [bflav].concat(ports[key].slice(1))
       }
     }
@@ -4545,7 +4557,7 @@ D.make_spaceseeds = function(seedlikes) {
         , dupkey = rule.holder + '@cmd:' + rule.pattern
 
       if(rule_seen[dupkey])                                 // [wiring-no-duplicate]
-        throw new Error('Duplicate wiring rule pattern: ' + dupkey)
+        D.bork('Duplicate wiring rule pattern: ' + dupkey)
       rule_seen[dupkey] = true
 
       if(station_key_to_index[rule.holder])
@@ -4553,7 +4565,7 @@ D.make_spaceseeds = function(seedlikes) {
       else if(subspace_key_to_index[rule.holder])
         compiled.holder_space = subspace_key_to_index[rule.holder]
       else
-        throw new Error('Unknown wiring rule holder "' + rule.holder + '"')
+        D.bork('Unknown wiring rule holder "' + rule.holder + '"')
 
       if(rule.target == '@cmd') {                           // forward to my own boundary [cmd-forward]
         compiled.forward = true
@@ -4561,18 +4573,18 @@ D.make_spaceseeds = function(seedlikes) {
       else if(rule.target[0] == '@') {                      // my own port (world/down)
         compiled.target_port = port_key_to_index[rule.target.slice(1)]
         if(!compiled.target_port)
-          throw new Error('Unknown wiring rule target "' + rule.target + '"')
+          D.bork('Unknown wiring rule target "' + rule.target + '"')
       }
       else if(rule.target.indexOf('@') > 0 || rule.target.indexOf('.') > 0) {
         compiled.target_port = port_key_to_index[rule.target.replace('@', '.')]  // sibling up-port
         if(!compiled.target_port)
-          throw new Error('Unknown wiring rule target "' + rule.target + '"')
+          D.bork('Unknown wiring rule target "' + rule.target + '"')
       }
       else {                                                // station in this space [wiring-target-station]
         compiled.target_in  = port_key_to_index[rule.target + '.in']
         compiled.target_out = port_key_to_index[rule.target + '.out']
         if(!compiled.target_in)
-          throw new Error('Unknown wiring rule target "' + rule.target + '"')
+          D.bork('Unknown wiring rule target "' + rule.target + '"')
       }
 
       newseed.rules.push(compiled)
@@ -4584,9 +4596,9 @@ D.make_spaceseeds = function(seedlikes) {
           , two = port_key_to_index[route[1].replace(/\*$/, '')]
 
         if(!one)
-          D.set_error('Invalid route: ' + route[0])
+          D.sploot('Invalid route: ' + route[0])
         if(!two)
-          D.set_error('Invalid route: ' + route[1])
+          D.sploot('Invalid route: ' + route[1])
 
         if(!one || !two)
           return []
@@ -4606,7 +4618,7 @@ D.make_spaceseeds = function(seedlikes) {
 
   var rootkey = seedmap['outer'] ? 'outer' : seedkey
   if(seedlikes[rootkey] && seedlikes[rootkey].blackhole)
-    throw new Error('The root space cannot be a black hole: ' + rootkey)  // [blackhole-not-root]
+    D.bork('The root space cannot be a black hole: ' + rootkey)  // [blackhole-not-root]
 
   return seedmap[rootkey]
 }

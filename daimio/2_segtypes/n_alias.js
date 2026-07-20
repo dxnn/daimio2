@@ -8,7 +8,7 @@ D.SegmentTypes.Alias = {
     var new_tokens = D.Aliases[token.value.word]
 
     if(!new_tokens) {
-      D.set_error("The alias '" + token.value.word + "' stares at you blankly")
+      D.sploot("The alias '" + token.value.word + "' stares at you blankly")
       return [L, R]
     }
 
