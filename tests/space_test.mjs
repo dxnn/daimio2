@@ -3380,6 +3380,49 @@ sync_test('json state pin block [spacesyn-state]', function() {
   assert_eq('string state value [spacesyn-state]', D.SPACESEEDS[oid].state.s, 'true')
 })
 
+// A user JSON state value that happens to contain the internal reference key
+// is ordinary data, never a definition reference — refs are held out-of-band,
+// so the value's contents are never inspected. It must survive verbatim: no
+// JS crash (totality), no silent replacement [state-ref].
+sync_test('user JSON carrying the ref key survives, unresolved name [state-ref]', function() {
+  var oid = D.make_some_space('outer_sr1\n  @init from-js\n  $x {"__spaceref": "nosuchdef"}\n  @init -> @out')
+  assert_eq('kept verbatim, no crash', D.SPACESEEDS[oid].state.x, {__spaceref: 'nosuchdef'})
+})
+
+sync_test('user JSON ref key matching a real def is not corrupted [state-ref]', function() {
+  var oid = D.make_some_space('helper_sr\n  @in\n  @out\n  @in -> @out\n'
+    + 'outer_sr2\n  @init from-js\n  $x {"__spaceref": "helper_sr"}\n  @init -> @out')
+  assert_eq('object kept, not replaced by the def source',
+    D.SPACESEEDS[oid].state.x, {__spaceref: 'helper_sr'})
+})
+
+// State-value grammar illustration: an unquoted token is either a bare
+// definition-name reference or JSON. Parentheses are DAML list syntax, not
+// JSON, so `$items ()` borks; the empty list must be written `[]`.
+parse_test('$items () borks — () is DAML, not valid JSON [spacedef-hard-error]',
+  `outer_sv1
+    @init from-js
+    $items ()
+    @init -> @out`, true)
+
+sync_test('$items [] is a valid empty-list state value [spacesyn-state]', function() {
+  var oid = D.make_some_space('outer_sv2\n  @init from-js\n  $items []\n  @init -> @out')
+  assert_eq('empty array value', D.SPACESEEDS[oid].state.items, [])
+})
+
+// A bare word is a definition-name reference, not the string "auto"; with no
+// such definition it borks. Quote it to store the literal string instead.
+parse_test('$bare auto reads as a def reference, borks unresolved [state-ref-unresolved-bork]',
+  `outer_sv3
+    @init from-js
+    $bare auto
+    @init -> @out`, true)
+
+sync_test('$bare "(auto)" is the literal string — quoting wins [spacesyn-state]', function() {
+  var oid = D.make_some_space('outer_sv4\n  @init from-js\n  $bare "(auto)"\n  @init -> @out')
+  assert_eq('quoted string value', D.SPACESEEDS[oid].state.bare, '(auto)')
+})
+
 // A reference to a socket definition is parse-time only: the captured svar
 // does NOT change when that socket is later reloaded [state-ref-parse-time].
 sync_test('state ref socket parse-time block [state-ref-parse-time]', function() {

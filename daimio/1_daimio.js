@@ -3956,6 +3956,11 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
     , top_sources = {}                              // raw source per definition, as
     , top_raw = []                                  // written [state-ref]
 
+  var finalize_source = function(name, lines) {     // append a definition's raw text to its
+    top_sources[name] = (top_sources[name] ? top_sources[name] + '\n' : '')  // accumulated
+                      + lines.join('\n').replace(/\s+$/, '')                  // source [state-ref]
+  }
+
   var resolve_space = function(name) {              // innermost shadows [spacesyn-shadow-local]
     if(this_seed.subspaces[name]) return this_seed.subspaces[name]
     if(seedlikes[name]) return name
@@ -4014,7 +4019,8 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
           if(!refkey)
             D.bork('State reference "' + continuation + '" resolves to '
                    + 'no visible definition: $' + action_name)  // [state-ref-unresolved-bork]
-          this_seed.state[action_name] = {__spaceref: refkey}
+          if(!this_seed.state_refs) this_seed.state_refs = {}  // refs live OUT-OF-BAND, never
+          this_seed.state_refs[action_name] = refkey           // inside the value [state-ref]
         } else {
           try {this_seed.state[action_name] = JSON.parse(continuation)}
           catch(e) {
@@ -4128,10 +4134,8 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
         D.bork('The ' + line[0] + ' sigil marks a nested space definition; '
                + 'top-level spaces are bare (or *name for a black hole): ' + line)
 
-      if(seed_name)                                 // finalize the previous definition's
-        top_sources[seed_name] =                    // raw text (this label line excluded)
-          (top_sources[seed_name] ? top_sources[seed_name] + '\n' : '')
-          + top_raw.slice(0, -1).join('\n').replace(/\s+$/, '')
+      if(seed_name)                                 // finalize the previous definition's raw
+        finalize_source(seed_name, top_raw.slice(0, -1))  // text (this label line excluded)
       top_raw = top_raw.slice(-1)                   // the new label starts the next source
 
       var top_blackhole = line[0] == '*'            // [spacesyn-blackhole]
@@ -4204,7 +4208,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
       // or a subspace down port); RHS is a station, inline {block}, my down
       // port, or a subspace up port. Two routes: request leg + response leg.
       // A holder@cmd:glob LHS is a wiring rule — stored, not routed (item B).
-      // Malformed contracts bork hard [spacedef-hard-error] [roundtrip-enex-lhs].
+      // Malformed contracts bork [spacedef-hard-error] [roundtrip-enex-lhs].
       var parts = line.split('<->')
       if(parts.length != 2)
         D.bork('A contract must have exactly two endpoints: ' + line)
@@ -4417,9 +4421,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
   }
 
   if(seed_name)                                     // finalize the last definition and
-    top_sources[seed_name] =                        // attach raw sources [state-ref]
-      (top_sources[seed_name] ? top_sources[seed_name] + '\n' : '')
-      + top_raw.join('\n').replace(/\s+$/, '')
+    finalize_source(seed_name, top_raw)             // attach raw sources [state-ref]
   for(var sname in top_sources)
     if(seedlikes[sname]) seedlikes[sname].source = top_sources[sname]
     // seedlikes[seed_name] = this_seed
@@ -4441,21 +4443,14 @@ D.make_spaceseeds = function(seedlikes) {
       , subspaces = seed.subspaces || {}
       , newseed = {}
 
-    newseed.state = {}                              // resolve definition references [state-ref]:
-    for(var sk in state) {                          // the svar's initial value is the referenced
-      var sv = state[sk]                            // definition's canonical source, captured at
-      if(sv && typeof sv == 'object' && sv.__spaceref) {  // compile — parse-time only
-        var refsl = seedlikes[sv.__spaceref]              // [state-ref-parse-time]
-        if(refsl && refsl.source != null) {
-          newseed.state[sk] = refsl.source                // raw text, as written [state-ref]
-        } else {                                          // hand-built seedlike: fall back
-          var refseed = D.SPACESEEDS[seedmap[sv.__spaceref]]  // to canonical regeneration
-          newseed.state[sk] = D.serialize_seed(refseed, '',
-            (refseed.blackhole ? '*' : '') + sv.__spaceref.split('::')[0])
-        }
-      } else {
-        newseed.state[sk] = sv
-      }
+    newseed.state = {}
+    for(var sk in state)                            // plain state values pass through untouched —
+      newseed.state[sk] = state[sk]                 // a user object is never inspected for sentinels
+
+    var state_refs = seed.state_refs || {}          // definition references [state-ref] live out-of-band:
+    for(var rk in state_refs) {                     // resolve each to the referenced def's canonical
+      var refsl = seedlikes[state_refs[rk]]         // source, captured at compile [state-ref-parse-time]
+      newseed.state[rk] = refsl && refsl.source != null ? refsl.source : ''  // raw text, as written
     }
     newseed.dialect = dialect // TODO: check dialect
     if(seed.blackhole) newseed.blackhole = true
