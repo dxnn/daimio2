@@ -780,9 +780,14 @@ last top-level space defined [spacesyn-outer-root] — a nested
 definition is never root.
 
 **Definition references in state.** `$src worker_v2` initializes
-`$src` with the canonical Astroglot source (§8) of the definition
-`worker_v2`, resolved in the lexical chain [spacesyn-scope-chain]
-at parse time [state-ref]. A bare word in the value slot is always
+`$src` with the source text of the definition `worker_v2` as
+written -- comments and formatting included -- resolved in the
+lexical chain [spacesyn-scope-chain] at parse time [state-ref].
+A nested definition captures with its label at the margin, and
+`+` and `!` drop from the label: a captured payload must stand
+alone, and socketness belongs to the slot, not the content
+([spacesyn-socket]) -- while a black hole keeps its `*`
+(blackhole-ness is content). A bare word in the value slot is always
 a reference — `true`, `false`, and `null` included (Daimio has no
 booleans or nulls); anything else is JSON. The reference is
 parse-time only: every compile re-resolves it, so editing the

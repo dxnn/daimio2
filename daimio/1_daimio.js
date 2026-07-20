@@ -3941,6 +3941,8 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
     , subspace_buffer = []
     , templates = templates || {}
     , scope_chain = scope_chain || []
+    , top_sources = {}                              // raw source per definition, as
+    , top_raw = []                                  // written [state-ref]
 
   var resolve_space = function(name) {              // innermost shadows [spacesyn-shadow-local]
     if(this_seed.subspaces[name]) return this_seed.subspaces[name]
@@ -4068,6 +4070,8 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
     var this_offset = line.length - line.replace(/^\s+/,'').length
       , name='', value=''
 
+    top_raw.push(line)                              // verbatim, before any trimming
+
     line = line.replace(/^\s+|\s+$/g, '')
     if(!line)
       return
@@ -4111,6 +4115,12 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
       if(line[0] == '+' || line[0] == '!')          // [spacesyn-sigil-required] [socket-load-not-root]
         throw new Error('The ' + line[0] + ' sigil marks a nested space definition; '
                       + 'top-level spaces are bare (or *name for a black hole): ' + line)
+
+      if(seed_name)                                 // finalize the previous definition's
+        top_sources[seed_name] =                    // raw text (this label line excluded)
+          (top_sources[seed_name] ? top_sources[seed_name] + '\n' : '')
+          + top_raw.slice(0, -1).join('\n').replace(/\s+$/, '')
+      top_raw = top_raw.slice(-1)                   // the new label starts the next source
 
       var top_blackhole = line[0] == '*'            // [spacesyn-blackhole]
       seed_name = top_blackhole ? line.slice(1) : line
@@ -4393,6 +4403,13 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
       seedlikes[seed_name] = this_seed
     }
   }
+
+  if(seed_name)                                     // finalize the last definition and
+    top_sources[seed_name] =                        // attach raw sources [state-ref]
+      (top_sources[seed_name] ? top_sources[seed_name] + '\n' : '')
+      + top_raw.join('\n').replace(/\s+$/, '')
+  for(var sname in top_sources)
+    if(seedlikes[sname]) seedlikes[sname].source = top_sources[sname]
     // seedlikes[seed_name] = this_seed
 
   return seedlikes
@@ -4416,9 +4433,14 @@ D.make_spaceseeds = function(seedlikes) {
     for(var sk in state) {                          // the svar's initial value is the referenced
       var sv = state[sk]                            // definition's canonical source, captured at
       if(sv && typeof sv == 'object' && sv.__spaceref) {  // compile — parse-time only
-        var refseed = D.SPACESEEDS[seedmap[sv.__spaceref]]  // [state-ref-parse-time]
-        var reflabel = (refseed.blackhole ? '*' : '') + sv.__spaceref.split('::')[0]
-        newseed.state[sk] = D.serialize_seed(refseed, '', reflabel)
+        var refsl = seedlikes[sv.__spaceref]              // [state-ref-parse-time]
+        if(refsl && refsl.source != null) {
+          newseed.state[sk] = refsl.source                // raw text, as written [state-ref]
+        } else {                                          // hand-built seedlike: fall back
+          var refseed = D.SPACESEEDS[seedmap[sv.__spaceref]]  // to canonical regeneration
+          newseed.state[sk] = D.serialize_seed(refseed, '',
+            (refseed.blackhole ? '*' : '') + sv.__spaceref.split('::')[0])
+        }
       } else {
         newseed.state[sk] = sv
       }

@@ -3437,6 +3437,40 @@ sync_test('manifest hook throw block [manifest-hook-soft]', function() {
     errs.filter(function(m) { return /formation hook error/.test(m) }).length, 1)
 })
 
+// ══════════════════════════════════════════════════════════════════════
+// Spec batch 2026-07-19, part 6: state refs capture RAW source (dann's
+// ruling — as written, not the canonical §8 regeneration) [state-ref]
+// ══════════════════════════════════════════════════════════════════════
+
+// The captured value is the definition's source text as written —
+// comments and formatting survive (canonical capture stripped them, and
+// inherited the serializer's block-source collision).
+sync_test('state ref raw capture block [state-ref]', function() {
+  var def = 'worker_v3\n  / a load-bearing comment\n  @in\n  @out\n  w {8}\n  @in -> w\n  w -> @out'
+  var oid = D.make_some_space(def + '\nouter16\n  @init from-js\n  $src worker_v3\n  @init -> @out')
+  var src = D.SPACESEEDS[oid].state.src
+  assert_eq('captured text is the definition as written (comments survive) [state-ref]',
+    typeof src == 'string' && src.indexOf('load-bearing comment') >= 0 ? 'raw' : 'canonical: ' + src,
+    'raw')
+  assert_eq('captured raw text recompiles to the identical seed [state-ref]',
+    D.make_some_space(src), D.make_some_space(def))
+})
+
+// Label normalization pins: a captured socket definition is plain-labeled
+// (loadable standalone — socketness belongs to the slot [spacesyn-socket]);
+// a captured hole keeps its * (blackhole-ness is content).
+sync_test('captured label pins block [state-ref]', function() {
+  var oid = D.make_some_space('outer17\n  @init from-js\n'
+    + '  !slot2\n    @in\n    @out\n    o2 {9}\n    @in -> o2\n    o2 -> @out\n'
+    + '  *relay3\n    @in:feed websock-out\n'
+    + '  $sock_src slot2\n  $hole_src relay3\n  @init -> slot2@in')
+  var seed = D.SPACESEEDS[oid]
+  assert_eq('captured socket label is plain [state-ref] [spacesyn-socket]',
+    seed.state.sock_src.indexOf('slot2') === 0 ? 'plain' : 'wrong: ' + seed.state.sock_src, 'plain')
+  assert_eq('captured hole label keeps its sigil [state-ref] [blackhole-meta]',
+    seed.state.hole_src.indexOf('*relay3') === 0 ? 'starred' : 'wrong: ' + seed.state.hole_src, 'starred')
+})
+
 // ── Done registering ─────────────────────────────────────────────────
 
 all_registered = true
