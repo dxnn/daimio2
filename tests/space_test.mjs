@@ -956,7 +956,7 @@ space_test(
 space_test(
   'loop: accumulator builds list',
   `outer
-    $items ()
+    $items []
     @init from-js
     @out  collect
     adder  {__ | >v || $items | list union data _v | >$items}
@@ -1235,7 +1235,7 @@ space_test(
 space_test(
   'state: mutations from different entry ports accumulate',
   `outer
-    $log ()
+    $log []
     @a from-js
     @b from-js
     @out collect
@@ -2484,7 +2484,7 @@ multi_space_test(
 space_test(
   '[serial-per-space] two stations in one space process serially',
   `outer
-    $log ()
+    $log []
     @init from-js
     @out  collect
     stationA {__ | >a || ($log _a) | string join | >$log}
@@ -3267,6 +3267,87 @@ sync_test('anon survival block [serialize-anon-inline]', function() {
   var sources = re.stations.map(function(b) { return D.block_source(b) }).sort()
   assert_eq('both anons survive serialize/reparse with their sources [serialize-anon-inline]',
     sources, ['{11}', '{22}'])
+})
+
+// ══════════════════════════════════════════════════════════════════════
+// Spec batch 2026-07-19, part 4: definition references in state
+// [state-ref] [state-ref-parse-time] [state-ref-unresolved-bork]
+// ══════════════════════════════════════════════════════════════════════
+
+// `$src worker_v2` captures the canonical source of the referenced
+// definition; content addressing makes the assertion exact — the captured
+// text recompiles to the IDENTICAL seed id.
+sync_test('state ref capture block [state-ref]', function() {
+  var def = 'worker_v2\n  @in\n  @out\n  w {1}\n  @in -> w\n  w -> @out'
+  var oid = D.make_some_space(def + '\nouter4\n  @init from-js\n  $src worker_v2\n  @init -> @out')
+  var src = D.SPACESEEDS[oid].state.src
+  assert_eq('captured value is a string [state-ref]', typeof src, 'string')
+  assert_eq('captured source recompiles to the identical seed [state-ref]',
+    D.make_some_space(src), D.make_some_space(def))
+})
+
+// The chain rule applies: a completed nested sibling is capturable.
+sync_test('state ref nested sibling block [state-ref] [spacesyn-scope-chain]', function() {
+  var oid = D.make_some_space('outer5\n  @init from-js\n'
+    + '  +w2\n    @in\n    @out\n    st {2}\n    @in -> st\n    st -> @out\n'
+    + '  $src w2\n  @init -> @out')
+  var src = D.SPACESEEDS[oid].state.src
+  assert_eq('nested sibling captures under its local name [state-ref]',
+    typeof src == 'string' && src.indexOf('w2') === 0 ? 'w2-labeled' : 'wrong: ' + src,
+    'w2-labeled')
+})
+
+// An unresolved reference borks [state-ref-unresolved-bork].
+parse_test('unresolved state reference borks [state-ref-unresolved-bork]',
+  `outer6
+    @init from-js
+    $src nope
+    @init -> @out`, true)
+
+// Bare word wins over JSON: true/false/null read as names (Daimio has no
+// booleans or nulls) — with no such definition, they bork as unresolved.
+parse_test('bare true reads as a reference, not JSON [state-ref]',
+  `outer7
+    @init from-js
+    $x true
+    @init -> @out`, true)
+
+// A state value that is neither a name nor valid JSON borks.
+parse_test('invalid JSON state value borks [state-ref-unresolved-bork]',
+  `outer8
+    @init from-js
+    $count {broken
+    @init -> @out`, true)
+
+// Pin: a bare $name (no value) stays legal — the var is simply not set.
+parse_test('a valueless state declaration stays legal [spacesyn-state]',
+  `outer9
+    @init from-js
+    $flag
+    @init -> @out`, false)
+
+// Pin: ordinary JSON state values are untouched.
+sync_test('json state pin block [spacesyn-state]', function() {
+  var oid = D.make_some_space('outer10\n  @init from-js\n  $n 5\n  $s "true"\n  @init -> @out')
+  assert_eq('numeric state value [spacesyn-state]', D.SPACESEEDS[oid].state.n, 5)
+  assert_eq('string state value [spacesyn-state]', D.SPACESEEDS[oid].state.s, 'true')
+})
+
+// A reference to a socket definition is parse-time only: the captured svar
+// does NOT change when that socket is later reloaded [state-ref-parse-time].
+sync_test('state ref socket parse-time block [state-ref-parse-time]', function() {
+  var oid = D.make_some_space('outer11\n  @init from-js\n'
+    + '  !slot\n    @in\n    @out\n    orig {3}\n    @in -> orig\n    orig -> @out\n'
+    + '  $src slot\n  @init -> slot@in')
+  var space = new D.Space(oid)
+  var before = space.get_state('src')
+  var load_port = null
+  space.ports.forEach(function(p) { if(p.flavour == 'socket-load-smash') load_port = p })
+  D.socket_load(load_port, 'anything\n  @in\n  @out\n  fresh {4}\n  @in -> fresh\n  fresh -> @out', 'smash')
+  assert_eq('captured socket source unchanged after reload [state-ref-parse-time]',
+    space.get_state('src'), before)
+  assert_eq('capture was non-empty [state-ref-parse-time]',
+    typeof before == 'string' && before.length > 0, true)
 })
 
 // ── Done registering ─────────────────────────────────────────────────

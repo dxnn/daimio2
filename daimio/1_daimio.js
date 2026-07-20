@@ -3948,7 +3948,23 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
       }
 
       if(action == 'state') {
-        try {this_seed.state[action_name] = JSON.parse(continuation)} catch(e) {}
+        if(continuation === '') {
+          // $name alone: the var is simply not set [spacesyn-state]
+        } else if(/^[a-z][a-z0-9_-]*$/.test(continuation)) {
+          // bare word: definition reference [state-ref] — true/false/null
+          // read as names (Daimio has no booleans or nulls)
+          var refkey = resolve_space(continuation)
+          if(!refkey)
+            throw new Error('State reference "' + continuation + '" resolves to '
+                          + 'no visible definition: $' + action_name)  // [state-ref-unresolved-bork]
+          this_seed.state[action_name] = {__spaceref: refkey}
+        } else {
+          try {this_seed.state[action_name] = JSON.parse(continuation)}
+          catch(e) {
+            throw new Error('State value is neither a definition name nor valid JSON: $'
+                          + action_name + ' ' + continuation)
+          }
+        }
       }
 
       if(action == 'station') {
@@ -4353,7 +4369,17 @@ D.make_spaceseeds = function(seedlikes) {
       , subspaces = seed.subspaces || {}
       , newseed = {}
 
-    newseed.state = state // TODO: check state
+    newseed.state = {}                              // resolve definition references [state-ref]:
+    for(var sk in state) {                          // the svar's initial value is the referenced
+      var sv = state[sk]                            // definition's canonical source, captured at
+      if(sv && typeof sv == 'object' && sv.__spaceref) {  // compile — parse-time only
+        var refseed = D.SPACESEEDS[seedmap[sv.__spaceref]]  // [state-ref-parse-time]
+        var reflabel = (refseed.blackhole ? '*' : '') + sv.__spaceref.split('::')[0]
+        newseed.state[sk] = D.serialize_seed(refseed, '', reflabel)
+      } else {
+        newseed.state[sk] = sv
+      }
+    }
     newseed.dialect = dialect // TODO: check dialect
     if(seed.blackhole) newseed.blackhole = true
     if(seed.socket)    newseed.socket = true
