@@ -322,6 +322,23 @@ funtest('{"pxxffxfasdf" | string transform from "/x(.)/" to "{__ | string upperc
   } else {
     ERRORS.push({in: 'spaceseed identity: same seedlike same id', out: 'id1=' + id1 + ' id2=' + id2, was: 'id1 === id2'})
   }
+
+  // Test 5: PORT declaration order is canonicalized away — same id
+  // [seed-canonical-order]. (Two sources differing only in the order their
+  // ports are declared compile to the identical seed.)
+  var pA = D.make_some_space('canon_ports\n  @a from-js\n  @b to-js\n  @a -> @b\n')
+  var pB = D.make_some_space('canon_ports\n  @b to-js\n  @a from-js\n  @a -> @b\n')
+  if (pA === pB) pass++
+  else ERRORS.push({in: 'canonical order: port declaration order does not affect id [seed-canonical-order]', out: 'pA=' + pA + ' pB=' + pB, was: 'pA === pB'})
+
+  // Test 6: ROUTE (wire) declaration order IS part of identity — different id.
+  // Wire order is observable in delivery [sched-tie-wire], so it is NOT
+  // canonicalized away; two sources listing the same wires in a different
+  // order are different spaces.
+  var rA = D.make_some_space('canon_routes\n  @i from-js\n  @x to-js\n  @y to-js\n  @i -> @x\n  @i -> @y\n')
+  var rB = D.make_some_space('canon_routes\n  @i from-js\n  @x to-js\n  @y to-js\n  @i -> @y\n  @i -> @x\n')
+  if (rA !== rB) pass++
+  else ERRORS.push({in: 'wire order is part of identity: route declaration order changes the id [sched-tie-wire]', out: 'rA=' + rA + ' rB=' + rB, was: 'rA !== rB'})
 })()
 
 

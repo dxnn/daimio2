@@ -1003,14 +1003,19 @@ and initial state. A spaceseed is inert -- it does not process ships
 or hold live state. To run, it must be instantiated into a space
 (see Spaces below).
 
-Compilation **canonicalizes** the seed: stations, ports, routes, and
+Compilation **canonicalizes** the seed: stations, ports, and
 subspaces are stored in a content-derived canonical order, with
 declared names riding the permutation -- so two sources describing
 the same space compile to the identical seed regardless of
 declaration order [seed-canonical-order]. Wherever this spec says
 "canonical order" it means this order: a deterministic function of
 the definition's content, independent of how the source arranges its
-declarations.
+declarations. Route (wire) order is the one exception: it is
+preserved as written, because wire order is observable in delivery
+[sched-tie-wire] and so is part of the space's identity (two sources
+that list the same wires in a different order are different spaces).
+The port and station *indices* inside a route still ride the canonical
+permutation; only the order of the wires themselves is kept.
 
 TODO: doesn't wiringRules subsume fafRoutes and contracts? 
 TODO: do we really need a flag for blackhole? 
@@ -2009,8 +2014,8 @@ sent onto it -- always, not merely as a tiebreak [routing-deferred-order].
 (A single process's emissions all carry its number, and across the
 successive docks of a wire's source the numbers only increase, so a
 wire's FIFO order and number order never disagree.) Ships a process sends
-to *different* wires that converge at one destination queue dock in the
-wires' canonical route order ([seed-canonical-order])
+to *different* wires that converge at one destination queue dock in
+wire-declaration order -- the order the wires appear in the definition
 [sched-tie-wire]. Both orderings are fixed by the definition and the
 schedule, so two conforming implementations produce the same order.
 
@@ -2036,7 +2041,7 @@ number as the incoming number [sched-reentry-uniform].
 
 **Order.** Each space docks its lowest-numbered pending ship next
 [sched-dock-lowest]. Equal numbers resolve by the carrying wire's
-position in the seed's canonical route order [sched-tie-wire], then by FIFO
+position in wire-declaration order [sched-tie-wire], then by FIFO
 position within that wire [sched-wire-fifo]; a ship delivered with no
 carrying wire -- an error ship sent directly to `@out:err` (§12) --
 sorts after all wired ships at its number, by emission order. This key

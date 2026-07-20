@@ -3838,20 +3838,6 @@ D.spaceseed_add = function(seed) {
 
   // oh dear
 
-
-  var port_sort = function(portA, portB) {
-    if(portA.space != portB.space)
-      return portA.space > portB.space
-
-    if(portA.station && portA.station != portB.station)
-      return portA.station > portB.station
-
-    if(portA.subspace && portA.subspace != portB.subspace)
-      return portA.subspace > portB.subspace
-
-    return portA.name > portB.name
-  }
-
   // ensure the right properties, in sort order
   var good_port_props = ['space', 'station', 'name', 'flavour', 'typehint', 'settings']
   var ports = seed.ports.map(function(port) {
@@ -3906,13 +3892,11 @@ D.spaceseed_add = function(seed) {
   }
   seed.ports = sorted_string_ports.map(JSON.parse)
 
-  // these we can just sort. phew!
-  seed.routes.sort(function(routeA, routeB) {
-    if(routeA[0] != routeB[0])
-      return routeA[0] > routeB[0]
-
-    return routeA[1] > routeB[1]
-  })
+  // routes are NOT reordered: their order is wire-declaration order, which is
+  // load-bearing for tie-break delivery [sched-tie-wire] and so is part of the
+  // space's identity. (The old sort used a boolean comparator that never
+  // returned negative, so it silently failed to sort — this makes that
+  // explicit rather than relying on the accident.)
 
   seed.id = D.spaceseed_hash(seed)
   D.SPACESEEDS[seed.id] = seed // THINK: collision resolution?
