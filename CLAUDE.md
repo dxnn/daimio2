@@ -353,33 +353,48 @@ Design pass with dann, docs only (no engine code yet):
   body JSON = metadata, never dialect). Manifest (formation notification)
   awaiting dann's go after clarification.
 
-## Implementation queue (after the spec modifications land)
+## 2026-07-19 spec batch: SPEC APPLIED + IMPLEMENTED
 
-- Bork on bad JSON in dialect_decl AND hole metadata (dann: compile-time
-  issues are borks; spec already says dialect bad-JSON borks — engine
-  silently swallows, 1_daimio.js:3841-3 empty catch).
-- Fix the line-initial-`{` parser bug: the dialect branch eats a wire whose
-  first endpoint is an inline anon (`{x} -> A` vanishes from the seedlike;
-  grammar allows '{daml}' endpoints, D2-spec.md ~L718). Discriminator: a
-  wire contains `->` — but guard against `->` inside JSON strings.
-- §3 station/subspace name-collision bork (engine check + red guide).
-- §8 anon inlining in serialize (drop s-name generation; preserve anon
-  source order; fixture regen for anon labels — dann's explicit go first).
-- Hole seed.meta: make_spaceseeds pass-through + serialize push (two
-  one-liners) + manifest hook once the notification is approved and spec'd.
-- Scoping chain walk (resolve_space → completion-based lexical chain,
-  RULED: everywhere, one rule) + SOCKET BARRIER (a `!` definition's body
-  resolves only within its own subtree — sockets take everything with
-  them; NARROWING vs today: socket bodies referencing top-level defs will
-  start borking — corpus check needed). Source-ref svars flatten on
-  serialize (v1). RESOLVED: strict-JSON-borks applies at the space-body
-  level (metadata/dialect); the state-decl slot takes `json_value | name`
-  — `$src worker_v2` APPROVED (JSON reading wins: true/false/null are
-  JSON, such names not source-referenceable). `!name` refs allowed but
-  PARSE-TIME ONLY (svar does not track socket reloads). Full batch
-  drafted: design/spec-patches-2026-07-19-draft.md (11 patches, 17 new
-  IDs) — awaiting dann's read, then apply + consistency-check + red
-  guides.
+Spec: all 11 patches applied to D2-spec.md (9eda188/651f7c4/2ff6156, 16
+new IDs; consistency-checked, F1-F4 fixed, F5/F6 cosmetic left for dann).
+Engine: 5 TDD batches, 66ceada..2c77f74, ~29 new guides (space_test
+230/230), 15/15 suites, fuzzer clean. Landed: JSON borks (dialect + meta
++ state, second-object bork); hole seed.meta end-to-end (`*` sigil rides
+into the nested child parse; serialize round-trips); station/subspace
+collision bork (was ALREADY in the §3 catalog — engine never enforced,
+silent subspace-wins shadowing); line-initial-`{` fix (lone-JSON-object
+discriminator; two-identical-anons fixture regen'd — its render had
+captured the bug: one anon + a disconnected A); lexical-chain scoping +
+socket barrier (siblings/uncles visible, ancestors/later-siblings not;
+`!` children get an empty chain; demos/corpus clean of the narrowing);
+state definition refs (`$src worker_v2`, bare-word-wins incl.
+true/false/null, D.serialize_seed capture at compile — captured source
+recompiles to the IDENTICAL seed id via content addressing;
+[state-ref-parse-time] socket pin; 3 corpus sources said `$items ()` —
+invalid JSON the old empty catch turned into UNSET vars — now `[]`);
+serializer refactored to seed-level D.serialize_seed with anon INLINE
+emission (fixes s-name capture + anonymity destruction on reparse);
+formation/teardown manifests (D.Etc.on_blackhole /
+on_blackhole_teardown, synchronous, {qname,name,ports,meta}, teardown at
+perform_socket_swap commit, hook throws soft).
+
+OPEN FLAGS for dann from implementation:
+- [manifest-inject-frontier] unguided (needs inject-from-hook timing
+  machinery); det_blackhole's deferred negatives still stand.
+- CANONICAL ORDER vs "source order": spaceseed_add content-sorts
+  stations/ports/routes/subspaces (content addressing) — source order
+  does not survive compilation. So [qname-anon-station] anon numbering
+  is canonical-position, [blackhole-manifest-order] fires in canonical
+  subspace order, and §8's new "emission preserves their source order"
+  clause is wrong as written. Stability-across-reload holds via
+  determinism (the motivating property). Rule: reword the spec to
+  canonical/deterministic order, or carry source ordinals through the
+  canonical sort.
+- BLOCK-SOURCE COLLISION (pre-existing): blocks are content-addressed by
+  compiled STRUCTURE — textually-different, structurally-identical
+  station bodies ({zz} vs {aa}, both unknown-alias pass-throughs) share
+  a block id, and block_source keeps one text; serialize loses the
+  other. Low severity; surfaced by probe.
 - **Viz extraction**: PARKED (dann 2026-07-19), next to the 1_daimio.js
   split thread — see memory project_viz_extraction.md. Its prerequisite
   (the reflection contract above) is now settled.
