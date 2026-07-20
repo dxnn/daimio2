@@ -381,15 +381,11 @@ perform_socket_swap commit, hook throws soft).
 OPEN FLAGS for dann from implementation:
 - [manifest-inject-frontier] unguided (needs inject-from-hook timing
   machinery); det_blackhole's deferred negatives still stand.
-- CANONICAL ORDER vs "source order": spaceseed_add content-sorts
-  stations/ports/routes/subspaces (content addressing) — source order
-  does not survive compilation. So [qname-anon-station] anon numbering
-  is canonical-position, [blackhole-manifest-order] fires in canonical
-  subspace order, and §8's new "emission preserves their source order"
-  clause is wrong as written. Stability-across-reload holds via
-  determinism (the motivating property). Rule: reword the spec to
-  canonical/deterministic order, or carry source ordinals through the
-  canonical sort.
+- CANONICAL ORDER: RESOLVED (dann, d7642c3) — spec reworded to
+  canonical order everywhere source/declaration order was claimed; new
+  anchor [seed-canonical-order] in §3 Spaceseeds; §14's station/route-
+  ordering normal-form bullet marked done in substance. Engine comments
+  aligned; no behavior change.
 - BLOCK-SOURCE COLLISION (pre-existing): blocks are content-addressed by
   compiled STRUCTURE — textually-different, structurally-identical
   station bodies ({zz} vs {aa}, both unknown-alias pass-throughs) share
