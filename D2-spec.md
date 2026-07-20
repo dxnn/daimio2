@@ -894,12 +894,11 @@ outer
 
 A station with named out-ports:
 ```
-splitter
-  {__ | >@left | >@right}
-
 main
   @in:init from-js
   @out:result  to-js
+  splitter
+    {__ | >@left | >@right}
   @in:init -> splitter
   splitter@left  -> {__ | add 1}  -> @out:result
   splitter@right -> {__ | add 10} -> @out:result
@@ -912,6 +911,16 @@ to that port -- but only because the route declared it. Without
 the route, the port doesn't exist and `>@left` sploots at
 runtime. This ensures the space definition controls which ports
 each station can access.
+
+A station may carry any number of named ports this way: above,
+`splitter` fans one ship out through both `@left` and `@right`,
+and each arm runs independently. A `station@port` endpoint must
+resolve to a station that is already declared, so the station's
+declaration must precede any route that names one of its ports;
+a forward `station@port` reference borks [spacesyn-unresolved-ref].
+(A *bare* `station` endpoint carries no such requirement -- it is
+order-independent, since the route itself is what creates the
+station.)
 
 ### Static declarations
 

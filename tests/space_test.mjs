@@ -509,6 +509,65 @@ space_test(
   }
 )
 
+// §3 A splitter station fans one ship out through several named ports, each
+// created by its own route [spacesyn-named-port-route]. The station block
+// sends to @left/@right; the routes create those ports and run each arm
+// independently. This is the canonical "little splitter station".
+space_test(
+  'splitter station fans out via two named ports [spacesyn-named-port-route]',
+  `outer
+    @init from-js
+    @out  collect
+    splitter
+      {__ | >@left | >@right}
+    @init -> splitter
+    splitter@left  -> {__ | add 1}  -> @out
+    splitter@right -> {__ | add 10} -> @out`,
+  [{port: 'init', value: 5}],
+  2,
+  function(collected) {
+    var arms = (collected.out || []).slice().sort(function(a, b) { return a - b })
+    assert_eq('both named-port arms deliver (5+1, 5+10)', arms, [6, 15])
+  }
+)
+
+// §3 The same, extended to three named ports with distinct transforms —
+// each named port is independent and only exists because its route names it
+// [spacesyn-named-port-route].
+space_test(
+  'splitter fans to three named ports independently [spacesyn-named-port-route]',
+  `outer
+    @init from-js
+    @out  collect
+    fork
+      {__ | >@a | >@b | >@c}
+    @init -> fork
+    fork@a -> {__ | add 1}    -> @out
+    fork@b -> {__ | add 100}  -> @out
+    fork@c -> {__ | add 1000} -> @out`,
+  [{port: 'init', value: 10}],
+  3,
+  function(collected) {
+    var arms = (collected.out || []).slice().sort(function(a, b) { return a - b })
+    assert_eq('three arms deliver (11, 110, 1010)', arms, [11, 110, 1010])
+  }
+)
+
+// §3 A station@port endpoint must resolve to an already-declared station.
+// Naming a station's port BEFORE the station is declared borks — the forward
+// reference cannot resolve [spacesyn-unresolved-ref] [spacesyn-named-port-route].
+// (A bare `station` reference is order-independent; only the named-port form
+// requires the declaration to come first — hence this test exists to pin
+// exactly why the forward reference is rejected.)
+parse_test('station@port before the station declaration borks [spacesyn-unresolved-ref]',
+  `outer
+    @init from-js
+    @out  collect
+    splitter@left -> @out
+    splitter
+      {__ | >@left}
+    @init -> splitter`, true)
+
 // Nested subspace block: an indented named block whose body is space
 // structure compiles to a child subspace registered in the parent, not a
 // station. Compile-shape check follows the [spacesyn-subspace-before-ref]
