@@ -11,8 +11,11 @@ node tests/run_all.mjs                       # run all 9 test suites
 node bin/repl.mjs                            # interactive REPL  (alias: depl)
 node bin/repl.mjs -e "{...}"                 # evaluate expression  (alias: daml)
 node bin/repl.mjs -f file.dm                 # run a .dm file
-node bin/fuzzer.mjs                          # fuzz 1000 expressions, random seed
+node bin/fuzzer.mjs                          # fuzz 1000 DAML expressions, random seed
 node bin/fuzzer.mjs 5000 myseed 200 100      # count seed concurrency timeout_ms
+node bin/astroglot_fuzzer.mjs                # fuzz 1000 space defs through make_some_space
+node bin/astroglot_fuzzer.mjs 100000 myseed  # count seed  (compile is sync — no concurrency)
+node bin/astroglot_fuzzer.mjs --selftest     # oracle check on known valid/bork corpora
 bin/highlight-conn.mjs <layout> <render> <id> # visualize a connection path
 ```
 
