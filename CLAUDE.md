@@ -19,6 +19,16 @@ node bin/astroglot_fuzzer.mjs --selftest     # oracle check on known valid/bork 
 bin/highlight-conn.mjs <layout> <render> <id> # visualize a connection path
 ```
 
+## Fuzzer — future work
+
+Ideas to extend `bin/astroglot_fuzzer.mjs` (compile fuzzer over `make_some_space`):
+- DAML **port-flavour arguments** — fuzz the args stations/ports pass to flavours
+  (e.g. `dom-*` selectors, `from-js`/`xhr-send` params), not just the flavour name.
+- **socket-load-smash lifecycles** — exercise `!name` socket load/smash/drain
+  transitions, not just the static socket declaration.
+- **`>@port` named-port creation** inside station DAML bodies — stations that mint
+  output ports, and wiring to those ports.
+
 ## Local server
 
 HTML files are always available at `http://localhost:8080/new/daimio2/` — no need to
