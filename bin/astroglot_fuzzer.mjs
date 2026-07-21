@@ -68,6 +68,19 @@ var STATION_NAMES = ['proc', 'handler', 'worker', 'node', 'saver', 's', 'h', 'a'
 var PORT_NAMES    = ['req', 'svc', 'feed', 'news', 'load', 'touched', 'x', 'y', 'fwd', 'a', 'b']
 var SUB_NAMES     = ['inner', 'sub', 'alpha', 'beta', 'relay', 'mid', 'child', 'worker']
 var SPACE_NAMES   = ['outer', 'top', 'app', 'root', 'main', 'sys']
+var CMD_GLOBS     = ['time:now', 'time:*', 'var:read-out', 'var:*', '*', 'process:run']
+var INDENT_UNITS  = ['  ', '  ', '  ', '    ', '\t', ' ', ' \t']   // per-tree indent style
+
+// Mostly clean identifiers; occasionally hostile ones that stress the parser
+// and the content-addressed seed hasher.
+function gen_ident(base_list) {
+  if (chance(0.90)) return pick(base_list)
+  return pick([
+    'z'.repeat(rand_int(40, 130)),                 // very long
+    '9lead', '1', '-dash', 'has.dot', 'UPPER',
+    'ünder', '__proto__', 'constructor', 'to\tab',
+  ])
+}
 
 // --- DAML for station bodies (no '->', which the parser reads as a wire) ---
 
@@ -81,6 +94,13 @@ function gen_daml() {
     // hostile — station-body DAML compile paths
     '{', '{|}', '{begin x}{end x}', '{__ | __}', '{no-such-cmd here}',
   ])
+}
+
+// Comment (/) and blank lines — the parser skips both; transparent structural
+// noise that stresses the offset/continuation logic without changing outcomes.
+function maybe_noise(out, pad) {
+  if (chance(0.10)) out.push(pad + '/ ' + pick(['note', 'todo', 'xxx', 'a comment', '']))
+  if (chance(0.06)) out.push(chance(0.5) ? '' : '   ')
 }
 
 // --- Line generators ---
@@ -102,11 +122,12 @@ function gen_port_line(pad, out_ports) {
   return pad + key + flav
 }
 
-function gen_state(all_names) {
+function gen_state(ctx) {
   var name = pick(['count', 'items', 'data', 'result', 'x', 'src', 'flag'])
+  var refs = ctx.defs.length ? ctx.defs : ['no_such_def_xyz']
   var val  = pick(['0', '42', '[]', '""', 'true', 'false', 'null', '{"a":1}',
                    '(:a :b)', '-1', '3.14',
-                   pick(all_names),        // definition reference (valid state-ref)
+                   pick(refs),             // definition reference [state-ref]
                    'no_such_def_xyz'])     // unresolved reference (borks)
   return '$' + name + ' ' + val
 }
@@ -126,6 +147,32 @@ function gen_json() {
   ])
 }
 
+// A multiline station: a bare name, then more-indented DAML continuation lines
+// (appended into the station's value). No @/$/-> in the body — those would make
+// it a port/state/wire instead.
+function gen_multiline_station(bpad, unit, stations) {
+  var sn = gen_ident(STATION_NAMES)
+  var lines = [bpad + sn]
+  var n = rand_int(1, 2)
+  for (var i = 0; i < n; i++) lines.push(bpad + unit + pick([
+    '{__ | add 1}', 'plain text', '{:hello}', '{count}', '{__ | >$x}']))
+  stations.push(sn)
+  return lines
+}
+
+// A cmd wiring rule: holder@cmd:glob <-> target [timeout]. Compiles to a stored
+// rule; an unknown holder/target or a duplicate pattern borks [demandport-wire].
+function gen_wiring_rule(ctx, stations) {
+  var holder = (chance(0.75) && stations.length) ? pick(stations)
+             : pick(['ghost', 'nobody'])                      // unknown holder → bork
+  var target = (chance(0.6) && stations.length) ? pick(stations)
+             : chance(0.5) ? '@out'
+             : pick(['nowhere', 'ghost'])                     // unknown target → bork
+  var line = holder + '@cmd:' + pick(CMD_GLOBS) + ' <-> ' + target
+  if (chance(0.4)) line += ' ' + pick([500, 1000, 10])
+  return line
+}
+
 // Resolvable endpoints — routes built from these tend to compile.
 function safe_endpoints(stations, ports, subs) {
   var pool = ['@in', '@out']
@@ -138,7 +185,7 @@ function safe_endpoints(stations, ports, subs) {
 
 // Wild endpoints add the shapes that mostly bork: round-trip ports on a plain
 // wire, foreign/unresolved refs, cmd targets, subspace round-trip ports.
-function wild_endpoints(stations, ports, subs) {
+function wild_endpoints(stations, ports, subs, ctx) {
   var pool = safe_endpoints(stations, ports, subs)
   ports.forEach(function(p) { pool.push(p) })
   if (chance(0.6)) pool.push(pick(['ghost', 'nowhere', 'undeclared_x'])
@@ -146,12 +193,16 @@ function wild_endpoints(stations, ports, subs) {
   if (chance(0.3)) pool.push((stations.length ? pick(stations) : 'h')
                              + '@cmd:' + pick(['time:now', 'var:read-out']))
   subs.forEach(function(s) { if (chance(0.4)) pool.push(s + '@' + pick(['down:x', 'up:x'])) })
+  // scope-chain reference: wire to another definition by name — a visible
+  // sibling/uncle/outer (valid) or an out-of-scope one (borks) [spacesyn-scope-chain]
+  if (ctx.defs.length && chance(0.4))
+    pool.push(pick(ctx.defs) + '@' + pick(['in', 'out', 'down:x']))
   return pool
 }
 
-function gen_route(stations, ports, subs) {
+function gen_route(stations, ports, subs, ctx) {
   var pool = chance(0.6) ? safe_endpoints(stations, ports, subs)
-                         : wild_endpoints(stations, ports, subs)
+                         : wild_endpoints(stations, ports, subs, ctx)
   var hops = rand_int(2, 4)
   var eps  = []
   for (var i = 0; i < hops; i++) eps.push(pick(pool))
@@ -181,11 +232,15 @@ function gen_contract(stations) {
 
 // Emit one space definition (recursively, for nested subspaces) into `out`.
 // kind: 'normal' | 'blackhole' | 'socket'. Top-level spaces are always normal.
-function gen_space(out, name, indent, depth, kind, all_names) {
-  var pad   = ' '.repeat(indent)
-  var bpad  = ' '.repeat(indent + 2)
-  var sigil = indent === 0 ? '' : (kind === 'blackhole' ? '*' : kind === 'socket' ? '!' : '+')
+// ctx carries the per-tree indent unit and the running list of visible
+// definition names (for scope-chain references).
+function gen_space(out, name, level, depth, kind, ctx) {
+  var unit  = ctx.unit
+  var pad   = unit.repeat(level)
+  var bpad  = unit.repeat(level + 1)
+  var sigil = level === 0 ? '' : (kind === 'blackhole' ? '*' : kind === 'socket' ? '!' : '+')
   out.push(pad + sigil + name)
+  ctx.defs.push(name)
 
   var stations = [], ports = [], subs = []
 
@@ -202,46 +257,58 @@ function gen_space(out, name, indent, depth, kind, all_names) {
       'worker {__}', '@down:x websock-out', '@in:bad websock-in', '$count 0']))
     if (chance(0.30)) out.push(bpad + pick([         // hole metadata
       '{"binding":"news"}', '{"binding":"x","v":2}', '{not json}']))
-    return { name: name, kind: kind }
+    return
   }
 
   // normal / socket / root: two phases — declarations, then wiring.
-  // (Mirrors the fixtures and yields many valid compiles; ordering violations
-  // still occur via foreign refs and later-sibling references, and those bork.)
+  // (Mirrors the fixtures and yields many valid compiles; ordering and scope
+  // violations still occur via foreign / out-of-scope references, which bork.)
   var n_decl = rand_int(1, 6)
   for (var d = 0; d < n_decl; d++) {
+    maybe_noise(out, bpad)
     var r = rng()
-    if (r < 0.35) {
+    if (r < 0.32) {
       out.push(gen_port_line(bpad, ports))
-    } else if (r < 0.62) {
-      var sn = pick(STATION_NAMES)
+    } else if (r < 0.50) {
+      var sn = gen_ident(STATION_NAMES)
       out.push(bpad + sn + ' ' + gen_daml())
       stations.push(sn)
-    } else if (r < 0.72) {
-      out.push(bpad + gen_state(all_names))
-    } else if (r < 0.80) {
+    } else if (r < 0.58) {
+      gen_multiline_station(bpad, unit, stations).forEach(function(l) { out.push(l) })
+    } else if (r < 0.68) {
+      out.push(bpad + gen_state(ctx))
+    } else if (r < 0.77) {
       out.push(bpad + gen_json())
-    } else if (depth < 2) {
-      var subkind  = pick(['normal', 'normal', 'blackhole', 'socket'])
-      var subname  = pick(SUB_NAMES)
-      gen_space(out, subname, indent + 2, depth + 1, subkind, all_names)
-      subs.push(subname)
+    } else if (depth < 3) {
+      var subkind = pick(['normal', 'normal', 'blackhole', 'socket'])
+      gen_space(out, gen_ident(SUB_NAMES), level + 1, depth + 1, subkind, ctx)
+      subs.push(ctx.defs[ctx.defs.length - 1])         // the name just pushed
     } else {
-      out.push(bpad + gen_state(all_names))
+      out.push(bpad + gen_state(ctx))
     }
   }
+
+  // duplicate declarations (station/station, port/port) — collision paths
+  if (chance(0.06) && stations.length) out.push(bpad + pick(stations) + ' ' + gen_daml())
+  if (chance(0.06) && ports.length)    out.push(bpad + pick(ports))
 
   // rare malformed injections that bork the whole space (exercise those paths)
   if (chance(0.05)) out.push(bpad + '@cmd:time:now websock-in')       // declared cmd port
   if (chance(0.05)) out.push(bpad + '*' + pick(SUB_NAMES) + '@in')    // sigil at endpoint
 
+  // wiring phase: routes, contracts, cmd wiring rules
   var n_wire = rand_int(1, 4)
   for (var w = 0; w < n_wire; w++) {
-    if (chance(0.8)) out.push(bpad + gen_route(stations, ports, subs))
-    else             out.push(bpad + gen_contract(stations))
+    maybe_noise(out, bpad)
+    var wr = rng()
+    if (wr < 0.70)      out.push(bpad + gen_route(stations, ports, subs, ctx))
+    else if (wr < 0.88) out.push(bpad + gen_contract(stations))
+    else                out.push(bpad + gen_wiring_rule(ctx, stations))
   }
-
-  return { name: name, kind: kind }
+  if (chance(0.05)) {                                 // duplicate wiring rule → bork
+    var rule = bpad + gen_wiring_rule(ctx, stations)
+    out.push(rule); out.push(rule)
+  }
 }
 
 function gen_garbage() {
@@ -264,12 +331,16 @@ function gen_source() {
     var nm = pick(SPACE_NAMES) + (names.length ? names.length : '')
     if (names.indexOf(nm) === -1) names.push(nm)
   }
-  // A leading col-0 sigil is a bork (root cannot be nested/hole/socket).
+  // ctx.defs accumulates every declared name (for scope-chain refs); the indent
+  // unit varies per top-level space. A leading col-0 sigil borks (root cannot
+  // be nested/hole/socket).
+  var ctx = { defs: [], unit: pick(INDENT_UNITS) }
   var out = []
   for (var i = 0; i < n_spaces; i++) {
+    ctx.unit = pick(INDENT_UNITS)
     var kind = 'normal'
     if (i === 0 && chance(0.04)) kind = pick(['blackhole', 'socket', 'normal'])
-    gen_space(out, names[i], 0, 0, kind, names)
+    gen_space(out, names[i], 0, 0, kind, ctx)
   }
   return out.join('\n')
 }
@@ -287,6 +358,11 @@ var KNOWN_VALID = [
   'cyc\n  @in\n  @out\n  counter {count}\n  sleeper {sleep}\n  @in -> counter\n  counter -> sleeper\n  sleeper -> counter\n  counter -> @out',
   'outer\n  {"blocked_methods": {"process": ["unquote"]}}\n  @init from-js\n  @init -> @out',
   '*relay\n  {"binding": "news"}\n  @in:feed websock-out\n  @out:news websock-in\nouter\n  @init from-js\n  @init -> relay@in:feed',
+  'outer\n  @init from-js\n  caller {var read-out name :x}\n  handler {:hello}\n  caller@cmd:var:read-out <-> handler 500\n  @init -> caller',   // cmd wiring rule
+  'outer\n  @out collect\n  s\n    {__ | add 1}\n  @in -> s -> @out',                     // multiline station
+  'a\n\t@in\n\t@out\n\t@in -> @out',                                                        // tab-indented
+  'outer\n  / a comment\n\n  @in\n  @out\n  @in -> @out',                                   // comments + blank lines
+  'alpha\n  @in\n  @out\n  a {:a}\n  @in -> a\n  a -> @out\nouter\n  @in\n  @out\n  @in -> alpha@in\n  alpha@out -> @out',  // sibling scope ref
 ]
 
 var KNOWN_BORK = [
@@ -305,6 +381,9 @@ var KNOWN_BORK = [
   'outer\n  {broken json\n  @init from-js\n  @init -> @out',                      // invalid JSON dialect
   'outer\n  {"blocked_methods": {}}\n  {"blocked_aliases": {}}\n  @init from-js\n  @init -> @out',   // second JSON object
   'a\n  +b',                                                                      // empty-body nested subspace (was a crash)
+  'outer\n  h {:x}\n  h@cmd:time:now <-> h\n  h@cmd:time:now <-> h',              // duplicate wiring rule
+  'outer\n  @out collect\n  ghost@cmd:time:now <-> @out',                         // unknown wiring rule holder
+  'outer\n  h {:x}\n  h@cmd:time:now <-> nowhere',                                // unknown wiring rule target
 ]
 
 // --- Oracle ---
