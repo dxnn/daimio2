@@ -2949,6 +2949,31 @@ parse_test('a bare nested block with space structure borks [spacesyn-sigil-requi
   }
 })()
 
+// JS-magic keys (__proto__/constructor/prototype) used as identifiers corrupt
+// the plain objects the parser uses as name→node maps — __proto__ as a station
+// name rewrote the station map's prototype and crashed the DAML parser. They
+// must bork like any other invalid identifier. [spacesyn-reserved-name]
+;(function() {
+  var cases = [
+    'outer\n  __proto__ {:x}\n  @in -> __proto__',        // station name (was a crash)
+    'outer\n  constructor {:x}\n  @in -> constructor',    // station name
+    'outer\n  @__proto__\n  @in -> @out',                // port name
+    'outer\n  $__proto__ 0\n  @in -> @out',              // state name
+    '__proto__\n  @in\n  @out\n  @in -> @out',           // space name
+  ]
+  cases.forEach(function(src) {
+    var e = null
+    try { D.make_some_space(src) } catch(err) { e = err }
+    if(e && e.is_bork) pass++
+    else {
+      fail++
+      failures.push({ label: 'reserved name as identifier borks [spacesyn-reserved-name]',
+        expected: 'is_bork throw for ' + JSON.stringify(src),
+        actual: e ? ('threw non-bork: ' + e.message) : 'no throw' })
+    }
+  })
+})()
+
 // A black hole may contain only ports — a station/state/wire inside borks.
 parse_test('black hole with a station borks [blackhole-only-ports]',
   `outer

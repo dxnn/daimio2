@@ -110,6 +110,15 @@ D.bork = function(message) {
   throw error
 }
 
+D.bork_if_reserved = function(name, role) {
+  // JS-magic keys corrupt the plain objects used as name->node maps: assigning
+  // `__proto__` rewrites the map's prototype (crashing downstream), and
+  // `constructor`/`prototype` shadow inherited members. Reject them as
+  // identifiers, like other malformed names [spacesyn-reserved-name].
+  if(name === '__proto__' || name === 'constructor' || name === 'prototype')
+    D.bork('Reserved name cannot be used as a ' + role + ': ' + name)
+}
+
 D.on_error = function(command, error) {
   // Route to the space's error port if available; silent no-op otherwise.
   // The runtime matches by NAME — 'out:err' (spec §4 [err-match-by-name]),
@@ -3962,6 +3971,8 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
   // last property no longer needs a trailing line to land)
   var flush_action = function() {
     if(!action) return
+    if(action == 'port' || action == 'state' || action == 'station')
+      D.bork_if_reserved(action_name, action + ' name')   // before any map assignment
     var value
 
       continuation = continuation.replace(/^\s+|\s+$/g, '')
@@ -4129,6 +4140,7 @@ D.seedlikes_from_string = function(stringlike, templates, scope_chain) {
 
       var top_blackhole = line[0] == '*'            // [spacesyn-blackhole]
       seed_name = top_blackhole ? line.slice(1) : line
+      D.bork_if_reserved(seed_name, 'space name')    // before seedlikes[seed_name] commit
       this_seed = {ports:{}, state:{}, routes:[], dialect:{}, stations:{}, subspaces:{}, rules:[]}
       if(top_blackhole) this_seed.blackhole = true
 
